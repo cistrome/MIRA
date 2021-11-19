@@ -1,0 +1,21 @@
+name: mira
+channels:
+  - conda-forge
+  - bioconda
+  - liulab-dfci
+  - pytorch
+dependencies:
+  - python>=3.5,<3.8
+  - pytorch>=1.8.0,<2
+  - tqdm
+  - moods>=1.9.4.1
+  - pyfaidx>=0.5,<1
+  - matplotlib>=3.4,<4
+  - lisa2>=2.2.5,<2.3
+  - requests>=2,<3
+  - pyro-ppl>=1.5.2,<2
+  - networkx>=2.3,<3
+  - numpy>=1.19.0,<2
+  - scipy>=1.5,<2
+  - optuna>=2.8,<3
+  - anndata>=0.7.6,<1
