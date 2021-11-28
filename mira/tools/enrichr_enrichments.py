@@ -55,9 +55,9 @@ def fetch_ontologies(list_id, ontologies = LEGACY_ONTOLOGIES):
 
 def plot_enrichments(enrichment_results, show_genes = True, show_top = 10, barcolor = 'lightgrey', label_genes = [],
         text_color = 'black', return_fig = False, enrichments_per_row = 2, height = 4, aspect = 2.5, max_genes = 15,
-        color_by_adj = True, palette = 'Reds', gene_fontsize = 10):
+        pval_threshold = 1e-5, color_by_adj = True, palette = 'Reds', gene_fontsize = 10):
 
-    func = partial(plot_enrichment, text_color = text_color, label_genes = label_genes,
+    func = partial(plot_enrichment, text_color = text_color, label_genes = label_genes, pval_threshold = pval_threshold,
             show_top = show_top, barcolor = barcolor, show_genes = show_genes, max_genes = max_genes,
             color_by_adj = color_by_adj, palette = palette, gene_fontsize=gene_fontsize)
 

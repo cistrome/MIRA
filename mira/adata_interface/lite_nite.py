@@ -1,92 +1,93 @@
+import numpy as np
+from mira.adata_interface.core import fetch_layer, get_dense_columns, project_matrix
+import logging
 
-
+logger = logging.getLogger(__name__)
 
 def fetch_logp_data(self, adata, counts_layer = None):
 
     try:
-        cis_logp = adata.layers['cis_logp']
+        lite_gene_mask = get_dense_columns(self, adata, 'LITE_logp')
+        lite_logp = fetch_layer(self, adata, 'LITE_logp')
     except KeyError:
-        raise KeyError('User must run "get_logp" using a trained cis_model object before running this function')
+        raise KeyError('User must run "get_logp" using a trained lite_model object before running this function')
 
     try:
-        trans_logp = adata.layers['trans_logp']
+        nite_gene_mask = get_dense_columns(self, adata, 'NITE_logp')
+        nite_logp = fetch_layer(self, adata, 'NITE_logp')
     except KeyError:
-        raise KeyError('User must run "get_logp" using a trained global_model (set use_trans_features = True on cis_model object) before running this function')
+        raise KeyError('User must run "get_logp" using a trained nite_model before running this function')
 
-    overlapped_genes = np.logical_and(np.isfinite(cis_logp).all(0), np.isfinite(trans_logp).all(0))
-    expression = fetch_layer(adata, counts_layer)
-
+    overlapped_genes = np.logical_and(lite_gene_mask, nite_gene_mask)
+    expression = fetch_layer(self, adata, counts_layer)
+    
     return dict(
-        cis_logp = cis_logp[:, overlapped_genes],
-        trans_logp = trans_logp[:, overlapped_genes],
-        gene_expr = expression[:, overlapped_genes],
+        lite_logp = lite_logp[:, overlapped_genes].toarray(),
+        nite_logp = nite_logp[:, overlapped_genes].toarray(),
+        gene_expr = expression[:, overlapped_genes].toarray(),
         genes = adata.var_names[overlapped_genes].values,
     )
-
-
-def project_row(adata_index, project_features, vals, width):
-
-    orig_feature_idx = dict(zip(adata_index, np.arange(width)))
-
-    original_to_imputed_map = np.array(
-        [orig_feature_idx[feature] for feature in project_features]
-    )
-
-    new_row = np.full(width, np.nan)
-    new_row[original_to_imputed_map] = vals
-    return new_row
     
 
-def add_global_test_statistic(self, adata, output):
+def add_NITE_score_gene(adata, output):
 
-    genes, test_stat, pval, nonzero_counts = output
+    genes, nite_score, nonzero_counts = output
     
-    adata.var['global_regulation_test_statistic'] = \
-        project_row(adata.var_names.values, genes, test_stat, adata.shape[-1])
-
-    adata.var['global_regulation_pval'] = \
-        project_row(adata.var_names.values, genes, pval, adata.shape[-1])
+    adata.var['NITE_score'] = \
+        project_matrix(adata.var_names.values, genes, nite_score[np.newaxis,:]).reshape(-1)
 
     adata.var['nonzero_counts'] = \
-        project_row(adata.var_names.values, genes, nonzero_counts, adata.shape[-1])
+        project_matrix(adata.var_names.values, genes, nonzero_counts[np.newaxis,:]).reshape(-1)
 
-    logger.info('Added keys to var: global_regulation_test_statistic, global_regulation_pval, nonzero_counts')
+    logger.info('Added keys to var: NITE_score, nonzero_counts')
 
 
-def fetch_global_test_statistic(self, adata):
+def add_NITE_score_cell(adata, output):
+
+    nite_score, nonzero_counts = output
+    
+    adata.obs['NITE_score'] = nite_score
+    adata.obs['nonzero_counts'] = nonzero_counts
+
+    logger.info('Added keys to obs: NITE_score, nonzero_counts')
+
+
+def fetch_NITE_score_gene(self, adata):
 
     try:
-        test_stat = adata.var['global_regulation_test_statistic']
+        nite_score = adata.var_vector('NITE_score')
     except KeyError:
         raise KeyError(
             'User must run "global_local_test" function to calculate test_statistic before running this function'
         )
 
     genes = adata.var_names
-    mask = np.isfinite(test_stat)
+    mask = np.isfinite(nite_score)
 
     return dict(
         genes = genes[mask],
-        test_statistic = test_stat[mask],
+        nite_score = nite_score[mask],
     )
 
-def fetch_cis_trans_prediction(self, adata):
+
+def fetch_lite_nite_prediction(self, adata):
 
     try:
-        cis = adata.layers['cis_prediction']
+        lite_gene_mask = get_dense_columns(self, adata, 'LITE_prediction')
+        lite_prediction = fetch_layer(self, adata, 'LITE_prediction')
     except KeyError:
-        raise KeyError('User must run "predict" with a cis_model object before running this function.')
+        raise KeyError('User must run "get_logp" using a trained lite_model object before running this function')
 
     try:
-        trans = adata.layers['trans_prediction']
+        nite_gene_mask = get_dense_columns(self, adata, 'NITE_prediction')
+        nite_prediction = fetch_layer(self, adata, 'NITE_prediction')
     except KeyError:
-        raise KeyError('User must run "predict" with a cis_model object with "use_trans_features" set to true before running this function.')
+        raise KeyError('User must run "get_logp" using a trained nite_model before running this function')
+
+    overlapped_genes = np.logical_and(lite_gene_mask, nite_gene_mask)
 
     return dict(
-        cis_prediction = cis,
-        trans_prediction = trans,
+        nite_prediction = nite_prediction[:, overlapped_genes].toarray(),
+        lite_prediction = lite_prediction[:, overlapped_genes].toarray(),
+        genes = adata.var_names[overlapped_genes]
     )
-
-def add_chromatin_differential(self, adata, output):
-    adata.layers['chromatin_differential'] = output
-    logger.info('Added key to layers: chromatin_differential')

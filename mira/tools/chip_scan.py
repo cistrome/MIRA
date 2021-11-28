@@ -6,7 +6,7 @@ import mira.adata_interface.regulators as ri
 from functools import partial
 import numpy as np
 
-@adi.wraps_functional(ri.get_peaks, partial(ri.add_factor_hits_data, factor_type = 'chip'), ['peaks'])
+@adi.wraps_functional(ri.fetch_peaks, partial(ri.add_factor_hits_data, factor_type = 'chip'), ['peaks'])
 def get_ChIP_hits_in_peaks(species = 'mm10', *,peaks):
 
     peaks = validate_peaks(peaks)

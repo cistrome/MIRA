@@ -7,14 +7,14 @@ from mira.adata_interface.core import fetch_layer, add_obs_col
 
 logger = logging.getLogger(__name__)
 
-def add_test_column(self, adata, output):
-    logger.info('Added col: ' + str(self.test_column))
-    add_obs_col(
-        self, adata, output,
-        colname = self.test_column
-    )
+def add_test_column(adata, output):
+    test_column, test_cell_mask = output
 
-def split_train_test(self, adata):
+    logger.info('Added col: ' + str(test_column))
+    add_obs_col(adata, test_cell_mask, colname = test_column)
+
+
+def fetch_split_train_test(self, adata):
     assert(adata.obs_vector(self.test_column).dtype == bool), 'Test set column must be boolean vector'
     assert(adata.obs_vector(self.test_column).any()), 'No cells are in the test set.'
 
@@ -64,7 +64,7 @@ def fetch_topic_comps(self, adata, key = 'X_topic_compositions'):
     return dict(topic_compositions = adata.obsm[key])
 
 
-def add_topic_comps(self, adata, output, add_key = 'X_topic_compositions', add_cols = True, col_prefix = 'topic_'):
+def add_topic_comps(adata, output, add_key = 'X_topic_compositions', add_cols = True, col_prefix = 'topic_'):
 
     logger.info('Added key to obsm: ' + add_key)
     adata.obsm[add_key] = output
@@ -76,6 +76,6 @@ def add_topic_comps(self, adata, output, add_key = 'X_topic_compositions', add_c
         adata.obs[cols] = output
 
 
-def add_umap_features(self, adata, output, add_key = 'X_umap_features'):
+def add_umap_features(adata, output, add_key = 'X_umap_features'):
     logger.info('Added key to obsm: ' + add_key)
     adata.obsm[add_key] = output

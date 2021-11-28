@@ -64,8 +64,9 @@ class DANEncoder(nn.Module):
         else:
             corrupted_idx = idx
 
+        read_depth = (corrupted_idx > 0).sum(-1, keepdim=True)
+
         embeddings = self.embedding(corrupted_idx) # N, T, D
-        
         ave_embeddings = embeddings.sum(1)/read_depth
 
         X = torch.cat([ave_embeddings, read_depth.log()], dim = 1) #inject read depth into model
@@ -220,7 +221,7 @@ class AccessibilityTopicModel(BaseModel):
         hits_matrix.data = np.ones_like(hits_matrix.data)
         return hits_matrix
     
-    @adi.wraps_modelfunc(ri.get_factor_hits, adi.return_output,
+    @adi.wraps_modelfunc(ri.fetch_factor_hits, adi.return_output,
         ['hits_matrix','metadata'])
     def get_enriched_TFs(self, factor_type = 'motifs', top_quantile = 0.2, *, 
             module_num, hits_matrix, metadata):
@@ -254,7 +255,7 @@ class AccessibilityTopicModel(BaseModel):
         return results
 
 
-    @adi.wraps_modelfunc(ri.get_factor_hits_and_latent_comps, ri.get_motif_score_adata,
+    @adi.wraps_modelfunc(ri.fetch_factor_hits_and_latent_comps, ri.make_motif_score_adata,
         ['metadata','hits_matrix','topic_compositions'])
     def get_motif_scores(self, batch_size=512,*, metadata, hits_matrix, topic_compositions):
 

@@ -37,7 +37,8 @@ def map_plot(func, data, plots_per_row = 3, height =4, aspect = 1.5, vertical = 
 
 
 def map_colors(ax, c, palette, add_legend = True, hue_order = None, na_color = 'lightgrey',
-        legend_kwargs = {}, cbar_kwargs = {}, vmin = None, vmax = None, log = False):
+        legend_kwargs = {}, cbar_kwargs = {}, vmin = None, vmax = None, log = False,
+        normalizer = Normalize):
 
     assert(isinstance(c, (np.ndarray, list)))
     
@@ -52,7 +53,7 @@ def map_colors(ax, c, palette, add_legend = True, hue_order = None, na_color = '
         
         na_mask = np.isnan(c)
 
-        colormapper=cm.ScalarMappable(Normalize(
+        colormapper=cm.ScalarMappable(normalizer(
             np.nanmin(c) if vmin is None else vmin,
             np.nanmax(c) if vmax is None else vmax), 
             cmap=palette)

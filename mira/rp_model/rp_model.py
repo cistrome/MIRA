@@ -1,11 +1,9 @@
-
-
 from functools import partial
 import torch
 import pyro
 import pyro.distributions as dist
 from pyro.infer.autoguide import AutoDelta
-from pyro.infer import SVI, TraceMeanField_ELBO, Predictive
+from pyro.infer import SVI, Trace_ELBO, Predictive
 from pyro.infer.autoguide.initialization import init_to_mean, init_to_value
 from pyro import poutine
 import numpy as np
@@ -202,19 +200,22 @@ class BaseModel:
         return model.score(features)
 
     @wraps_rp_func(lambda self, expr_adata, atac_data, output, **kwargs: \
-        add_layer(self, expr_adata, np.hstack(output), add_layer = self.model_type + '_prediction'), bar_desc = 'Predicting expression')
+        add_layer(expr_adata, (self.features, np.hstack(output)), add_layer = self.model_type + '_prediction', sparse = True),
+        bar_desc = 'Predicting expression')
     def predict(self, model, features):
         return model.predict(features)
 
     @wraps_rp_func(lambda self, expr_adata, atac_data, output, **kwargs: \
-        add_layer(self, expr_adata, np.hstack(output), add_layer = self.model_type + '_logp'), bar_desc = 'Getting logp(Data)')
+        add_layer(expr_adata, (self.features, np.hstack(output)), add_layer = self.model_type + '_logp', sparse = True),
+        bar_desc = 'Getting logp(Data)')
     def get_logp(self, model, features):
         return model.get_logp(features)
 
-    @wraps_rp_func(lambda self, expr_adata, atac_data, output, **kwargs: \
-        add_layer(self, expr_adata, np.hstack(output), add_layer = self.model_type + '_samples'))
+    '''@wraps_rp_func(lambda self, expr_adata, atac_data, output, **kwargs: \
+        add_layer(expr_adata, (self.features, np.hstack(output)), add_layer = self.model_type + '_samples', sparse = True)
+    )
     def _sample_posterior(self, model, features, site = 'prediction'):
-        return model.to_numpy(model.get_posterior_sample(features, site))[:, np.newaxis]
+        return model.to_numpy(model.get_posterior_sample(features, site))[:, np.newaxis]'''
 
     @wraps_rp_func(lambda self, expr_adata, atac_adata, output, **kwargs : output, bar_desc = 'Formatting features')
     def get_features(self, model, features):
@@ -350,7 +351,7 @@ class GeneModel:
 
     @staticmethod
     def get_loss_fn():
-        return TraceMeanField_ELBO().differentiable_loss
+        return Trace_ELBO().differentiable_loss
 
     def get_optimizer(self, params):
         #return torch.optim.LBFGS(params, lr=self.learning_rate, line_search_fn = 'strong_wolfe')

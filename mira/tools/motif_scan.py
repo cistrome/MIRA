@@ -14,7 +14,7 @@ from glob import glob
 import tqdm
 import re
 from mira.adata_interface.core import wraps_functional
-from mira.adata_interface.regulators import get_peaks, add_factor_hits_data
+from mira.adata_interface.regulators import fetch_peaks, add_factor_hits_data
 from functools import partial
 
 logger = logging.getLogger(__name__)
@@ -183,7 +183,7 @@ def _parse_motif_name(motif_name):
     return [x.upper() for x in re.split('[/::()-]', motif_name)][0]
 
 
-@wraps_functional(get_peaks, partial(add_factor_hits_data, factor_type = 'motifs'), ['peaks'])
+@wraps_functional(fetch_peaks, partial(add_factor_hits_data, factor_type = 'motifs'), ['peaks'])
 def get_motif_hits_in_peaks(peaks, pvalue_threshold = 0.0001,*, genome_fasta):
 
     peaks = validate_peaks(peaks)

@@ -45,7 +45,7 @@ class TopicModelTuner:
         assert(isinstance(train_size, float) and train_size > 0 and train_size < 1)
         num_samples = shape[0]
         assert(num_samples > 0), 'Adata must have length > 0.'
-        return np.random.rand(num_samples) > train_size
+        return self.test_column, np.random.rand(num_samples) > train_size
 
     @staticmethod
     def trial(
@@ -76,14 +76,14 @@ class TopicModelTuner:
         cv_scores = []
 
         num_updates = num_splits * params['num_epochs']
-
+        print('Evaluating: ' + str(params))
         for step, (train_idx, test_idx) in enumerate(cv.split(data)):
 
             train_counts, test_counts = data[train_idx], data[test_idx]
             
             for epoch, loss in model._internal_fit(train_counts):
                 num_hashtags = int(10 * epoch/params['num_epochs'])
-                print('\rNext trial progress: ' + '|##########'*step + '|' + '#'*num_hashtags + ' '*(10-num_hashtags) + '|' + '          |'*(num_splits-step-1),
+                print('\rProgress: ' + '|##########'*step + '|' + '#'*num_hashtags + ' '*(10-num_hashtags) + '|' + '          |'*(num_splits-step-1),
                     end = '')
 
             cv_scores.append(
@@ -153,7 +153,7 @@ class TopicModelTuner:
 
         print('\n')
     
-    @adi.wraps_modelfunc(tmi.split_train_test, 
+    @adi.wraps_modelfunc(tmi.fetch_split_train_test, 
         fill_kwargs = ['all_data', 'train_data', 'test_data'])
     def tune(self, study = None,*, all_data, train_data, test_data):
 
@@ -223,7 +223,8 @@ class TopicModelTuner:
 
         return [trial.user_attrs['trial_params'] for trial in self.get_best_trials(top_n_models)]
 
-    @adi.wraps_modelfunc(tmi.split_train_test, adi.return_output, ['all_data', 'train_data', 'test_data'])
+
+    @adi.wraps_modelfunc(tmi.fetch_split_train_test, adi.return_output, ['all_data', 'train_data', 'test_data'])
     def select_best_model(self,top_n_models = 5, *,all_data, train_data, test_data):
 
         scores = []

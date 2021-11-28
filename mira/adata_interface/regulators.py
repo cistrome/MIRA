@@ -1,7 +1,10 @@
 import numpy as np
+import anndata
 from mira.adata_interface.topic_model import fetch_topic_comps
+import logging
+logger = logging.getLogger(__name__)
 
-def get_peaks(self, adata, chrom = 'chr', start = 'start', end = 'end'):
+def fetch_peaks(self, adata, chrom = 'chr', start = 'start', end = 'end'):
 
     try:
         return dict(peaks = adata.var[[chrom, start, end]].values.tolist())
@@ -9,7 +12,7 @@ def get_peaks(self, adata, chrom = 'chr', start = 'start', end = 'end'):
         raise Exception('Some of columns {}, {}, {} are not in .var'.format(chrom, start, end))
 
 
-def add_factor_hits_data(self, adata, output,*, factor_type):
+def add_factor_hits_data(adata, output,*, factor_type):
 
     factor_id, factor_name, parsed_name, hits = output
 
@@ -27,7 +30,7 @@ def add_factor_hits_data(self, adata, output,*, factor_type):
     #logger.info('Added key to uns: ' + ', '.join([factor_type + '_' + suffix for suffix in ['id','name','parsed_name','in_expr_data']]))
 
 
-def add_factor_mask(self, adata, mask,*,factor_type):
+def add_factor_mask(adata, mask,*,factor_type):
 
     if not factor_type in adata.uns:
         raise KeyError('No metadata for factor type {}. User must run "find_motifs" to add motif data.'.format(factor_type))
@@ -41,7 +44,7 @@ def add_factor_mask(self, adata, mask,*,factor_type):
     adata.uns[factor_type]['in_expr_data'] = mask
 
 
-def get_factor_meta(self, adata, factor_type = 'motifs', mask_factors = True):
+def fetch_factor_meta(self, adata, factor_type = 'motifs', mask_factors = True):
 
     fields = ['id','name','parsed_name']
 
@@ -67,11 +70,11 @@ def get_factor_meta(self, adata, factor_type = 'motifs', mask_factors = True):
     return metadata, mask
 
 
-def get_factor_hits(self, adata, factor_type = 'motifs', mask_factors = True, binarize = True):
+def fetch_factor_hits(self, adata, factor_type = 'motifs', mask_factors = True, binarize = True):
 
     try:
 
-        metadata, mask = get_factor_meta(None, adata, factor_type = factor_type, mask_factors = mask_factors)
+        metadata, mask = fetch_factor_meta(None, adata, factor_type = factor_type, mask_factors = mask_factors)
 
         hits_matrix = adata[:, self.features].varm[factor_type + '_hits'].T.tocsr()
         hits_matrix = hits_matrix[mask, :]
@@ -88,15 +91,15 @@ def get_factor_hits(self, adata, factor_type = 'motifs', mask_factors = True, bi
     )
 
 
-def get_factor_hits_and_latent_comps(self, adata, factor_type = 'motifs', mask_factors = True, key = 'X_topic_compositions'):
+def fetch_factor_hits_and_latent_comps(self, adata, factor_type = 'motifs', mask_factors = True, key = 'X_topic_compositions'):
 
     return dict(
-        **get_factor_hits(self, adata, factor_type = factor_type, mask_factors = mask_factors),
+        **fetch_factor_hits(self, adata, factor_type = factor_type, mask_factors = mask_factors),
         **fetch_topic_comps(self, adata, key = key)
     )
 
 
-def get_motif_score_adata(self, adata, output):
+def make_motif_score_adata(self, adata, output):
 
     metadata, scores, norm_scores = output
 

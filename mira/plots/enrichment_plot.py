@@ -17,8 +17,10 @@ def compact_string(x, max_wordlen = 4, join_spacer = ' ', sep = ' ', label_genes
     )
 
 def plot_enrichment(ax, ontology, results, 
-    label_genes = [], color_by_adj = True, palette = 'Reds', gene_fontsize=10,
+    label_genes = [], color_by_adj = True, palette = 'Reds', gene_fontsize=10, pval_threshold = 1e-5,
     show_top = 5, show_genes = True, max_genes = 20, text_color = 'black', barcolor = 'lightgrey'):
+
+    assert(isinstance(pval_threshold, float) and pval_threshold > 0 and pval_threshold < 1)
 
     terms, genes, pvals, adj_pvals = [],[],[],[]
     for result in results[:show_top]:
@@ -34,7 +36,7 @@ def plot_enrichment(ax, ontology, results,
         edgecolor = map_colors(ax, np.array(adj_pvals), palette, add_legend = True, 
             cbar_kwargs = dict(
                     location = 'right', pad = 0.1, shrink = 0.5, aspect = 15, label = '-log10 Adj P-value',
-                ), vmin = 0, vmax = 10)
+                ), vmin = 0, vmax = -np.log10(pval_threshold))
             
         ax.barh(np.arange(len(terms)), pvals, edgecolor = edgecolor, color = barcolor, linewidth = 2)
     else:

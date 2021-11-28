@@ -96,7 +96,7 @@ def get_fc_stack(layer_dims = [256, 128, 128, 128], dropout = 0.2, skip_nonlin =
 
 class BaseModel(torch.nn.Module, BaseEstimator):
 
-    I = 50
+    I = 100
 
     @classmethod
     def load_old_model(cls, filename):
@@ -148,6 +148,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             max_learning_rate = 1e-1,
             beta = 0.95,
             batch_size = 64,
+            initial_pseudocounts = 50,
             ):
         super().__init__()
 
@@ -166,6 +167,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.max_learning_rate = max_learning_rate
         self.beta = beta
         self.batch_size = batch_size
+        self.initial_pseudocounts = initial_pseudocounts
 
     def _set_seeds(self):
         if self.seed is None:
@@ -214,7 +216,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         )
 
         self.K = torch.tensor(self.num_topics, requires_grad = False)
-
+        #self.eps = torch.tensor(5.0e-3, requires_grad=False)
         self.to(self.device)
 
 
@@ -223,20 +225,24 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         
         pyro.module("decoder", self.decoder)
 
-        _alpha, _beta = self._get_gamma_parameters(self.I, self.num_topics)
+        _alpha, _beta = self._get_gamma_parameters(self.initial_pseudocounts, self.num_topics)
         with pyro.plate("topics", self.num_topics):
             initial_counts = pyro.sample("a", dist.Gamma(self._to_tensor(_alpha), self._to_tensor(_beta)))
 
         theta_loc = self._get_prior_mu(initial_counts, self.K)
         theta_scale = self._get_prior_std(initial_counts, self.K)
 
-        return theta_loc, theta_scale
+        return theta_loc.to(self.device), theta_scale.to(self.device)
 
 
     def guide(self):
 
-        _counts_mu, _counts_var = self._get_lognormal_parameters_from_moments(*self._get_gamma_moments(self.I, self.num_topics))
-        pseudocount_mu = pyro.param('pseudocount_mu', _counts_mu * torch.ones((self.num_topics,)).to(self.device))
+        assert(self.initial_pseudocounts > self.num_topics), 'Initial counts must be greater than the number of topics.'
+
+        _counts_mu, _counts_var = self._get_lognormal_parameters_from_moments(*self._get_gamma_moments(self.initial_pseudocounts, self.num_topics))
+
+        pseudocount_mu = pyro.param('pseudocount_mu', _counts_mu * torch.ones((self.num_topics,)).to(self.device))#,
+            #constraint = constraints.positive)
 
         pseudocount_std = pyro.param('pseudocount_std', np.sqrt(_counts_var) * torch.ones((self.num_topics,)).to(self.device), 
                 constraint = constraints.positive)
@@ -315,7 +321,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         total_steps = n_epochs * n_batches_per_epoch
         
-        return min(1., (step_num + 1)/(total_steps * 2/3 + 1))
+        return min(1., (step_num + 1)/(total_steps * 1/3 + 1))
 
     @property
     def highly_variable(self):
@@ -476,7 +482,9 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             )
 
         self.set_learning_rates(min_lr, max_lr)
+        logger.info('Set learning rates to: ' + str((min_lr, max_lr)))
         return min_lr, max_lr
+
 
     def plot_learning_rate_bounds(self, figsize = (10,7), ax = None):
 
@@ -514,6 +522,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             features = features, highly_variable = highly_variable, 
             endog_features = endog_features, exog_features = exog_features,
         )
+
         n_observations = endog_features.shape[0]
         n_batches = self.get_num_batches(n_observations, self.batch_size)
 
@@ -531,16 +540,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.anneal_factors = []
         try:
 
-            t = trange(self.num_epochs+1, desc = 'Epoch 0', leave = True) if training_bar else range(self.num_epochs+1)
+            t = trange(self.num_epochs, desc = 'Epoch 0', leave = True) if training_bar else range(self.num_epochs+1)
             _t = iter(t)
             epoch = 0
             while True:
                 
-                try:
-                    next(_t)
-                except StopIteration:
-                    pass
-
                 self.train()
                 running_loss = 0.0
                 for batch in self._iterate_batches(endog_features = endog_features, exog_features = exog_features, 
@@ -575,12 +579,18 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 if early_stopper(recent_losses[-1]) and epoch > self.num_epochs:
                     break
 
+                try:
+                    next(_t)
+                except StopIteration:
+                    pass
+
         except KeyboardInterrupt:
             logger.warn('Interrupted training.')
 
         self.set_device('cpu')
         self.eval()
         return self
+
 
     @adi.wraps_modelfunc(tmi.fit_adata, adi.return_output,
         fill_kwargs=['features','highly_variable','endog_features','exog_features'])
@@ -657,7 +667,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         self.eval()
         running_loss = 0
-
+        #self.eps.device(self.device)
         for batch in self._iterate_batches(endog_features = endog_features, 
                         exog_features = exog_features, 
                         batch_size = 512, bar = False):
@@ -696,7 +706,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, adi.add_layer,
         fill_kwargs=['topic_compositions'])
     def impute(self, batch_size = 512, bar = True, *, topic_compositions):
-        return np.vstack([
+        return self.features, np.vstack([
             x for x  in self._batched_impute(topic_compositions, batch_size = batch_size, bar = bar)
         ])
 

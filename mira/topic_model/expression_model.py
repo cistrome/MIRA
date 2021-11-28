@@ -88,16 +88,24 @@ class ExpressionTopicModel(BaseModel):
 
         return np.clip(np.nan_to_num(r_ij), -10, 10)
 
+    def _get_obs_weight(self):
+
+        weights = self.highly_variable.astype(int) + 1
+        weights = weights * self.num_exog_features/weights.sum()
+
+        return weights
 
     @scope(prefix= 'rna')
     def model(self,*,endog_features, exog_features, read_depth, anneal_factor = 1.):
         theta_loc, theta_scale = super().model()
         pyro.module("decoder", self.decoder)
 
-        dispersion = pyro.param('dispersion', read_depth.new_ones(self.num_exog_features) * 5., constraint = constraints.positive)
+        obs_weight = self._get_obs_weight()
+
+        dispersion = pyro.param('dispersion', read_depth.new_ones(self.num_exog_features).to(self.device) * 5., constraint = constraints.positive)
+        dispersion = dispersion.to(self.device)
 
         with pyro.plate("cells", endog_features.shape[0]):
-            
             with poutine.scale(None, anneal_factor):
                 theta = pyro.sample(
                     "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1))
@@ -107,10 +115,10 @@ class ExpressionTopicModel(BaseModel):
 
                 read_scale = pyro.sample('read_depth', dist.LogNormal(torch.log(read_depth), 1.).to_event(1))
                 
-            mu = torch.multiply(read_scale, expr_rate)
-            p = mu / (mu + dispersion)
-
-            pyro.sample('obs', dist.NegativeBinomial(total_count = dispersion, probs = p).to_event(1), obs = exog_features)
+            #mu = torch.multiply(read_scale, expr_rate)
+            logits = (read_scale * expr_rate).log() - (dispersion).log()
+            
+            X = pyro.sample('obs', dist.NegativeBinomial(total_count = dispersion, logits = logits).to_event(1), obs = exog_features)
 
 
     @scope(prefix= 'rna')
@@ -298,7 +306,7 @@ class ExpressionTopicModel(BaseModel):
 
     
     def plot_enrichments(self, topic_num, show_genes = True, show_top = 10, barcolor = 'lightgrey', label_genes = [],
-        text_color = 'black', plots_per_row = 2, height = 4, aspect = 2.5, max_genes = 15,
+        text_color = 'black', plots_per_row = 2, height = 4, aspect = 2.5, max_genes = 15, pval_threshold = 1e-5,
         color_by_adj = True, palette = 'Reds', gene_fontsize=10):
 
         '''
@@ -342,5 +350,5 @@ class ExpressionTopicModel(BaseModel):
 
         return enrichr.plot_enrichments(results, text_color = text_color, label_genes = label_genes,
             show_top = show_top, barcolor = barcolor, show_genes = show_genes, max_genes = max_genes,
-            enrichments_per_row = plots_per_row, height = height, aspect = aspect,
+            enrichments_per_row = plots_per_row, height = height, aspect = aspect, pval_threshold = pval_threshold,
             palette = palette, color_by_adj = color_by_adj, gene_fontsize = gene_fontsize)

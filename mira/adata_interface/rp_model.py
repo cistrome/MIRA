@@ -4,7 +4,7 @@ from functools import wraps
 import numpy as np
 from scipy.sparse import isspmatrix
 from mira.adata_interface.core import fetch_layer,project_matrix
-from mira.adata_interface.regulators import get_peaks, get_factor_hits
+from mira.adata_interface.regulators import fetch_peaks, fetch_factor_hits
 import tqdm
 from scipy import sparse
 logger = logging.getLogger(__name__)
@@ -15,7 +15,7 @@ def get_peak_and_tss_data(self, adata, tss_data = None, peak_chrom = 'chr', peak
     if tss_data is None:
         raise Exception('User must provide dataframe of tss data to "tss_data" parameter.')
 
-    return_dict = get_peaks(self, adata, chrom = peak_chrom, start = peak_start, end = peak_end)
+    return_dict = fetch_peaks(self, adata, chrom = peak_chrom, start = peak_start, end = peak_end)
 
     return_dict.update(
         {
@@ -30,7 +30,7 @@ def get_peak_and_tss_data(self, adata, tss_data = None, peak_chrom = 'chr', peak
     return return_dict
 
 
-def add_peak_gene_distances(self, adata, output):
+def add_peak_gene_distances(adata, output):
 
     distances, genes = output
 
@@ -95,11 +95,11 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
 
             hits_data = dict()
             if include_factor_data:
-                hits_data = get_factor_hits(self.accessibility_model, atac_adata, factor_type = factor_type,
+                hits_data = fetch_factor_hits(self.accessibility_model, atac_adata, factor_type = factor_type,
                     binarize = True)
 
             results = []
-            for model in tqdm(self.models, desc = bar_desc):
+            for model in tqdm.tqdm(self.models, desc = bar_desc):
 
                 gene_name = model.gene
                 try:
@@ -108,11 +108,7 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
                     raise IndexError('Gene {} does not appear in peak annotation'.format(gene_name))
 
                 try:
-                    gene_expr = fetch_layer(None, expr_adata[:, gene_name], self.counts_layer)
-                    if isspmatrix(gene_expr):
-                        gene_expr = gene_expr.toarray()
-                    
-                    gene_expr = np.ravel(gene_expr)
+                    gene_expr = expr_adata.obs_vector(gene_name, layer = self.counts_layer).astype(int)
                 except KeyError:
                     raise KeyError('Gene {} is not found in expression data var_names'.format(gene_name))
 
@@ -148,7 +144,7 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
     return wrap_fn
 
 
-def add_isd_results(self, expr_adata, atac_adata, output, factor_type = 'motifs', **kwargs):
+def add_isd_results(genes, expr_adata, atac_adata, output, factor_type = 'motifs', **kwargs):
 
     ko_logp, f_Z, expression, logp_data, informative_samples = list(zip(*output))
 
@@ -157,7 +153,7 @@ def add_isd_results(self, expr_adata, atac_adata, output, factor_type = 'motifs'
     ko_logp = np.vstack(ko_logp).T
     informative_samples = np.vstack(informative_samples).T
 
-    ko_logp = project_matrix(expr_adata.var_names, self.genes, ko_logp)
+    ko_logp = project_matrix(expr_adata.var_names, genes, ko_logp)
 
     projected_ko_logp = np.full((len(factor_mask), ko_logp.shape[-1]), np.nan)
     projected_ko_logp[np.array(factor_mask), :] = ko_logp
@@ -165,7 +161,7 @@ def add_isd_results(self, expr_adata, atac_adata, output, factor_type = 'motifs'
     expr_adata.varm[factor_type + '-prob_deletion'] = projected_ko_logp.T
     logger.info("Added key to varm: '{}-prob_deletion')".format(factor_type))
 
-    informative_samples = project_matrix(expr_adata.var_names, self.genes, informative_samples)
+    informative_samples = project_matrix(expr_adata.var_names, genes, informative_samples)
     informative_samples = np.where(~np.isnan(informative_samples), informative_samples, 0)
     expr_adata.layers[factor_type + '-informative_samples'] = sparse.csr_matrix(informative_samples)
     logger.info('Added key to layers: {}-informative_samples'.format(factor_type))

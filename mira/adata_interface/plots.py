@@ -1,17 +1,25 @@
+import mira.adata_interface.core as adi
+import mira.adata_interface.lite_nite as lni
+from scipy.sparse import isspmatrix
+import logging
+import numpy
 
-def fetch_differential_plot(self, adata, counts_layer = None, genes = None):
+logger = logging.getLogger(__name__)
+
+def fetch_differential_plot(self, adata, genes=None, counts_layer = None):
 
     assert(not genes is None)
 
     if isinstance(genes, str):
         genes = [genes]
+
+    r = lni.fetch_lite_nite_prediction(None, adata)
+    r.pop('genes')
     
     adata = adata[:, genes]
 
-    r = fetch_cis_trans_prediction(None, adata)
-
     try:
-        r['chromatin_differential'] = adata.layers['chromatin_differential']
+        r['chromatin_differential'] = adata.layers['chromatin_differential'].toarray()
     except KeyError:
         raise KeyError('User must run function "get_cis_differential" before running this function.')
 
@@ -20,7 +28,7 @@ def fetch_differential_plot(self, adata, counts_layer = None, genes = None):
     except KeyError:
         raise KeyError('X_umap: adata must have a UMAP representation to make this plot.')
 
-    expr = fetch_layer(adata, counts_layer)
+    expr = adi.fetch_layer(None, adata, counts_layer)
     if isspmatrix(expr):
         expr = expr.toarray()
 

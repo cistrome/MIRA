@@ -9,7 +9,7 @@ def fetch_diffmap_eigvals(self, adata, diffmap_key = 'X_diffmap'):
     )
 
 
-def add_diffmap(self, adata, output, diffmap_key = 'X_diffmap'):
+def add_diffmap(adata, output, diffmap_key = 'X_diffmap'):
     logging.info('Added key to obsm: {}, normalized diffmap with {} components.'.format(
         diffmap_key,
         str(output.shape[-1])
@@ -35,7 +35,7 @@ You must calculate a diffusion map for the data, and get diffusion-based distanc
     return dict(distance_matrix = distance_matrix, diffmap = diffmap)
 
 
-def add_transport_map(self, adata, output):
+def add_transport_map(adata, output):
 
     pseudotime, transport_map, start_cell = output 
 
@@ -48,7 +48,7 @@ def add_transport_map(self, adata, output):
     logger.info('Added key to uns: iroot')
 
 
-def add_branch_probs(self, adata, output):
+def add_branch_probs(adata, output):
     adata.obsm['branch_probs'], adata.uns['lineage_names'] = output
 
     logger.info('Added key to obsm: branch_probs')
@@ -72,7 +72,7 @@ def fetch_tree_state_args(self, adata):
         raise KeyError('One of the required pieces to run this function is not present. Make sure you\'ve first run "get_transport_map" and "get_branch_probabilities".')
 
 
-def add_tree_state_args(self, adata, output):
+def add_tree_state_args(adata, output):
 
     adata.obs['tree_states'] = output['tree_states']
     adata.uns['tree_state_names'] = output['state_names']
