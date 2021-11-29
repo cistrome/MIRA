@@ -245,7 +245,7 @@ class ExpressionTopicModel(BaseModel):
         assert(gene in self.genes)
 
         gene_idx = np.argwhere(self.genes == gene)[0]
-        return list(sorted(zip(range(self.num_topics), self._score_features()[:, gene_idx]), key = lambda x : x[1]))
+        return list(sorted(zip(range(self.num_topics), self._score_features()[:, gene_idx].reshape(-1)), key = lambda x : -x[1]))
 
 
     def get_top_genes(self, topic_num, top_n = None, min_genes = 200, max_genes = 600):

@@ -1,3 +1,4 @@
+from os import stat
 from typing import final
 import numpy as np
 from sklearn.model_selection import KFold
@@ -7,9 +8,25 @@ import logging
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 from optuna.trial import TrialState as ts
+import joblib
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)  # Setup the root logger.
-optuna.logging.set_verbosity(optuna.logging.INFO)
+logger.setLevel(logging.WARN)  # Setup the root logger.
+optuna.logging.set_verbosity(optuna.logging.WARN)
+from mira.topic_model.base import logger as baselogger
+from mira.adata_interface.topic_model import logger as interfacelogger
+
+
+class DisableLogger:
+    def __init__(self, logger):
+        self.logger = logger
+        self.level = logger.level
+
+    def __enter__(self):
+        self.logger.setLevel(logging.CRITICAL)
+
+    def __exit__(self, exit_type, exit_value, exit_traceback):
+        self.logger.setLevel(self.level)
+
 
 try:
     from IPython.display import clear_output
@@ -22,6 +39,7 @@ class TopicModelTuner:
 
     def __init__(self,
         topic_model,
+        save_name = None,
         test_column = None,
         min_topics = 5, max_topics = 55,
         min_epochs = 20, max_epochs = 40,
@@ -41,6 +59,15 @@ class TopicModelTuner:
         self.iters = iters
         self.study = study
         self.seed = seed
+        self.save_name = save_name
+
+        if not study is None:
+            assert(not study.study_name is None), 'Provided studies must have names.'
+        elif study is None and save_name is None:
+            raise ValueError('Must provide a "save_name" to start a new study.')
+        
+        self.study = study
+
 
     @adi.wraps_modelfunc(adi.fetch_adata_shape, tmi.add_test_column, ['shape'])
     def train_test_split(self, train_size = 0.8, *, shape):
@@ -158,31 +185,37 @@ class TopicModelTuner:
             print(get_trial_desc(trial))
 
         print('\n')
-    
+
+    @staticmethod
+    def _save_study(study, trial):
+        joblib.dump(study, study.study_name)
+
+
+    def print(self):
+        self._print_study(self.study, None)
+
+
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, 
         fill_kwargs = ['all_data', 'train_data', 'test_data'])
-    def tune(self, study = None,*, all_data, train_data, test_data):
+    def tune(self,*, all_data, train_data, test_data):
         
-        '''error_file = logging.FileHandler(error_log, mode="w")
+        '''error_file = logging.FileHandler(self.logfile, mode="a")
         logger.addHandler(error_file)
         optuna.logging.enable_propagation()  # Propagate logs to the root logger.
         optuna.logging.disable_default_handler()  # Stop showing logs in sys.stderr.'''
 
-        #try:
-
-        if isinstance(self.cv, int):
-            self.cv = KFold(self.cv, random_state = self.seed, shuffle= True)
-
-        if study is None:
+        if self.study is None:
             self.study = optuna.create_study(
                 direction = 'minimize',
                 pruner = optuna.pruners.SuccessiveHalvingPruner(
                     min_resource=1.0, 
                     bootstrap_count=0, 
                     reduction_factor=3),
+                study_name = self.save_name,
             )
-        else:
-            self.study = study
+
+        if isinstance(self.cv, int):
+            self.cv = KFold(self.cv, random_state = self.seed, shuffle= True)
         
         trial_func = partial(
             self.trial, 
@@ -193,12 +226,16 @@ class TopicModelTuner:
             min_topics = self.min_topics, max_topics = self.max_topics,
         )
 
-        try:
-            self.study.optimize(trial_func, n_trials = self.iters, callbacks = [self._print_study],
-            catch = (RuntimeError,ValueError),)
-        except KeyboardInterrupt:
-            pass
+        with DisableLogger(baselogger), DisableLogger(interfacelogger):
 
+            try:
+                self.study.optimize(trial_func, n_trials = self.iters, callbacks = [self._print_study, self._save_study],
+                catch = (RuntimeError,ValueError),)
+            except KeyboardInterrupt:
+                pass
+
+        self.print()
+        self._save_study(self.study, None)
         #finally:
         #    error_file.close()
         

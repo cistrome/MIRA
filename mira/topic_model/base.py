@@ -239,9 +239,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     def guide(self):
 
-        assert(self.initial_pseudocounts > self.num_topics), 'Initial counts must be greater than the number of topics.'
+        #assert(self.initial_pseudocounts > self.num_topics), 'Initial counts must be greater than the number of topics.'
 
-        _counts_mu, _counts_var = self._get_lognormal_parameters_from_moments(*self._get_gamma_moments(self.initial_pseudocounts, self.num_topics))
+        _counts_mu, _counts_var = self._get_lognormal_parameters_from_moments(
+            *self._get_gamma_moments(self.initial_pseudocounts, self.num_topics)
+        )
 
         pseudocount_mu = pyro.param('pseudocount_mu', _counts_mu * torch.ones((self.num_topics,)).to(self.device))#,
             #constraint = constraints.positive)
