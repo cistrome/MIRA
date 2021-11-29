@@ -1,5 +1,3 @@
-from os import stat
-from typing import final
 import numpy as np
 from sklearn.model_selection import KFold
 from functools import partial
@@ -28,6 +26,62 @@ class DisableLogger:
         self.logger.setLevel(self.level)
 
 
+def _print_study(study, trial):
+
+    if study is None:
+        raise ValueError('Cannot print study before running any trials.')
+
+    def get_trial_desc(trial):
+
+        if trial.state == ts.COMPLETE:
+            return 'Trial #{:<3} | completed, score: {:.4e} | params: {}'.format(str(trial.number), trial.values[-1], str(trial.user_attrs['trial_params']))
+        elif trial.state == ts.PRUNED:
+            return 'Trial #{:<3} | pruned at step: {:<12} | params: {}'.format(str(trial.number), str(trial.user_attrs['batches_trained']), str(trial.user_attrs['trial_params']))
+        elif trial.state == ts.FAIL:
+            return 'Trial #{:<3} | ERROR                        | params: {}'\
+                .format(str(trial.number), str(trial.user_attrs['batches_trained']), str(trial.user_attrs['trial_params']))
+
+    if NOTEBOOK_MODE:
+        clear_output(wait=True)
+    else:
+        print('------------------------------------------------------')
+
+    try:
+        print('Trials finished: {} | Best trial: {} | Best score: {:.4e}\nPress ctrl+C,ctrl+C or esc,I+I,I+I in Jupyter notebook to stop early.'.format(
+        str(len(study.trials)),
+        str(study.best_trial.number),
+        study.best_value
+    ), end = '\n\n')
+    except ValueError:
+        print('Trials finished {}'.format(str(len(study.trials))), end = '\n\n')        
+
+    print('Modules | Trials (number is #folds tested)', end = '')
+
+    study_results = sorted([
+        (trial_.user_attrs['trial_params']['num_topics'], trial_.user_attrs['batches_trained'], trial_.number)
+        for trial_ in study.trials
+    ], key = lambda x : x[0])
+
+    current_num_modules = 0
+    for trial_result in study_results:
+
+        if trial_result[0] > current_num_modules:
+            current_num_modules = trial_result[0]
+            print('\n{:>7} | '.format(str(current_num_modules)), end = '')
+
+        print(str(trial_result[1]), end = ' ')
+        #print(trial_result[1], ('*' trial_result[2] == study.best_trial.number else ''), end = '')
+    
+    print('', end = '\n\n')
+    print('Trial Information:')
+    for trial in study.trials:
+        print(get_trial_desc(trial))
+
+    print('\n')
+
+def print_study(study):
+    _print_study(study, None)
+
 try:
     from IPython.display import clear_output
     clear_output(wait=True)
@@ -36,6 +90,10 @@ except ImportError:
     NOTEBOOK_MODE = False
 
 class TopicModelTuner:
+
+    @classmethod
+    def load_study(cls, filename):
+        return joblib.load(filename)
 
     def __init__(self,
         topic_model,
@@ -136,64 +194,14 @@ class TopicModelTuner:
         return trial_score
 
     @staticmethod
-    def _print_study(study, trial):
-
-        def get_trial_desc(trial):
-
-            if trial.state == ts.COMPLETE:
-                return 'Trial #{:<3} | completed, score: {:.4e} | params: {}'.format(str(trial.number), trial.values[-1], str(trial.user_attrs['trial_params']))
-            elif trial.state == ts.PRUNED:
-                return 'Trial #{:<3} | pruned at step: {:<12} | params: {}'.format(str(trial.number), str(trial.user_attrs['batches_trained']), str(trial.user_attrs['trial_params']))
-            elif trial.state == ts.FAIL:
-                return 'Trial #{:<3} | ERROR                        | params: {}'\
-                    .format(str(trial.number), str(trial.user_attrs['batches_trained']), str(trial.user_attrs['trial_params']))
-
-        if NOTEBOOK_MODE:
-            clear_output(wait=True)
-        else:
-            print('------------------------------------------------------')
-
-        try:
-            print('Trials finished: {} | Best trial: {} | Best score: {:.4e}\nPress ctrl+C,ctrl+C or esc,I+I,I+I in Jupyter notebook to stop early.'.format(
-            str(len(study.trials)),
-            str(study.best_trial.number),
-            study.best_value
-        ), end = '\n\n')
-        except ValueError:
-            print('Trials finished {}'.format(str(len(study.trials))), end = '\n\n')        
-
-        print('Modules | Trials (number is #folds tested)', end = '')
-
-        study_results = sorted([
-            (trial_.user_attrs['trial_params']['num_topics'], trial_.user_attrs['batches_trained'], trial_.number)
-            for trial_ in study.trials
-        ], key = lambda x : x[0])
-
-        current_num_modules = 0
-        for trial_result in study_results:
-
-            if trial_result[0] > current_num_modules:
-                current_num_modules = trial_result[0]
-                print('\n{:>7} | '.format(str(current_num_modules)), end = '')
-
-            print(str(trial_result[1]), end = ' ')
-            #print(trial_result[1], ('*' trial_result[2] == study.best_trial.number else ''), end = '')
-        
-        print('', end = '\n\n')
-        print('Trial Information:')
-        for trial in study.trials:
-            print(get_trial_desc(trial))
-
-        print('\n')
-
-    @staticmethod
     def _save_study(study, trial):
         joblib.dump(study, study.study_name)
 
+    def save(self):
+        self._save_study(self.study, None)
 
     def print(self):
-        self._print_study(self.study, None)
-
+        _print_study(self.study, None)
 
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, 
         fill_kwargs = ['all_data', 'train_data', 'test_data'])
@@ -229,7 +237,7 @@ class TopicModelTuner:
         with DisableLogger(baselogger), DisableLogger(interfacelogger):
 
             try:
-                self.study.optimize(trial_func, n_trials = self.iters, callbacks = [self._print_study, self._save_study],
+                self.study.optimize(trial_func, n_trials = self.iters, callbacks = [_print_study, self._save_study],
                 catch = (RuntimeError,ValueError),)
             except KeyboardInterrupt:
                 pass
