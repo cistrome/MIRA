@@ -1,5 +1,6 @@
 
 import torch
+from torch._C import Value
 import torch.distributions.constraints as constraints
 import torch.nn.functional as F
 from pyro.nn import PyroParam
@@ -25,7 +26,6 @@ class ExpressionEncoder(torch.nn.Module):
     def __init__(self,*,num_endog_features, num_topics, hidden, dropout, num_layers):
         super().__init__()
         output_batchnorm_size = 2*num_topics + 2
-
         self.num_topics = num_topics
         self.fc_layers = get_fc_stack(
             layer_dims = [num_endog_features + 1, *[hidden]*(num_layers-1), output_batchnorm_size],
@@ -101,7 +101,7 @@ class ExpressionTopicModel(BaseModel):
         pyro.module("decoder", self.decoder)
 
         obs_weight = self._get_obs_weight()
-
+        
         dispersion = pyro.param('dispersion', read_depth.new_ones(self.num_exog_features).to(self.device) * 5., constraint = constraints.positive)
         dispersion = dispersion.to(self.device)
 
@@ -114,11 +114,14 @@ class ExpressionTopicModel(BaseModel):
                 expr_rate = self.decoder(theta)
 
                 read_scale = pyro.sample('read_depth', dist.LogNormal(torch.log(read_depth), 1.).to_event(1))
-                
-            #mu = torch.multiply(read_scale, expr_rate)
-            logits = (read_scale * expr_rate).log() - (dispersion).log()
             
-            X = pyro.sample('obs', dist.NegativeBinomial(total_count = dispersion, logits = logits).to_event(1), obs = exog_features)
+            if not self.nb_parameterize_logspace:
+                mu = torch.multiply(read_scale, expr_rate)
+                probs = mu/(mu + dispersion)
+                X = pyro.sample('obs', dist.NegativeBinomial(total_count = dispersion, probs = probs).to_event(1), obs = exog_features)
+            else:
+                logits = (read_scale * expr_rate).log() - (dispersion).log()
+                X = pyro.sample('obs', dist.NegativeBinomial(total_count = dispersion, logits = logits).to_event(1), obs = exog_features)
 
 
     @scope(prefix= 'rna')

@@ -1,3 +1,4 @@
+from typing import final
 import numpy as np
 from sklearn.model_selection import KFold
 from functools import partial
@@ -5,8 +6,10 @@ import optuna
 import logging
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
-optuna.logging.set_verbosity(optuna.logging.WARNING)
+from optuna.trial import TrialState as ts
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)  # Setup the root logger.
+optuna.logging.set_verbosity(optuna.logging.INFO)
 
 try:
     from IPython.display import clear_output
@@ -110,10 +113,13 @@ class TopicModelTuner:
 
         def get_trial_desc(trial):
 
-            if trial.user_attrs['completed']:
+            if trial.state == ts.COMPLETE:
                 return 'Trial #{:<3} | completed, score: {:.4e} | params: {}'.format(str(trial.number), trial.values[-1], str(trial.user_attrs['trial_params']))
-            else:
+            elif trial.state == ts.PRUNED:
                 return 'Trial #{:<3} | pruned at step: {:<12} | params: {}'.format(str(trial.number), str(trial.user_attrs['batches_trained']), str(trial.user_attrs['trial_params']))
+            elif trial.state == ts.FAIL:
+                return 'Trial #{:<3} | ERROR                        | params: {}'\
+                    .format(str(trial.number), str(trial.user_attrs['batches_trained']), str(trial.user_attrs['trial_params']))
 
         if NOTEBOOK_MODE:
             clear_output(wait=True)
@@ -156,6 +162,13 @@ class TopicModelTuner:
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, 
         fill_kwargs = ['all_data', 'train_data', 'test_data'])
     def tune(self, study = None,*, all_data, train_data, test_data):
+        
+        '''error_file = logging.FileHandler(error_log, mode="w")
+        logger.addHandler(error_file)
+        optuna.logging.enable_propagation()  # Propagate logs to the root logger.
+        optuna.logging.disable_default_handler()  # Stop showing logs in sys.stderr.'''
+
+        #try:
 
         if isinstance(self.cv, int):
             self.cv = KFold(self.cv, random_state = self.seed, shuffle= True)
@@ -185,8 +198,12 @@ class TopicModelTuner:
             catch = (RuntimeError,ValueError),)
         except KeyboardInterrupt:
             pass
+
+        #finally:
+        #    error_file.close()
         
         return self.study
+
 
     def get_tuning_results(self):
 

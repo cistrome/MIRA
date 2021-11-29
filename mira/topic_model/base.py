@@ -149,6 +149,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             beta = 0.95,
             batch_size = 64,
             initial_pseudocounts = 50,
+            nb_parameterize_logspace = True,
             ):
         super().__init__()
 
@@ -168,6 +169,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.beta = beta
         self.batch_size = batch_size
         self.initial_pseudocounts = initial_pseudocounts
+        self.nb_parameterize_logspace = nb_parameterize_logspace
 
     def _set_seeds(self):
         if self.seed is None:
@@ -318,10 +320,9 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @staticmethod
     def _get_KL_anneal_factor(step_num, *, n_epochs, n_batches_per_epoch):
-
         total_steps = n_epochs * n_batches_per_epoch
         
-        return min(1., (step_num + 1)/(total_steps * 1/3 + 1))
+        return min(1., (step_num + 1)/(total_steps * 1/2 + 1))
 
     @property
     def highly_variable(self):
