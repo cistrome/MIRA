@@ -5,6 +5,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import Counter
 from mira.plots.base import map_colors
+import mira.adata_interface.core as adi
+import mira.adata_interface.regulators as ri
+from mira.tools.tf_targeting import _driver_TF_test
+from functools import partial
+import logging
+logger = logging.getLogger(__name__)
 
 def layout_labels(*, ax, x, y, label, label_closeness = 5, fontsize = 11, max_repeats = 5):
 
@@ -44,7 +50,28 @@ def layout_labels(*, ax, x, y, label, label_closeness = 5, fontsize = 11, max_re
 
     return ax
 
-def plot_factor_influence(ax, l1_pvals, l2_pvals, factor_names, pval_threshold = (1e-5, 1e-5), label_factors = None,
+
+def _join_factor_meta(m1, m2, show_factor_ids = False):
+
+    def reformat_meta(meta):
+        return {factor['id'] : factor for factor in meta}
+
+    m1 = reformat_meta(m1)
+    m2 = reformat_meta(m2)
+
+    shared_factors = np.intersect1d(list(m1.keys()), list(m2.keys()))
+
+    m1 = [m1[factor_id] for factor_id in shared_factors]
+    m2 = [m2[factor_id] for factor_id in shared_factors]
+
+    l1_pvals = np.array([x['pval'] for x in m1]).astype(float)
+    l2_pvals = np.array([x['pval'] for x in m2]).astype(float)
+    factor_names = np.array([(x['id'] + ': ' if show_factor_ids else '') + x['name'] for x in m1]).astype(str)
+
+    return factor_names, l1_pvals, l2_pvals
+
+
+def _influence_plot(ax, l1_pvals, l2_pvals, factor_names, pval_threshold = (1e-5, 1e-5), label_factors = None,
     hue = None, palette = 'coolwarm', legend_label = '', hue_order = None, show_legend = True, na_color = 'lightgrey',
     label_closeness = 2, max_label_repeats = 1, axlabels = ('list1', 'list2'), color = 'grey', fontsize = 12):
 
@@ -76,15 +103,71 @@ def plot_factor_influence(ax, l1_pvals, l2_pvals, factor_names, pval_threshold =
         name_mask = np.isin(factor_names, label_factors)
 
     ax.scatter(x, y, c = cell_colors)
-    layout_labels(ax = ax, x = x[name_mask], y = y[name_mask], label_closeness = label_closeness, 
-        fontsize = fontsize, label = np.array(factor_names)[name_mask], max_repeats = max_label_repeats)
+
+    if name_mask.sum() > 0:
+        layout_labels(ax = ax, x = x[name_mask], y = y[name_mask], label_closeness = label_closeness, 
+            fontsize = fontsize, label = np.array(factor_names)[name_mask], max_repeats = max_label_repeats)
+    else:
+        logger.warn('No TFs met p-value thresholds.')
 
     ax.set(xlabel = axlabels[0], ylabel = axlabels[1])
     ax.spines["right"].set_visible(False)
     ax.spines["top"].set_visible(False)
 
-    ax.axes('square')
-
+    ax.axis('square')
     plt.tight_layout()
 
     return ax
+
+
+def plot_factor_influence(
+    factor_list_1, factor_list_2, label_factors = None, hue = None, palette = 'coolwarm', hue_order = None, 
+    figsize = (8,8), legend_label = '', show_legend = True, fontsize = 13, 
+    pval_threshold = (1e-50, 1e-50), na_color = 'lightgrey',
+    color = 'grey', label_closeness = 3, max_label_repeats = 3, show_factor_ids = False,
+    ax = None, axlabels = ('list1', 'list2'), pval_pseudocount = 1e-300,
+):
+
+    if ax is None:
+        fig, ax = plt.subplots(1,1,figsize = figsize)
+
+    factor_names, l1_pvals, l2_pvals = _join_factor_meta(factor_list_1, factor_list_2, 
+            show_factor_ids = show_factor_ids)
+    
+    l1_pvals= l1_pvals + pval_pseudocount
+    l2_pvals= l2_pvals + pval_pseudocount
+
+    if not hue is None:
+        assert(isinstance(hue, dict)), '"hue" argument must be dictionary of format {factor : value, ... }'
+        hue = [hue[factor] if factor in hue else np.nan for factor in factor_names]
+
+    return _influence_plot(ax, l1_pvals, l2_pvals, factor_names, pval_threshold = pval_threshold, 
+        label_factors = label_factors, hue = hue, palette = palette, legend_label = legend_label, 
+        hue_order = hue_order, show_legend = show_legend, na_color = na_color,
+        label_closeness = label_closeness, max_label_repeats = max_label_repeats, 
+        axlabels = axlabels, color = color, fontsize = fontsize)
+
+
+@adi.wraps_functional(
+    ri.fetch_driver_TF_test, adi.return_output,
+    ['isd_matrix','genes','factors']
+)
+def compare_driver_TFs_plot(background = None, alt_hypothesis = 'greater', factor_type = 'motifs',
+    axlabels = ('Set1 Drivers', 'Set2 Drivers'), label_factors = None,
+    hue = None, palette = 'coolwarm', hue_order = None, ax = None, 
+    figsize = (8,8), legend_label = '', show_legend = True, fontsize = 13, 
+    pval_threshold = (1e-3, 1e-3), na_color = 'lightgrey', show_factor_ids = False,
+    color = 'grey', label_closeness = 3, max_label_repeats = 3,*,
+    geneset1, geneset2, isd_matrix, genes, factors):
+
+    driver_test = partial(_driver_TF_test, background = background, alt_hypothesis = alt_hypothesis,
+        isd_matrix = isd_matrix, genes = genes, factors = factors)
+
+    m1, m2 = driver_test(geneset = geneset1), driver_test(geneset = geneset2)
+
+    return plot_factor_influence(m1, m2, ax = ax, label_factors = label_factors,
+            pval_threshold = pval_threshold, hue = hue, hue_order = hue_order, 
+            palette = palette, legend_label = legend_label, show_legend = show_legend, 
+            label_closeness = label_closeness, 
+            na_color = na_color, max_label_repeats = max_label_repeats,
+            axlabels = axlabels, fontsize = fontsize, color = color)        

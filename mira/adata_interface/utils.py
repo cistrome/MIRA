@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import logging
 import mira.adata_interface.core as adi
+import mira.adata_interface.regulators as ri
 logger = logging.getLogger(__name__)
 
 
@@ -53,7 +54,7 @@ def make_joint_representation(
 
 def mask_non_expressed_factors(atac_adata,*, expressed_genes, factor_type = 'motifs'):
     
-    metadata, _ = adi.get_factor_meta(None, atac_adata, 
+    metadata, _ = ri.fetch_factor_meta(None, atac_adata, 
         factor_type = factor_type, mask_factors = False)
     
     assert(isinstance(expressed_genes, (list, np.ndarray, pd.Index)))
@@ -63,11 +64,28 @@ def mask_non_expressed_factors(atac_adata,*, expressed_genes, factor_type = 'mot
         for factor in metadata
     ]
 
-    adi.add_factor_mask(None, atac_adata, factor_mask, factor_type = factor_type)
+    ri.add_factor_mask(atac_adata, factor_mask, factor_type = factor_type)
     
     logger.info('Found {} factors in expression data.'.format(str(np.array(factor_mask).sum())))
 
 
-def get_factor_meta(atac_adata, factor_type = 'motifs', mask_factors = False):
-    return adi.get_factor_meta(None, atac_adata, factor_type = factor_type, 
+def fetch_factor_meta(atac_adata, factor_type = 'motifs', mask_factors = False):
+    return pd.DataFrame(
+            ri.fetch_factor_meta(None, atac_adata, factor_type = factor_type, 
             mask_factors = mask_factors)[0]
+    )
+
+
+def fetch_ISD_matrix(expr_adata, factor_type = 'motifs', mask_factors = True, 
+        mask_untested_genes = True, id_column = 'name'):
+
+    results = ri.fetch_ISD_results(None, expr_adata, factor_type, mask_factors=mask_factors, 
+        mask_untested_genes = mask_untested_genes)
+    
+    try:
+        return pd.DataFrame(
+            results['isd_matrix'], index = results['genes'], 
+            columns = [meta[id_column] for meta in results['factors']]
+        )
+    except KeyError:
+        raise KeyError('{} column is not associated with {} factor metadata')

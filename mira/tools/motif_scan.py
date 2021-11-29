@@ -20,7 +20,8 @@ from functools import partial
 logger = logging.getLogger(__name__)
 
 config = configparser.ConfigParser()
-config.read('kladi/motif_scanning/config.ini')
+config.read('mira/tools/motif_scan_config.ini')
+
 
 def validate_peaks(peaks):
 

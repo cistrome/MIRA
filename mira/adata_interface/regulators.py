@@ -99,7 +99,7 @@ def fetch_factor_hits_and_latent_comps(self, adata, factor_type = 'motifs', mask
     )
 
 
-def make_motif_score_adata(self, adata, output):
+def make_motif_score_adata(adata, output):
 
     metadata, scores, norm_scores = output
 
@@ -114,6 +114,46 @@ def make_motif_score_adata(self, adata, output):
 
 
 def save_factor_enrichment(self, adata, output,*, module_num, factor_type):
-
     adata.uns[('enrichment', module_num, factor_type)] = output
     return output
+
+
+def fetch_ISD_results(self, adata, factor_type = 'motifs', mask_factors=False, 
+        mask_untested_genes = True):
+
+    try:
+        isd_matrix = adata.varm[factor_type + '-prob_deletion']
+        adata.uns[factor_type]
+    except KeyError:
+        raise KeyError('User must run "lite_model.probabalistic_ISD" function.')
+
+    try:
+        factors = fetch_factor_meta(None, adata, factor_type = factor_type, mask_factors = False)[0]
+    except KeyError:
+        raise KeyError('Metadata column {} is not associated with factor type {}.'.format(str(id_column), str(factor_type)))
+
+    rows = adata.var_names
+
+    if mask_factors:
+        factor_mask = ~np.isnan(isd_matrix).all(0)
+        factors = [meta for (meta, mask) in zip(factors, factor_mask) if mask]
+        isd_matrix = isd_matrix[:, factor_mask]
+
+    if mask_untested_genes:
+        gene_mask = ~np.isnan(isd_matrix).all(1)
+        rows = rows[gene_mask]
+        isd_matrix = isd_matrix[gene_mask, :]
+
+    return dict(
+        isd_matrix = isd_matrix,
+        genes = rows,
+        factors = factors,
+    )
+
+
+def fetch_driver_TF_test(self, adata, factor_type = 'motifs'):
+
+    return fetch_ISD_results(
+        self, adata, factor_type = factor_type, 
+        mask_factors=True, mask_untested_genes = True
+    )

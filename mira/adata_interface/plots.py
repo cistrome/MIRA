@@ -2,7 +2,7 @@ import mira.adata_interface.core as adi
 import mira.adata_interface.lite_nite as lni
 from scipy.sparse import isspmatrix
 import logging
-import numpy
+import numpy as np
 
 logger = logging.getLogger(__name__)
 

@@ -67,6 +67,8 @@ def wraps_functional(
             #print(output, adata, adder_kwargs)
             return add(adata, output, **adder_kwargs)
 
+        _run.__name__ = func.__name__
+
         return _run
     
     return run
@@ -123,6 +125,8 @@ def wraps_modelfunc(
             output = func(self, **fetch(self, adata, **getter_kwargs), **function_kwargs)
 
             return add(adata, output, **adder_kwargs)
+
+        _run.__name__ = func.__name__
 
         return _run
     

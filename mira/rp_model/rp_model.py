@@ -178,6 +178,8 @@ class BaseModel:
             except FileNotFoundError:
                 logger.warn('Cannot load {} model. File not found.'.format(gene))
 
+        return self
+
     def subset_fit_models(self, was_fit):
         self.models = [model for fit, model in zip(was_fit, self.models) if fit]
         return self
@@ -621,7 +623,7 @@ class GeneModel:
         return logp_summary[0] - logp_summary[1:], f_Z, expression, logp_data
 
 
-    def probabalistic_ISD(self, features, hits_matrix, n_samples = 1000, n_bins = 20):
+    def probabalistic_ISD(self, features, hits_matrix, n_samples = 1500, n_bins = 20):
         
         np.random.seed(2556)
         N = len(features['gene_expr'])

@@ -541,7 +541,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.anneal_factors = []
         try:
 
-            t = trange(self.num_epochs, desc = 'Epoch 0', leave = True) if training_bar else range(self.num_epochs+1)
+            t = trange(self.num_epochs, desc = 'Epoch 0', leave = True) if training_bar else range(self.num_epochs)
             _t = iter(t)
             epoch = 0
             while True:
@@ -574,16 +574,16 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                         ' --> '.join('{:.3e}'.format(loss) for loss in recent_losses)
                     ))
 
-                epoch+=1
-                yield epoch, epoch_loss
-
-                if early_stopper(recent_losses[-1]) and epoch > self.num_epochs:
-                    break
-
                 try:
                     next(_t)
                 except StopIteration:
                     pass
+
+                if early_stopper(recent_losses[-1]) and epoch > self.num_epochs:
+                    break
+
+                epoch+=1
+                yield epoch, epoch_loss
 
         except KeyboardInterrupt:
             logger.warn('Interrupted training.')

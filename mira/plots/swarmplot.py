@@ -2,7 +2,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import warnings
-from kladiv2.plots.base import map_colors
+from mira.plots.base import map_colors
 from sklearn.preprocessing import minmax_scale
 
 class Beeswarm:
