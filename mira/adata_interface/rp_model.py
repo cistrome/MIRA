@@ -144,7 +144,7 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
     return wrap_fn
 
 
-def add_isd_results(genes, expr_adata, atac_adata, output, factor_type = 'motifs', **kwargs):
+def add_isd_results(self, expr_adata, atac_adata, output, factor_type = 'motifs', **kwargs):
 
     ko_logp, f_Z, expression, logp_data, informative_samples = list(zip(*output))
 
@@ -153,17 +153,21 @@ def add_isd_results(genes, expr_adata, atac_adata, output, factor_type = 'motifs
     ko_logp = np.vstack(ko_logp).T
     informative_samples = np.vstack(informative_samples).T
 
-    ko_logp = project_matrix(expr_adata.var_names, genes, ko_logp)
+    ko_logp = project_matrix(expr_adata.var_names, self.genes, ko_logp)
 
     projected_ko_logp = np.full((len(factor_mask), ko_logp.shape[-1]), np.nan)
     projected_ko_logp[np.array(factor_mask), :] = ko_logp
     
     expr_adata.varm[factor_type + '-prob_deletion'] = projected_ko_logp.T
+    logger.info('Appending to expression adata:')
     logger.info("Added key to varm: '{}-prob_deletion')".format(factor_type))
 
-    informative_samples = project_matrix(expr_adata.var_names, genes, informative_samples)
+    informative_samples = project_matrix(expr_adata.var_names, self.genes, informative_samples)
     informative_samples = np.where(~np.isnan(informative_samples), informative_samples, 0)
     expr_adata.layers[factor_type + '-informative_samples'] = sparse.csr_matrix(informative_samples)
     logger.info('Added key to layers: {}-informative_samples'.format(factor_type))
 
-    return f_Z, expression, logp_data
+    expr_adata.uns[factor_type] = atac_adata.uns[factor_type].copy()
+    logger.info('Added key to uns: {}'.format(factor_type))
+
+    #return f_Z, expression, logp_data

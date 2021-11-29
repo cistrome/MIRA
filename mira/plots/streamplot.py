@@ -3,17 +3,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.colors as pltcolors
-from kladiv2.plots.base import map_colors
+from mira.plots.base import map_colors
 from matplotlib.patches import Patch
 import warnings
 from scipy.signal import savgol_filter
 from sklearn.preprocessing import minmax_scale
 import networkx as nx
 from functools import partial
-from kladiv2.tools.pseudotime import get_dendogram_levels, get_root_state, is_leaf
-from kladiv2.plots.base import map_plot
-import kladiv2.core.adata_interface as adi
-from kladiv2.plots.swarmplot import _plot_swarm_segment, _get_swarm_colors
+from mira.pseudotime.pseudotime import get_dendogram_levels, get_root_state, is_leaf
+from mira.plots.base import map_plot
+import mira.adata_interface.core as adi
+import mira.adata_interface.plots as pli
+from mira.plots.swarmplot import _plot_swarm_segment, _get_swarm_colors
 import logging
 logger = logging.getLogger(__name__)
 
@@ -318,9 +319,8 @@ def _normalize_numerical_features(features,*, clip, scale_features, max_bar_heig
     return features
     
 
-@adi.wraps_functional(
-    adata_extractor  = adi.fetch_streamplot_data,
-    del_kwargs = ['group_names','features','pseudotime','group','tree_graph', 'feature_labels']
+@adi.wraps_functional(pli.fetch_streamplot_data, adi.return_output,
+    ['group_names','features','pseudotime','group','tree_graph', 'feature_labels']
 )
 def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_features = False, order = 'ascending',
     title = None, show_legend = True, legend_cols = 5, max_bar_height = 0.6, size = None, max_swarm_density = 2000, hide_feature_threshold = 0,

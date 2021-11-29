@@ -128,7 +128,6 @@ def plot_umap(X, hue, palette = 'viridis', projection = '2d', ax = None, figsize
                         bbox_to_anchor=(1.05, 0.5)))
 
     if add_outline:
-        print('here')
         assert(isinstance(outline_width, (tuple, list)))
         assert(len(outline_width) == 2)
         assert(outline_width[0] >= 0 and outline_width[1] >= 0)

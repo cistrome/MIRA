@@ -15,8 +15,33 @@ from pyro import poutine
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 import mira.tools.enrichr_enrichments as enrichr
+from torch.distributions.utils import broadcast_all
+from pyro.distributions.torch_distribution import ExpandedDistribution
 import logging
 logger = logging.getLogger(__name__)
+
+
+'''class WeightedNegativeBinomial(pyro.distributions.NegativeBinomial):
+
+    def __init__(self,*,total_count, weights, probs=None, logits=None, validate_args=None):
+        super().__init__(total_count=total_count, probs = probs, logits = logits, validate_args=validate_args)
+        _, self.weights = broadcast_all(self.total_count, weights)
+    
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+
+        log_unnormalized_prob = (self.total_count * F.logsigmoid(-self.logits) +
+                                 value * F.logsigmoid(self.logits))
+
+        log_normalization = (-torch.lgamma(self.total_count + value) + torch.lgamma(1. + value) +
+                             torch.lgamma(self.total_count))
+
+        unweighted_probs = log_unnormalized_prob - log_normalization
+        return unweighted_probs * self.weights
+
+    def expand(self, batch_shape, _instance=None):
+        return ExpandedDistribution(self, batch_shape)'''
 
 
 class ExpressionEncoder(torch.nn.Module):
@@ -92,6 +117,7 @@ class ExpressionTopicModel(BaseModel):
 
         weights = self.highly_variable.astype(int) + 1
         weights = weights * self.num_exog_features/weights.sum()
+        #weights = torch.tensor(self._get_obs_weight(), requires_grad = False).to(self.device)
 
         return weights
 
@@ -99,8 +125,6 @@ class ExpressionTopicModel(BaseModel):
     def model(self,*,endog_features, exog_features, read_depth, anneal_factor = 1.):
         theta_loc, theta_scale = super().model()
         pyro.module("decoder", self.decoder)
-
-        obs_weight = self._get_obs_weight()
 
         dispersion = pyro.param('dispersion', read_depth.new_ones(self.num_exog_features).to(self.device) * 5., constraint = constraints.positive)
         dispersion = dispersion.to(self.device)
@@ -118,7 +142,10 @@ class ExpressionTopicModel(BaseModel):
             #mu = torch.multiply(read_scale, expr_rate)
             logits = (read_scale * expr_rate).log() - (dispersion).log()
             
-            X = pyro.sample('obs', dist.NegativeBinomial(total_count = dispersion, logits = logits).to_event(1), obs = exog_features)
+            X = pyro.sample('obs', 
+                dist.NegativeBinomial(total_count = dispersion, logits = logits).to_event(1), 
+                obs = exog_features
+            )
 
 
     @scope(prefix= 'rna')

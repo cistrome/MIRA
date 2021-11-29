@@ -281,45 +281,18 @@ class AccessibilityTopicModel(BaseModel):
                 .format(str(module_num), str(factor_type)))
 
 
-    @staticmethod
-    def join_factor_meta(m1, m2, show_factor_ids = False):
-
-        def reformat_meta(meta):
-            return {factor['id'] : factor for factor in meta}
-
-        m1 = reformat_meta(m1)
-        m2 = reformat_meta(m2)
-
-        shared_factors = np.intersect1d(list(m1.keys()), list(m2.keys()))
-
-        m1 = [m1[factor_id] for factor_id in shared_factors]
-        m2 = [m2[factor_id] for factor_id in shared_factors]
-
-        l1_pvals = np.array([x['pval'] for x in m1])
-        l2_pvals = np.array([x['pval'] for x in m2])
-        factor_names = np.array([(x['id'] + ': ' if show_factor_ids else '') + x['name'] for x in m1])
-
-        return factor_names, l1_pvals, l2_pvals
-
-
-    def plot_compare_module_enrichments(self, module_1, module_2, factor_type = 'motifs', hue = None, palette = 'coolwarm', hue_order = None, 
-        ax = None, figsize = (7,7), legend_label = '', show_legend = True, fontsize = 12, pval_threshold = (1e-5, 1e-5), na_color = 'lightgrey',
-        interactive = False, color = 'grey', label_closeness = 5, max_label_repeats = 5, show_factor_ids = False):
-
-        if ax is None:
-            fig, ax = plt.subplots(1,1,figsize = figsize)
+    def plot_compare_module_enrichments(self, module_1, module_2, factor_type = 'motifs', 
+        label_factors = None, hue = None, palette = 'coolwarm', hue_order = None, 
+        ax = None, figsize = (8,8), legend_label = '', show_legend = True, fontsize = 13, 
+        pval_threshold = (1e-50, 1e-50), na_color = 'lightgrey',
+        color = 'grey', label_closeness = 3, max_label_repeats = 3, show_factor_ids = False):
 
         m1 = self.get_enrichments(module_1, factor_type)
-        m2 = self.get_enrichments(module_2, factor_type)
-
-        factor_names, l1_pvals, l2_pvals = self.join_factor_meta(m1, m2, show_factor_ids = show_factor_ids)
-
-        if not hue is None:
-            assert(isinstance(hue, dict)), '"hue" argument must be dictionary of format {factor : value, ... }'
-            hue = [hue[factor] if factor in hue else np.nan for factor in factor_names]
+        m2 = self.get_enrichments(module_2, factor_type)        
         
-        plot_factor_influence(ax, np.array(l1_pvals)+1e-300, np.array(l2_pvals)+1e-300, factor_names, pval_threshold = pval_threshold, hue = hue, hue_order = hue_order, 
-            palette = palette, legend_label = legend_label, show_legend = show_legend, label_closeness = label_closeness, na_color = na_color,
-            max_label_repeats = max_label_repeats, 
+        return plot_factor_influence(m1, m2, ax = ax, label_factors = label_factors,
+            pval_threshold = pval_threshold, hue = hue, hue_order = hue_order, 
+            palette = palette, legend_label = legend_label, show_legend = show_legend, label_closeness = label_closeness, 
+            na_color = na_color, max_label_repeats = max_label_repeats,
             axlabels = ('Module {} Enrichments'.format(str(module_1)),'Module {} Enrichments'.format(str(module_2))), 
-            fontsize = fontsize, interactive = False, color = color)
+            fontsize = fontsize, color = color)

@@ -107,8 +107,7 @@ def _plot_chromatin_differential_panel(
     
     plt.tight_layout()
     return ax
-
-
+    
 @adi.wraps_functional(
     pli.fetch_differential_plot, adi.return_output,
     ['gene_names','umap','chromatin_differential','expression','lite_prediction', 'nite_prediction']
@@ -118,7 +117,7 @@ def plot_chromatin_differential(
     lite_prediction_palette = 'viridis',
     differential_palette = 'coolwarm',
     height = 3,
-    aspect = 1.3, 
+    aspect = 1.5, 
     differential_range = 3,
     trim_lite_prediction = 5,
     add_legend = True,

@@ -293,6 +293,8 @@ def find_terminal_cells(iterations = 1, max_termini = 10, threshold = 1e-3, *, t
 @adi.wraps_functional(pti.fetch_transport_map, pti.add_branch_probs, ['transport_map'])
 def get_branch_probabilities(*, transport_map, terminal_cells):
 
+    logger.warn('This function currently only works on Mac OS due to issues with Lapack on Linux. Currently working on a fix.')
+
     lineage_names, absorbing_cells = list(zip(*terminal_cells.items()))
 
     absorbing_states_idx = np.array(absorbing_cells)
