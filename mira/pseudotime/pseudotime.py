@@ -153,7 +153,8 @@ def get_pseudotime(max_iterations = 25, n_waypoints = 3000, n_jobs = -1,*, start
     assert(isinstance(max_iterations, int) and max_iterations > 0)
     N = distance_matrix.shape[0]
     cells = np.union1d(sample_waypoints(num_waypoints=n_waypoints, diffmap = diffmap), np.array([start_cell]))
-
+    
+    logger.info('Calculting inter-cell distances ...')
     # Distances
     dists = Parallel(n_jobs=n_jobs, max_nbytes=None)(
         delayed(csgraph.dijkstra)(distance_matrix, False, cell)
