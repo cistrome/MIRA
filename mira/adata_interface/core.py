@@ -151,6 +151,7 @@ def return_adata(adata, output):
 
 
 def add_obs_col(adata, output,*,colname):
+    logger.info('Added cols to obs: ' + str(colname))
     adata.obs[colname] = output
 
 

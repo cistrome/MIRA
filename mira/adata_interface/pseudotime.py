@@ -1,4 +1,7 @@
+from itertools import combinations_with_replacement
 import logging
+import mira.adata_interface.core as adi
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,6 +38,18 @@ You must calculate a diffusion map for the data, and get diffusion-based distanc
     return dict(distance_matrix = distance_matrix, diffmap = diffmap)
 
 
+def fetch_diffmap_distances_and_components(self, adata, diffmap_distances_key = 'X_diffmap'):
+    try:
+        components = adata.obs_vector('mira_connected_components')
+    except KeyError:
+        raise KeyError('User must run "get_connected_components" before running this function.')
+        
+    return dict(
+        **fetch_diffmap_distances(self, adata, diffmap_distances_key),
+        components = components
+    )
+
+
 def add_transport_map(adata, output):
 
     pseudotime, transport_map, start_cell = output 
@@ -49,10 +64,18 @@ def add_transport_map(adata, output):
 
 
 def add_branch_probs(adata, output):
-    adata.obsm['branch_probs'], adata.uns['lineage_names'] = output
+    branch_probs, lineage_names, entropy = output
+
+    adata.obsm['branch_probs'] = branch_probs
+    adata.uns['lineage_names'] = lineage_names
 
     logger.info('Added key to obsm: branch_probs')
     logger.info('Added key to uns: lineage_names')
+
+    for lineage, probs in zip(lineage_names, branch_probs.T):
+        adi.add_obs_col(adata, probs, colname=str(lineage) + '_prob')
+
+    adi.add_obs_col(adata, entropy, colname = 'differentiation_entropy')
 
 
 def fetch_transport_map(self, adata):
