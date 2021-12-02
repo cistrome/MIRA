@@ -106,6 +106,7 @@ class TopicModelTuner:
         cv = 5, iters = 64,
         study = None,
         seed = 2556,
+        pruner = 'halving',
     ):
         self.model = topic_model
         self.test_column = test_column or 'test_set'
@@ -118,6 +119,7 @@ class TopicModelTuner:
         self.study = study
         self.seed = seed
         self.save_name = save_name
+        self.pruner = pruner
 
         if not study is None:
             assert(not study.study_name is None), 'Provided studies must have names.'
@@ -203,6 +205,21 @@ class TopicModelTuner:
     def print(self):
         _print_study(self.study, None)
 
+    def get_pruner(self):
+        if self.pruner = 'halving':
+            return optuna.pruners.SuccessiveHalvingPruner(
+                        min_resource=1.0, 
+                        bootstrap_count=0, 
+                        reduction_factor=3)
+        elif self.pruner == 'median':
+            return optuna.pruners.MedianPruner(
+                n_startup_trials=3,
+                n_warmup_steps=0,
+            )
+        else:
+            raise ValueError('Pruner {} is not an option'.format(str(self.pruner)))
+
+
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, 
         fill_kwargs = ['all_data', 'train_data', 'test_data'])
     def tune(self,*, all_data, train_data, test_data):
@@ -215,10 +232,7 @@ class TopicModelTuner:
         if self.study is None:
             self.study = optuna.create_study(
                 direction = 'minimize',
-                pruner = optuna.pruners.SuccessiveHalvingPruner(
-                    min_resource=1.0, 
-                    bootstrap_count=0, 
-                    reduction_factor=3),
+                pruner = self.get_pruner(),
                 study_name = self.save_name,
             )
 

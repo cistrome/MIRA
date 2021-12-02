@@ -2,7 +2,7 @@ import numpy as np
 import networkx as nx
 from scipy import sparse
 from sklearn.neighbors import NearestNeighbors
-from numpy.linalg import inv
+from numpy.linalg import inv, pinv
 from sklearn.linear_model import LogisticRegression
 from joblib import Parallel, delayed
 from scipy.sparse import csgraph
