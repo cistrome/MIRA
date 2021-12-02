@@ -1,6 +1,8 @@
+from networkx.algorithms import components
 import numpy as np
 import networkx as nx
 from scipy import sparse
+from scipy.sparse.base import isspmatrix
 from sklearn.neighbors import NearestNeighbors
 from numpy.linalg import inv
 from sklearn.linear_model import LogisticRegression
@@ -11,8 +13,10 @@ from copy import deepcopy
 from scipy.sparse.linalg import eigs
 import logging
 import tqdm
+from tqdm.std import trange
 import mira.adata_interface.core as adi
 import mira.adata_interface.pseudotime as pti
+from functools import partial
 
 logger = logging.getLogger(__name__)
 
@@ -121,20 +125,34 @@ def sample_waypoints(num_waypoints = 3000,*, diffmap):
 
     return waypoints
 
+
+@adi.wraps_functional(pti.fetch_diffmap_distances, 
+    partial(adi.add_obs_col, colname = 'mira_connected_components'),
+    ['distance_matrix','diffmap'])
+def get_connected_components(*,distance_matrix, diffmap):
+
+    assert(isspmatrix(distance_matrix))
+    N = distance_matrix.shape[0]
+    G = nx.convert_matrix.from_scipy_sparse_matrix(distance_matrix)
+
+    components = nx.algorithms.components.connected_components(G)
+    
+    num_components = 0
+    component_num = np.full(N, 0, dtype = int)
+    for i, nodes in enumerate(components):
+        num_components+=1
+        for node in nodes:
+            component_num[node] = i
+    logger.info('Found {} components of KNN graph.'.format(str(num_components)))
+
+    return component_num.astype(str)
+
+
 def get_pseudotime(max_iterations = 25, n_waypoints = 3000, n_jobs = -1,*, start_cell, distance_matrix, diffmap):
 
     assert(isinstance(max_iterations, int) and max_iterations > 0)
     N = distance_matrix.shape[0]
     cells = np.union1d(sample_waypoints(num_waypoints=n_waypoints, diffmap = diffmap), np.array([start_cell]))
-
-    ####
-
-
-    
-    # CHECK FOR GRAPH CONNECTION!
-
-
-    ###
 
     # Distances
     dists = Parallel(n_jobs=n_jobs, max_nbytes=None)(
@@ -157,7 +175,11 @@ def get_pseudotime(max_iterations = 25, n_waypoints = 3000, n_jobs = -1,*, start
     # Initalize pseudotime to start cell distances
     pseudotime = D[start_waypoint_idx, :].reshape(-1)
     converged = False
+    
+    max_computations = max_iterations * (len(cells) - 1)
 
+    t = trange(max_computations, desc = 'Calculating pseudotime')
+    _t = iter(t)
     # Iteratively update perspective and determine pseudotime
     for iteration in range(max_iterations):
         # Perspective matrix by alinging to start distances
@@ -173,6 +195,8 @@ def get_pseudotime(max_iterations = 25, n_waypoints = 3000, n_jobs = -1,*, start
 
                 # Align to start
                 P[i, :] = P[i, :] + idx_val
+
+            next(_t)
 
         # Weighted pseudotime
         new_traj = np.multiply(P,W).sum(0)
@@ -248,10 +272,14 @@ def get_adaptive_affinity_matrix(*,kernel_width, distance_matrix, pseudotime = N
     return affinity_matrix
 
 
-@adi.wraps_functional(pti.fetch_diffmap_distances, pti.add_transport_map, ['distance_matrix','diffmap'])
-def get_transport_map(ka = 5, n_jobs = -1,*, start_cell, distance_matrix, diffmap):
+@adi.wraps_functional(pti.fetch_diffmap_distances_and_components, pti.add_transport_map, 
+    ['distance_matrix','diffmap','components'])
+def get_transport_map(ka = 5, n_jobs = -1,*, start_cell, distance_matrix, diffmap,
+                components):
+    
+    assert(len(np.unique(components)) == 1), 'Graphs with multiple connected components may not be used. Subset cells to include only one connected component.'
 
-    logger.info('Calculating diffusion pseudotime ...')
+    #logger.info('Calculating diffusion pseudotime ...')
     pseudotime = get_pseudotime(n_jobs = n_jobs, start_cell= start_cell, 
         distance_matrix = distance_matrix, diffmap = diffmap)
 
@@ -293,7 +321,7 @@ def find_terminal_cells(iterations = 1, max_termini = 10, threshold = 1e-3, *, t
 @adi.wraps_functional(pti.fetch_transport_map, pti.add_branch_probs, ['transport_map'])
 def get_branch_probabilities(*, transport_map, terminal_cells):
 
-    logger.warn('This function currently only works on Mac OS due to issues with Lapack on Linux. Currently working on a fix.')
+    logger.info('Simulating random walks ...')
 
     lineage_names, absorbing_cells = list(zip(*terminal_cells.items()))
 
@@ -318,6 +346,7 @@ def get_branch_probabilities(*, transport_map, terminal_cells):
 
     # Fundamental matrix
     mat = np.eye(Q.shape[0]) - Q
+
     N = inv(mat)
 
     # Absorption probabilities
@@ -329,7 +358,8 @@ def get_branch_probabilities(*, transport_map, terminal_cells):
     branch_probs_including_terminal[trans_states] = branch_probs
     branch_probs_including_terminal[absorbing_states_idx, np.arange(num_absorbing_cells)] = 1.
 
-    return branch_probs_including_terminal, list(lineage_names)
+    return branch_probs_including_terminal, \
+        list(lineage_names), entropy(branch_probs_including_terminal, axis = -1)
 
 
 ## __ TREE INFERENCE FUNCTIONS __ ##
