@@ -12,7 +12,7 @@ MIRA leverages joint topic modeling of cell states and regulatory potential mode
 
 ## Install
 
-MIRA can be installed from either [PyPI](https://pypi.org/project/mira-multiome) or [conda-forge](https://anaconda.org/liulab-dfci/mira-multiome):
+MIRA can be installed from either [PyPI](https://pypi.org/project/mira-multiome) or [conda](https://anaconda.org/liulab-dfci/mira-multiome):
 
 <pre>
 pip install mira-multiome
@@ -31,7 +31,7 @@ Please refer to [our tutorial](https://colab.research.google.com/drive/1BTMBudzN
 
 
 setup(name='mira-multiome',
-      version='0.0.1',
+      version='0.0.2',
       description='Single-cell multiomics data analysis package',
       long_description=long_text,
       long_description_content_type="text/markdown",
