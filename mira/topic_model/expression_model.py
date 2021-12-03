@@ -16,6 +16,7 @@ from pyro import poutine
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 import mira.tools.enrichr_enrichments as enrichr
+from mira.plots.enrichment_plot import plot_enrichments as mira_plot_enrichments
 from torch.distributions.utils import broadcast_all
 from pyro.distributions.torch_distribution import ExpandedDistribution
 import logging
@@ -375,7 +376,7 @@ class ExpressionTopicModel(BaseModel):
         if len(results) == 0:
             raise Exception('No results for this topic, user must run "get_topic_enrichments" or "get_enrichments" before plotting.')
 
-        return enrichr.plot_enrichments(results, text_color = text_color, label_genes = label_genes,
+        return mira_plot_enrichments(results, text_color = text_color, label_genes = label_genes,
             show_top = show_top, barcolor = barcolor, show_genes = show_genes, max_genes = max_genes,
             enrichments_per_row = plots_per_row, height = height, aspect = aspect, pval_threshold = pval_threshold,
             palette = palette, color_by_adj = color_by_adj, gene_fontsize = gene_fontsize)

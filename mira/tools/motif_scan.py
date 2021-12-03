@@ -13,19 +13,23 @@ import logging
 from glob import glob
 import tqdm
 import re
+import mira
 from mira.adata_interface.core import wraps_functional
 from mira.adata_interface.regulators import fetch_peaks, add_factor_hits_data
 from functools import partial
 
 logger = logging.getLogger(__name__)
 
-config = configparser.ConfigParser()
+'''config = configparser.ConfigParser()
 configpath = __file__[:-3] + '_config.ini'
-
 config.read(configpath)
+assert(len(config.sections()) > 0), 'Did not read config file correctly.
+config.get('data','motifs')'''
 
-assert(len(config.sections()) > 0), 'Did not read config file correctly.'
+mira_dir = os.path.dirname(mira.__file__)
+PWM_DIR = os.path.join(mira_dir, 'package_data/motifs/')
 
+print(PWM_DIR)
 
 def validate_peaks(peaks):
 
@@ -47,10 +51,7 @@ def validate_peaks(peaks):
 
     return peaks
 
-def get_motif_glob_str():
-    return os.path.join(config.get('data','motifs'), '*.{}'.format(config.get('jaspar','pfm_suffix')))
-
-def convert_jaspar_to_moods_pfm(jaspar_file):
+'''def convert_jaspar_to_moods_pfm(jaspar_file):
 
     from Bio.motifs import read
 
@@ -89,6 +90,25 @@ def __download_jaspar_motifs__(write_dir):
         
     else:
         raise Exception('Error downloading motifs database from JASPAR')
+        
+def purge_motif_matrices():
+    for matrix in list_motif_matrices():
+        os.remove(matrix)'''
+
+def get_motif_glob_str():
+    return os.path.join(PWM_DIR, '*.{}'.format(config.get('jaspar','pfm_suffix')))
+
+def list_motif_matrices():
+
+    if not os.path.isdir(PWM_DIR):
+        return []
+
+    return list(glob(get_motif_glob_str()))
+
+
+def list_motif_ids():
+    return [os.path.basename(x).replace('.jaspar', '').split('_') for x in list_motif_matrices()]
+
 
 def get_peak_sequences(peaks, genome, output_file):
 
@@ -110,24 +130,11 @@ def get_peak_sequences(peaks, genome, output_file):
                 ), file = f, end=  '\n')
 
 
-def list_motif_matrices():
-
-    matrix_dir = config.get('data','motifs')
-
-    if not os.path.isdir(matrix_dir):
-        return []
-
-    return list(glob(get_motif_glob_str()))
-
-def list_motif_ids():
-    return [os.path.basename(x).replace('.jaspar', '').split('_') for x in list_motif_matrices()]
-
-
 def get_motif_hits(peak_sequences_file, num_peaks, pvalue_threshold = 0.00005):
 
     logger.info('Scanning peaks for motif hits with p >= {} ...'.format(str(pvalue_threshold)))
 
-    motifs_directory = config.get('data','motifs')
+    motifs_directory = PWM_DIR
     matrix_list = [
         os.path.basename(x) for x in
         glob(os.path.join(motifs_directory, '*.{}'.format(config.get('jaspar','pfm_suffix'))))
@@ -148,7 +155,7 @@ def get_motif_hits(peak_sequences_file, num_peaks, pvalue_threshold = 0.00005):
         cwd = motifs_directory
     )
 
-    motif_matrices = matrix_list #[os.path.basename(x) for x in list_motif_matrices()]
+    motif_matrices = matrix_list 
     motif_idx_map = dict(zip(motif_matrices, np.arange(len(motif_matrices))))
 
     motif_indices, peak_indices, scores = [],[],[]
@@ -179,10 +186,6 @@ def get_motif_hits(peak_sequences_file, num_peaks, pvalue_threshold = 0.00005):
     return sparse.coo_matrix((scores, (peak_indices, motif_indices)), 
         shape = (num_peaks, len(motif_matrices))).tocsr().T.tocsr()
 
-
-def purge_motif_matrices():
-    for matrix in list_motif_matrices():
-        os.remove(matrix)
 
 def _parse_motif_name(motif_name):
     return [x.upper() for x in re.split('[/::()-]', motif_name)][0]

@@ -56,3 +56,18 @@ def plot_enrichment(ax, ontology, results,
             _y = p.get_y() + p.get_height() - p.get_height()/3
             ax.text(0.1, _y, compact_string(genes[j], max_wordlen=10, join_spacer = ', ', label_genes = label_genes), 
                 ha="left", color = text_color, fontsize = gene_fontsize)
+
+
+def plot_enrichments(enrichment_results, show_genes = True, show_top = 10, barcolor = 'lightgrey', label_genes = [],
+        text_color = 'black', return_fig = False, enrichments_per_row = 2, height = 4, aspect = 2.5, max_genes = 15,
+        pval_threshold = 1e-5, color_by_adj = True, palette = 'Reds', gene_fontsize = 10):
+
+    func = partial(plot_enrichment, text_color = text_color, label_genes = label_genes, pval_threshold = pval_threshold,
+            show_top = show_top, barcolor = barcolor, show_genes = show_genes, max_genes = max_genes,
+            color_by_adj = color_by_adj, palette = palette, gene_fontsize=gene_fontsize)
+
+    fig, ax = map_plot(func, list(enrichment_results.items()), plots_per_row = enrichments_per_row, 
+        height =height, aspect = aspect)  
+
+    if return_fig:
+        return fig, ax
