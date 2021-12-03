@@ -28,8 +28,7 @@ config.get('data','motifs')'''
 
 mira_dir = os.path.dirname(mira.__file__)
 PWM_DIR = os.path.join(mira_dir, 'package_data/motifs/')
-
-print(PWM_DIR)
+PWM_suffix = 'jaspar'
 
 def validate_peaks(peaks):
 
@@ -96,7 +95,7 @@ def purge_motif_matrices():
         os.remove(matrix)'''
 
 def get_motif_glob_str():
-    return os.path.join(PWM_DIR, '*.{}'.format(config.get('jaspar','pfm_suffix')))
+    return os.path.join(PWM_DIR, '*.{}'.format(PWM_suffix))
 
 def list_motif_matrices():
 
@@ -137,7 +136,7 @@ def get_motif_hits(peak_sequences_file, num_peaks, pvalue_threshold = 0.00005):
     motifs_directory = PWM_DIR
     matrix_list = [
         os.path.basename(x) for x in
-        glob(os.path.join(motifs_directory, '*.{}'.format(config.get('jaspar','pfm_suffix'))))
+        glob(os.path.join(motifs_directory, '*.{}'.format(PWM_suffix)))
     ]
 
     command = ['moods-dna.py', 

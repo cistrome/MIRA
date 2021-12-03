@@ -14,14 +14,14 @@ See [our manuscript](#citations) for details.
 
 ## Install
 
-MIRA can be installed from either [PyPI](https://pypi.org/project/mira-multiome) or [conda-forge](https://anaconda.org/conda-forge/mira-multiome):
+MIRA can be installed from either [PyPI](https://pypi.org/project/mira-multiome) or [conda-forge](https://anaconda.org/liulab-dfci/mira-multiome):
 
 <pre>
 pip install mira-multiome
 </pre>
 or
 <pre>
-conda install -c conda-forge mira-multiome
+conda install -c conda-forge -c liulab-dfci -c bioconda mira-multiome
 </pre>
 
 ## Getting Started

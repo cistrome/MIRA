@@ -1,7 +1,8 @@
 import matplotlib.pyplot as plt
 from itertools import zip_longest
 import numpy as np
-from mira.plots.base import map_colors
+from mira.plots.base import map_colors, map_plot
+from functools import partial
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
