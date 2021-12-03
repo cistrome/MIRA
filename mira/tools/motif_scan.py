@@ -20,7 +20,11 @@ from functools import partial
 logger = logging.getLogger(__name__)
 
 config = configparser.ConfigParser()
-config.read('mira/tools/motif_scan_config.ini')
+configpath = __file__[:-3] + '_config.ini'
+
+config.read(configpath)
+
+assert(len(config.sections()) > 0), 'Did not read config file correctly.'
 
 
 def validate_peaks(peaks):
