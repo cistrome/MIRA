@@ -206,7 +206,7 @@ class TopicModelTuner:
         _print_study(self.study, None)
 
     def get_pruner(self):
-        if self.pruner = 'halving':
+        if self.pruner == 'halving':
             return optuna.pruners.SuccessiveHalvingPruner(
                         min_resource=1.0, 
                         bootstrap_count=0, 

@@ -1,1 +1,2 @@
 include mira/package_data/motifs/*.jaspar
+include mira/tools/motif_scan_config.ini

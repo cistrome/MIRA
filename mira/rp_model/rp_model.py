@@ -24,6 +24,7 @@ from scipy.stats import nbinom
 from scipy.sparse import isspmatrix
 from mira.adata_interface.rp_model import wraps_rp_func, add_isd_results
 from mira.adata_interface.core import add_layer
+from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,18 @@ def mean_default_init_to_value(
 
 
 class BaseModel:
+
+    @classmethod
+    def _make(cls, expr_model, accessibility_model, counts_layer, models, learning_rate, use_NITE_features):
+        self = BaseModel.__new__(cls)
+        self.expr_model = expr_model
+        self.accessibility_model = accessibility_model
+        self.learning_rate = learning_rate
+        self.use_NITE_features = use_NITE_features
+        self.counts_layer = counts_layer
+        self.models = models
+
+        return self
 
     def __init__(self,*,
         expr_model, 
@@ -90,6 +103,33 @@ class BaseModel:
                     init_params= init_params
                 )
             )
+
+    def subset(self, genes):
+        assert(isinstance(genes, (list, np.ndarray)))
+        for gene in genes:
+            if not gene in self.genes:
+                raise ValueError('Gene {} is not in RP model'.format(str(gene)))        
+
+        return self._make(
+            expr_model = self.expr_model,
+            accessibility_model = self.accessibility_model, counts_layer=self.counts_layer, 
+            learning_rate = self.learning_rate, use_NITE_features = self.use_NITE_features,
+            models = [model for model in self.models if model.gene in genes]
+        )
+
+    def join(self, rp_model):
+
+        assert(isinstance(rp_model, BaseModel))
+        assert(rp_model.use_NITE_features == self.use_NITE_features), 'Cannot join LITE model with NITE model'
+
+        add_models = np.setdiff1d(rp_model.genes, self.genes)
+
+        for add_gene in add_models:
+            self.models.append(
+                rp_model.get_model(add_gene)
+            )
+        
+        return self
 
     @property
     def genes(self):
