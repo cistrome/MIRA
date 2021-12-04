@@ -13,11 +13,15 @@ def fetch_differential_plot(self, adata, genes=None, counts_layer = None):
     if isinstance(genes, str):
         genes = [genes]
 
-    r = lni.fetch_lite_nite_prediction(None, adata)
-    r.pop('genes')
-    
     adata = adata[:, genes]
 
+    r = lni.fetch_lite_nite_prediction(None, adata)
+    found_genes = r.pop('genes')
+    if not tuple(genes) == tuple(found_genes):
+        raise ValueError(
+            'Genes {} do not have LITE and NITE model predictions.'.format(', '.join(np.setdiff1d(genes, found_genes)))
+        )
+    
     try:
         r['chromatin_differential'] = adata.layers['chromatin_differential'].toarray()
     except KeyError:

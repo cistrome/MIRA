@@ -3,7 +3,7 @@ import torch
 import pyro
 import pyro.distributions as dist
 from pyro.infer.autoguide import AutoDelta
-from pyro.infer import SVI, TraceMeanField_ELBO, Predictive
+from pyro.infer import SVI, TraceMeanField_ELBO, Trace_ELBO, Predictive
 from pyro.infer.autoguide.initialization import init_to_mean, init_to_value
 from pyro import poutine
 import numpy as np
