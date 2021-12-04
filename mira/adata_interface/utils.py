@@ -17,7 +17,7 @@ def make_joint_representation(
     adata1, adata2,
     adata1_key = 'X_umap_features',
     adata2_key = 'X_umap_features',
-    key_added = 'X_joint_umap_features'
+    key_added = 'X_joint_umap_features',
 ):
 
     obs_1, obs_2 = adata1.obs_names.values, adata2.obs_names.values
@@ -52,15 +52,15 @@ def make_joint_representation(
     return adata1, adata2
 
 
-def mask_non_expressed_factors(atac_adata,*, expressed_genes, factor_type = 'motifs'):
+def subset_factors(atac_adata,*, use_factors, factor_type = 'motifs'):
     
     metadata, _ = ri.fetch_factor_meta(None, atac_adata, 
         factor_type = factor_type, mask_factors = False)
     
-    assert(isinstance(expressed_genes, (list, np.ndarray, pd.Index)))
+    assert(isinstance(use_factors, (list, np.ndarray, pd.Index))),'Must supply list of factors for either "user_factors" or "hide_factors".'
 
     factor_mask = [
-        factor['parsed_name'] in expressed_genes
+        factor['parsed_name'] in use_factors
         for factor in metadata
     ]
 

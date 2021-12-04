@@ -31,7 +31,7 @@ Please refer to [our tutorial](https://colab.research.google.com/drive/1BTMBudzN
 
 
 setup(name='mira-multiome',
-      version='0.0.2',
+      version='0.0.3',
       description='Single-cell multiomics data analysis package',
       long_description=long_text,
       long_description_content_type="text/markdown",

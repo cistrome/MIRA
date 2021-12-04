@@ -3,7 +3,7 @@ import torch
 import pyro
 import pyro.distributions as dist
 from pyro.infer.autoguide import AutoDelta
-from pyro.infer import SVI, Trace_ELBO, Predictive
+from pyro.infer import SVI, TraceMeanField_ELBO, Predictive
 from pyro.infer.autoguide.initialization import init_to_mean, init_to_value
 from pyro import poutine
 import numpy as np
@@ -270,7 +270,7 @@ class BaseModel:
 
     @wraps_rp_func(add_isd_results, 
         bar_desc = 'Predicting TF influence', include_factor_data = True)
-    def probabalistic_ISD(self, model, features,*,hits_matrix, metadata):
+    def probabilistic_isd(self, model, features,*,hits_matrix, metadata):
         return model.probabalistic_ISD(features, hits_matrix)
 
 
@@ -393,7 +393,7 @@ class GeneModel:
 
     @staticmethod
     def get_loss_fn():
-        return Trace_ELBO().differentiable_loss
+        return TraceMeanField_ELBO().differentiable_loss
 
     def get_optimizer(self, params):
         #return torch.optim.LBFGS(params, lr=self.learning_rate, line_search_fn = 'strong_wolfe')
@@ -663,7 +663,7 @@ class GeneModel:
         return logp_summary[0] - logp_summary[1:], f_Z, expression, logp_data
 
 
-    def probabalistic_ISD(self, features, hits_matrix, n_samples = 1500, n_bins = 20):
+    def probabilistic_isd(self, features, hits_matrix, n_samples = 1500, n_bins = 20):
         
         np.random.seed(2556)
         N = len(features['gene_expr'])

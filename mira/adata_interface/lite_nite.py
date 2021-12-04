@@ -76,13 +76,13 @@ def fetch_lite_nite_prediction(self, adata):
         lite_gene_mask = get_dense_columns(self, adata, 'LITE_prediction')
         lite_prediction = fetch_layer(self, adata, 'LITE_prediction')
     except KeyError:
-        raise KeyError('User must run "get_logp" using a trained lite_model object before running this function')
+        raise KeyError('User must run "predict" using a trained lite_model object before running this function')
 
     try:
         nite_gene_mask = get_dense_columns(self, adata, 'NITE_prediction')
         nite_prediction = fetch_layer(self, adata, 'NITE_prediction')
     except KeyError:
-        raise KeyError('User must run "get_logp" using a trained nite_model before running this function')
+        raise KeyError('User must run "predict" using a trained nite_model before running this function')
 
     overlapped_genes = np.logical_and(lite_gene_mask, nite_gene_mask)
 
