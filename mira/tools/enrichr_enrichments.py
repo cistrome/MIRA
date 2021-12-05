@@ -1,6 +1,5 @@
 import requests
 import json
-from mira.plots.enrichment_plot import plot_enrichment
 from functools import partial
 from mira.plots.base import map_plot
 

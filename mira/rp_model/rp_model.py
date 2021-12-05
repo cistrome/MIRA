@@ -271,7 +271,7 @@ class BaseModel:
     @wraps_rp_func(add_isd_results, 
         bar_desc = 'Predicting TF influence', include_factor_data = True)
     def probabilistic_isd(self, model, features,*,hits_matrix, metadata):
-        return model.probabalistic_ISD(features, hits_matrix)
+        return model.probabilistic_isd(features, hits_matrix)
 
 
 class LITE_Model(BaseModel):

@@ -17,7 +17,7 @@ def compact_string(x, max_wordlen = 4, join_spacer = ' ', sep = ' ', label_genes
         ]
     )
 
-def plot_enrichment(ax, ontology, results, 
+def _plot_enrichment(ax, ontology, results, 
     label_genes = [], color_by_adj = True, palette = 'Reds', gene_fontsize=10, pval_threshold = 1e-5,
     show_top = 5, show_genes = True, max_genes = 20, text_color = 'black', barcolor = 'lightgrey'):
 
@@ -63,7 +63,7 @@ def plot_enrichments(enrichment_results, show_genes = True, show_top = 10, barco
         text_color = 'black', return_fig = False, enrichments_per_row = 2, height = 4, aspect = 2.5, max_genes = 15,
         pval_threshold = 1e-5, color_by_adj = True, palette = 'Reds', gene_fontsize = 10):
 
-    func = partial(plot_enrichment, text_color = text_color, label_genes = label_genes, pval_threshold = pval_threshold,
+    func = partial(_plot_enrichment, text_color = text_color, label_genes = label_genes, pval_threshold = pval_threshold,
             show_top = show_top, barcolor = barcolor, show_genes = show_genes, max_genes = max_genes,
             color_by_adj = color_by_adj, palette = palette, gene_fontsize=gene_fontsize)
 
