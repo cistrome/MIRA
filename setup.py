@@ -26,12 +26,12 @@ conda install -c conda-forge -c liulab-dfci -c bioconda mira-multiome
 
 MIRA takes count matrices of transcripts and accessible regions measured by single cell multimodal RNA-seq and ATAC-seq from any platform as input data. MIRA output integrates with AnnData data structure for interoperability with Scanpy. The initial model training is faster with GPU hardware but can be accomplished with CPU computation.
 
-Please refer to [our tutorial](https://colab.research.google.com/drive/1BTMBudzNHKQ2icm0S-3iRLIOF4g0Ur_I?usp=sharing) for an overview of analyses that can be achieved with MIRA using an example 10x Multiome embryonic brain dataset.
+Please refer to [our tutorial](https://colab.research.google.com/drive/1dtBMWNlkf58yGKylsJUFMxtNwHAo0h04?usp=sharing) for an overview of analyses that can be achieved with MIRA using an example 10x Multiome embryonic brain dataset.
 '''
 
 
 setup(name='mira-multiome',
-      version='0.0.5',
+      version='0.0.6',
       description='Single-cell multiomics data analysis package',
       long_description=long_text,
       long_description_content_type="text/markdown",
