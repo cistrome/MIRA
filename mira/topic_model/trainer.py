@@ -39,7 +39,7 @@ def _print_study(study, trial):
             return 'Trial #{:<3} | pruned at step: {:<12} | params: {}'.format(str(trial.number), str(trial.user_attrs['batches_trained']), str(trial.user_attrs['trial_params']))
         elif trial.state == ts.FAIL:
             return 'Trial #{:<3} | ERROR                        | params: {}'\
-                .format(str(trial.number), str(trial.user_attrs['batches_trained']), str(trial.user_attrs['trial_params']))
+                .format(str(trial.number), str(trial.user_attrs['trial_params']))
 
     if NOTEBOOK_MODE:
         clear_output(wait=True)

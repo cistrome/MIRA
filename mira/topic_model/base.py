@@ -124,6 +124,20 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @classmethod
     def load(cls, filename):
+        '''
+        Load a pre-trained topic model from disk.
+        
+        Parameters
+        ----------
+        filename : str
+            File name of saved topic model
+
+        Examples
+        --------
+        >>> rna_model = mira.topics.ExpressionTopicModel('rna_model.pth')
+        >>> atac_model = mira.topics.AccessibilityTopicModel('atac_model.pth')
+
+        '''
 
         data = torch.load(filename)
 
@@ -151,6 +165,95 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             initial_pseudocounts = 50,
             nb_parameterize_logspace = True,
             ):
+        '''
+        Initialize a new MIRA topic model.
+
+        Learns regulatory "topics" from single-cell multiomics data. Topics capture 
+        patterns of covariance between gene or cis-regulatory elements. 
+        Each cell is represented by a composition over topics, and each 
+        topic corresponds with activations of co-regulated elements.
+
+        One may use enrichment analysis of the topics to understand signaling 
+        and transcription factor drivers of cell states, and embedding of 
+        cell-topic distributions to visualize and cluster cells, 
+        and to perform pseudotime trajectory inference.
+
+        Parameters
+        ----------
+        endogenous_key : str, default=None
+            Column in AnnData that marks features to be used for encoder neural network. 
+            These features should prioritize elements that distinguish 
+            between populations, like highly-variable genes.
+        exogenous_key : str, default=None
+            Column in AnnData that marks features to be used for decoder neural network. 
+            These features should include all elements used for enrichment analysis of topics. 
+            Commonly, this will be genes with a certain amout of expression that 
+            are not necessarily highly variable. For accessibility data, all called peaks may be used.
+        counts_layer : str, default=None
+            Layer in AnnData that countains raw counts for modeling.
+        num_topics : int, default=16
+            Number of topics to learn from data.
+        hidden : int, default=128
+            Number of nodes to use in hidden layers of encoder network
+        num_layers: int, default=3
+            Number of layers to use in encoder network, including output layer
+        num_epochs: int, default=40
+            Number of epochs to train topic model. The One-cycle learning rate policy
+            requires a pre-defined training length, and 40 epochs is 
+            usually an overestimate of the optimal number of epochs to train for.
+        decoder_dropout : float (0., 1.), default=0.2
+            Dropout rate for the decoder network. Prevents node collapse.
+        encoder_dropout : float (0., 1.), default=0.2
+            Dropout rate for the encoder network. Prevents overfitting.
+        use_cuda : boolean, default=True
+            Try using CUDA GPU speedup while training.
+        seed : int, default=None
+            Random seed for weight initialization. 
+            Enables reproduceable initialization of model.
+        min_learning_rate : float, default=1e-6
+            Start learning rate for One-cycle learning rate policy.
+        max_learning_rate : float, default=1e-1
+            Peak learning rate for One-cycle policy. 
+        beta : float, default=0.95
+            Momentum parameter for ADAM optimizer.
+        batch_size : int, default=64
+            Minibatch size for stochastic gradient descent while training. 
+            Larger batch sizes train faster, but may produce less optimal models.
+        initial_pseudocounts : int, default=50
+            Initial pseudocounts allocated to approximated hierarchical dirichlet prior.
+            More pseudocounts produces smoother topics, 
+            less pseudocounts produces sparser topics. 
+        nb_parameterize_logspace : boolean, default=True
+            Parameterize negative-binomial distribution using log-space probability 
+            estimates of gene expression. Is more numerically stable.
+
+        Examples
+        --------
+        >>> rna_model = mira.topics.ExpressionTopicModel(
+                exogenous_key = 'predict_expression', 
+                endogenous_key = 'highly_variable',
+                counts_layer = 'rawcounts',
+                num_topics = 15,
+            )
+
+        Attributes
+        ----------
+        features : np.ndarray[str]
+            Array of exogenous feature names, all features used in learning topics
+        highly_variable : np.ndarray[boolean]
+            Boolean array marking which features were 
+            "highly_variable"/endogenous, used to train encoder
+        encoder : torch.nn.Sequential
+            Encoder neural network
+        decoder : torch.nn.Sequential
+            Decoder neural network
+        num_exog_features : int
+            Number of exogenous features to predict using decoder network
+        num_endog_features : int
+            Number of endogenous feature used for encoder network
+        device : torch.device
+            Device on which model is allocated
+        '''
         super().__init__()
 
         self.endogenous_key = endogenous_key
@@ -373,6 +476,42 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def get_learning_rate_bounds(self, num_epochs = 6, eval_every = 10, 
         lower_bound_lr = 1e-6, upper_bound_lr = 1,*,
         features, highly_variable, endog_features, exog_features):
+        '''
+        Use the learning rate range test (LRRT) to determine minimum and maximum learning
+        rates that enable the model to traverse the gradient of the loss. 
+
+        Steps through linear increase in log-learning rate from **lower_bound_lr** 
+        to **upper_bound_lr** while recording loss of model. Learning rates which
+        produce greater decreases in model loss mark range of possible
+        learning rates.
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            AnnData of expression or accessibility features to model
+        num_epochs : int, default=6
+            Number of epochs to run the LRRT, may be decreased for smaller datasets.
+        eval_every : int, default=10,
+            Aggregate this number of batches per evaluation of the objective loss.
+            Larger numbers give lower variance estimates of model performance.
+        lower_bound_lr : float, default=1e-6
+            Start learning rate of LRRT
+        upper_bound_lr : float, default=1 
+            End learning rate of LRRT
+
+        Returns
+        -------
+        min_learning_rate : float
+            Lower bound of estimated range of optimal learning rates
+        max_learning_rate : float
+            Upper bound of estimated range of optimal learning rates
+
+        Examples
+        --------
+        >>> rna_model.get_learning_rate_bounds(rna_data, num_epochs = 3)
+        Learning rate range test: 100%|██████████| 85/85 [00:17<00:00,  4.73it/s]
+        (4.619921114045972e-06, 0.1800121741235493)
+        '''
 
         self._instantiate_model(
             features = features, highly_variable = highly_variable, 
@@ -463,11 +602,55 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         return np.exp(start), np.exp(end), spline_fit
 
     def set_learning_rates(self, min_lr, max_lr):
+        '''
+        Set the lower and upper learning rate bounds for the One-cycle
+        learning rate policy.
+
+        Parameters
+        ----------
+        min_lr : float
+            Lower learning rate boundary
+        max_lr : float
+            Upper learning rate boundary
+
+        Returns
+        -------
+        None        
+        '''
         self.set_params(min_learning_rate = min_lr, max_learning_rate= max_lr)
+
 
     def trim_learning_rate_bounds(self, 
         lower_bound_trim = 0., 
         upper_bound_trim = 0.5):
+        '''
+        Adjust the learning rate boundaries for the One-cycle learning rate policy.
+        The lower and upper bounds should span the learning rates with the 
+        greatest downwards slope in loss.
+
+        Parameters
+        ----------
+        lower_bound_trim : float>=0, default=0.
+            Log increase in learning rate of lower bound relative to estimated
+            boundary given from LRRT. For example, if the estimated boundary by
+            LRRT is 1e-4 and user gives **lower_bound_trim**=1, the new lower
+            learning rate bound is set at 1e-3.
+        upper_bound_trim : float>=0, default=0.5,
+            Log decrease in learning rate of upper bound relative to estimated
+            boundary give from LRRT. 
+
+        Returns
+        -------
+        min_learning_rate : float
+            Lower bound of estimated range of optimal learning rates
+        max_learning_rate : float
+            Upper bound of estimated range of optimal learning rates
+
+        Examples
+        --------
+        >>> rna_model.trim_learning_rate_bounds(2, 1)
+        (4.619921114045972e-04, 0.1800121741235493e-1)
+        '''
 
         try:
             self.gradient_lr
@@ -490,6 +673,21 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     def plot_learning_rate_bounds(self, figsize = (10,7), ax = None):
+        '''
+        Plot the loss vs. learning rate curve generated by the LRRT test with
+        the current boundaries.
+
+        Parameters
+        ----------
+        figsize : tuple(int, int), default=(10,7)
+            Size of the figure
+        ax : matplotlib.pyplot.axes or None, default = None
+            Pre-supplied axes for plot. If None, will generate new axes
+
+        Returns
+        -------
+        ax : matplotlib.pyplot.axes
+        '''
 
         try:
             self.gradient_lr
@@ -507,8 +705,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         ax.scatter(self.gradient_lr, self.gradient_loss, color = 'lightgrey', label = 'Batch Loss')
         ax.plot(np.exp(x_fit), y_spline, color = 'grey', label = '')
-        ax.axvline(self.min_learning_rate, color = 'red', label = 'Min/Max Learning Rate')
-        ax.axvline(self.max_learning_rate, color = 'red', label = '')
+        ax.axvline(self.min_learning_rate, color = 'black', label = 'Min Learning Rate')
+        ax.axvline(self.max_learning_rate, color = 'red', label = 'Max Learning Rate')
 
         legend_kwargs = dict(loc="upper left", markerscale = 1, frameon = False, fontsize='large', bbox_to_anchor=(1.0, 1.05))
         ax.legend(**legend_kwargs)
@@ -598,6 +796,19 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     @adi.wraps_modelfunc(tmi.fit_adata, adi.return_output,
         fill_kwargs=['features','highly_variable','endog_features','exog_features'])
     def fit(self,*,features, highly_variable, endog_features, exog_features):
+        '''
+        Initializes new weights, then fits model to data.
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            AnnData of expression or accessibility features to model
+
+        Returns
+        -------
+        self : object
+            Fitted topic model
+        '''
         for _ in self._fit(features = features, highly_variable = highly_variable, 
             endog_features = endog_features, exog_features = exog_features):
             pass
@@ -630,6 +841,26 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     @adi.wraps_modelfunc(tmi.fetch_features, tmi.add_topic_comps,
         fill_kwargs=['endog_features','exog_features'])
     def predict(self, batch_size = 512, *,endog_features, exog_features):
+        '''
+        Predict the topic compositions of cells in the data.
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            AnnData of expression or accessibility features to model
+        batch_size : int>0, default=512
+            Minibatch size to run cells through encoder network to predict 
+            topic compositions. Set to highest value where tensors will fit in
+            memory to increase speed.
+
+        Returns
+        -------
+        adata : anndata.AnnData
+            `.obsm['X_topic_compositions']` : np.ndarray[float] of shape (n_cells, n_topics)
+                Topic compositions of cells
+            `.obs['topic_1'] ... .obs['topic_N']` : np.ndarray[float] of shape (n_cells,)
+                Columns for the activation of each topic.            
+        '''
         return self._run_encoder_fn(self.encoder.topic_comps, batch_size = batch_size, 
             endog_features = endog_features, exog_features = exog_features)
 
@@ -661,19 +892,39 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     @adi.wraps_modelfunc(tmi.fetch_features, tmi.add_umap_features,
         fill_kwargs=['endog_features','exog_features'])
     def get_umap_features(self,batch_size = 512, *,endog_features, exog_features):
+        '''
+        Predict transformed topic compositions for each cell to derive nearest-
+        neighbors graph. Projects topic compositions to orthonormal space using
+        isometric logratio transformation.
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            AnnData of expression or accessibility features to model
+        batch_size : int>0, default=512
+            Minibatch size to run cells through encoder network to predict 
+            topic compositions. Set to highest value where tensors will fit in
+            memory to increase speed.
+
+        Returns
+        -------
+        adata : anndata.AnnData
+            `.obsm['X_umap_features']` : np.ndarray[float] of shape (n_cells, n_topics)
+                Transformed topic compositions of cells
+        '''
         
         compositions = self._run_encoder_fn(self.encoder.topic_comps, endog_features = endog_features, exog_features = exog_features, batch_size=batch_size)
         return self._project_to_orthospace(compositions)
 
 
-    def _get_elbo_loss(self,*,endog_features, exog_features):
+    def _get_elbo_loss(self, batch_size = 512, *,endog_features, exog_features):
 
         self.eval()
         running_loss = 0
         #self.eps.device(self.device)
         for batch in self._iterate_batches(endog_features = endog_features, 
                         exog_features = exog_features, 
-                        batch_size = 512, bar = False):
+                        batch_size = batch_size, bar = False):
                     
             running_loss += float(self.svi.evaluate_loss(**batch, anneal_factor = 1.0))
 
@@ -681,9 +932,33 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
         fill_kwargs=['endog_features','exog_features'])
-    def score(self,*,endog_features, exog_features):
+    def score(self, batch_size = 512, *,endog_features, exog_features):
+        '''
+        Get normalized ELBO loss for data. This method is only available on
+        topic models that have not been loaded from disk.
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            AnnData of expression or accessibility features to model
+        batch_size : int>0, default=512
+            Minibatch size to run cells through encoder network to predict 
+            topic compositions. Set to highest value where tensors will fit in
+            memory to increase speed.
+
+        Returns
+        -------
+        loss : float
+
+        Examples
+        --------
+        >>> rna_model.score(rna_data)
+        0.11564
+        '''
         self.eval()
-        return self._get_elbo_loss(endog_features = endog_features, exog_features = exog_features)\
+        return self._get_elbo_loss(
+            endog_features = endog_features, exog_features = exog_features,
+            batch_size = batch_size)\
             /(endog_features.shape[0] * self.num_exog_features)
 
     
@@ -709,6 +984,32 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, adi.add_layer,
         fill_kwargs=['topic_compositions'])
     def impute(self, batch_size = 512, bar = True, *, topic_compositions):
+        '''
+        Impute the relative frequencies of features given the cells' topic
+        compositions. The value given is **rho** (see manscript for details).
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            AnnData of expression or accessibility features to model
+        batch_size : int>0, default=512
+            Minibatch size to run cells through encoder network to predict 
+            topic compositions. Set to highest value where tensors will fit in
+            memory to increase speed.
+
+        Returns
+        -------
+        anndata.AnnData
+            `.layers['imputed']` : np.ndarray[float] of shape (n_cells, n_features)
+                Imputed relative frequencies of features
+
+        Examples
+        --------
+        >>> rna_model.impute(rna_data)
+        >>> rna_data
+        View of AnnData object with n_obs × n_vars = 18482 × 22293
+            layers: 'imputed'
+        '''
         return self.features, np.vstack([
             x for x  in self._batched_impute(topic_compositions, batch_size = batch_size, bar = bar)
         ])
@@ -739,6 +1040,14 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         )
 
     def save(self, filename):
+        '''
+        Save topic model.
+
+        Parameters
+        ----------
+        filename : str
+            File name to save topic model, recommend .pth extension
+        '''
         torch.save(self._get_save_data(), filename)
 
     def _set_weights(self, fit_params, weights):
@@ -776,12 +1085,26 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         return self.decoder.bn.running_var.cpu().detach().numpy()
 
     def to_gpu(self):
+        '''
+        Move topic model to GPU device "cuda:0", if available.
+        '''
         self.set_device('cuda:0')
     
     def to_cpu(self):
+        '''
+        Move topic model to CPU device "cpu", if available.
+        '''
         self.set_device('cpu')
 
     def set_device(self, device):
+        '''
+        Move topic model to a new device.
+
+        Parameters
+        ----------
+        device : str
+            Name of device on which to allocate model
+        '''
         logger.info('Moving model to device: {}'.format(device))
         self.device = device
         self = self.to(self.device)
