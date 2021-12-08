@@ -2,7 +2,7 @@ from setuptools import setup
 from setuptools import find_packages
 
 long_text='''
-**MIRA (Probabilistic Multimodal <ins>M</ins>odels for <ins>I</ins>ntegrated <ins>R</ins>egulatory <ins>A</ins>nalysis)** is a comprehensive methodology that systematically contrasts single cell transcription and accessibility to infer the regulatory circuitry driving cells along developmental trajectories. 
+**MIRA (Probabilistic Multimodal Models for Integrated Regulatory Analysis)** is a comprehensive methodology that systematically contrasts single cell transcription and accessibility to infer the regulatory circuitry driving cells along developmental trajectories. 
 
 MIRA leverages joint topic modeling of cell states and regulatory potential modeling at individual gene loci to:
 - jointly represent cell states in an efficient and interpretable latent space
@@ -10,7 +10,7 @@ MIRA leverages joint topic modeling of cell states and regulatory potential mode
 - determine key regulators of fate decisions at branch points
 - expose the variable influence of local accessibility on transcription at distinct loci
 
-See [our manuscript](https://www.biorxiv.org/content/10.1101/2021.12.06.471401v1) for details.
+See [our manuscript](https://www.biorxiv.org/content/10.1101/2021.12.06.471401v1) for details. View code at the [MIRA github repository](https://github.com/cistrome/MIRA).
 
 ## Getting Started
 
@@ -72,7 +72,7 @@ See [environment.yaml](https://github.com/cistrome/MIRA/blob/main/environment.ya
 
 
 setup(name='mira-multiome',
-      version='0.0.7',
+      version='0.0.8',
       description='Single-cell multiomics data analysis package',
       long_description=long_text,
       long_description_content_type="text/markdown",
