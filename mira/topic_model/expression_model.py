@@ -49,12 +49,16 @@ logger = logging.getLogger(__name__)
 class ExpressionEncoder(torch.nn.Module):
 
 
-    def __init__(self,*,num_endog_features, num_topics, hidden, dropout, num_layers):
+    def __init__(self,embedding_size=None,*,num_endog_features, num_topics, hidden, dropout, num_layers):
         super().__init__()
+
+        if embedding_size is None:
+            embedding_size = hidden
+
         output_batchnorm_size = 2*num_topics + 2
         self.num_topics = num_topics
         self.fc_layers = get_fc_stack(
-            layer_dims = [num_endog_features + 1, *[hidden]*(num_layers-1), output_batchnorm_size],
+            layer_dims = [num_endog_features + 1, embedding_size, *[hidden]*(num_layers-2), output_batchnorm_size],
             dropout = dropout, skip_nonlin = True
         )
         
@@ -166,6 +170,12 @@ class ExpressionTopicModel(BaseModel):
                     "read_depth", dist.LogNormal(rd_loc.reshape((-1,1)), rd_scale.reshape((-1,1))).to_event(1)
                 )
 
+    def _get_dataset_statistics(self, endog_features, exog_features):
+        super()._get_dataset_statistics(endog_features, exog_features)
+
+        self.residual_pi = np.array(endog_features.sum(axis = 0)).reshape(-1)/endog_features.sum()
+
+
     @adi.wraps_modelfunc(tmi.fetch_features, partial(adi.add_obs_col, colname = 'model_read_scale'),
         ['endog_features','exog_features'])
     def _get_read_depth(self, *, endog_features, exog_features, batch_size = 512):
@@ -183,11 +193,6 @@ class ExpressionTopicModel(BaseModel):
 
         assert(len(X.shape) == 2)
         assert(X.shape[1] == self.num_endog_features)
-
-        try:
-            self.residual_pi
-        except AttributeError:
-            self.residual_pi = X.sum(axis = 0)/X.sum()
         
         assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
 

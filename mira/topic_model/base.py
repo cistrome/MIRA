@@ -164,6 +164,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             batch_size = 64,
             initial_pseudocounts = 50,
             nb_parameterize_logspace = True,
+            embedding_size = None,
             ):
         '''
         Initialize a new MIRA topic model.
@@ -273,6 +274,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.batch_size = batch_size
         self.initial_pseudocounts = initial_pseudocounts
         self.nb_parameterize_logspace = nb_parameterize_logspace
+        self.embedding_size = embedding_size
 
     def _set_seeds(self):
         if self.seed is None:
@@ -281,6 +283,9 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         torch.manual_seed(self.seed)
         pyro.set_rng_seed(self.seed)
         np.random.seed(self.seed)
+
+    def _get_dataset_statistics(self, endog_features, exog_features):
+        pass
 
     def _get_weights(self, on_gpu = True, inference_mode = False):
         
@@ -313,6 +318,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         )
 
         self.encoder = self.encoder_model(
+            embedding_size = self.embedding_size,
             num_endog_features = self.num_endog_features, 
             num_topics = self.num_topics, 
             hidden = self.hidden, 
@@ -348,8 +354,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             *self._get_gamma_moments(self.initial_pseudocounts, self.num_topics)
         )
 
-        pseudocount_mu = pyro.param('pseudocount_mu', _counts_mu * torch.ones((self.num_topics,)).to(self.device))#,
-            #constraint = constraints.positive)
+        pseudocount_mu = pyro.param('pseudocount_mu', _counts_mu * torch.ones((self.num_topics,)).to(self.device))
 
         pseudocount_std = pyro.param('pseudocount_std', np.sqrt(_counts_var) * torch.ones((self.num_topics,)).to(self.device), 
                 constraint = constraints.positive)
@@ -724,6 +729,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             endog_features = endog_features, exog_features = exog_features,
         )
 
+        self._get_dataset_statistics(endog_features, exog_features)
+
         n_observations = endog_features.shape[0]
         n_batches = self.get_num_batches(n_observations, self.batch_size)
 
@@ -867,7 +874,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @staticmethod
     def centered_boxcox_transform(x, a = 'log'):
-        if not a == 'log':
+        if not (a == 'log' or a == 0):
             x = (x**a - 1)/a
         else:
             x = np.log(x)
@@ -884,14 +891,14 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             basis[:, j] = e
         return basis
 
-    def _project_to_orthospace(self, compositions):
+    def _project_to_orthospace(self, compositions, a = 'log'):
 
         basis = self._gram_schmidt_basis(compositions.shape[-1])
-        return self.centered_boxcox_transform(compositions, a = 'log').dot(basis)
+        return self.centered_boxcox_transform(compositions, a = a).dot(basis)
     
-    @adi.wraps_modelfunc(tmi.fetch_features, tmi.add_umap_features,
-        fill_kwargs=['endog_features','exog_features'])
-    def get_umap_features(self,batch_size = 512, *,endog_features, exog_features):
+    @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_obsm, add_key = 'X_umap_features'),
+        fill_kwargs=['topic_compositions'])
+    def get_umap_features(self, box_cox = 'log', *, topic_compositions):
         '''
         Predict transformed topic compositions for each cell to derive nearest-
         neighbors graph. Projects topic compositions to orthonormal space using
@@ -901,10 +908,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         ----------
         adata : anndata.AnnData
             AnnData of expression or accessibility features to model
-        batch_size : int>0, default=512
-            Minibatch size to run cells through encoder network to predict 
-            topic compositions. Set to highest value where tensors will fit in
-            memory to increase speed.
+        box_cox : "log" or int > 0
+            Constant for box-cox transformation of topic compositions
 
         Returns
         -------
@@ -913,8 +918,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 Transformed topic compositions of cells
         '''
         
-        compositions = self._run_encoder_fn(self.encoder.topic_comps, endog_features = endog_features, exog_features = exog_features, batch_size=batch_size)
-        return self._project_to_orthospace(compositions)
+        #compositions = self._run_encoder_fn(self.encoder.topic_comps, endog_features = endog_features, exog_features = exog_features, batch_size=batch_size)
+        return self._project_to_orthospace(topic_compositions, a = box_cox)
 
 
     def _get_elbo_loss(self, batch_size = 512, *,endog_features, exog_features):

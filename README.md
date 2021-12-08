@@ -10,7 +10,21 @@ MIRA leverages joint topic modeling of cell states and regulatory potential mode
 - determine key regulators of fate decisions at branch points
 - expose the variable influence of local accessibility on transcription at distinct loci
 
-See [our manuscript](#citations) for details.
+See [our manuscript](https://www.biorxiv.org/content/10.1101/2021.12.06.471401v1) for details.
+
+## Getting Started
+
+MIRA takes count matrices of transcripts and accessible regions measured by single cell multimodal RNA-seq and ATAC-seq from any platform as input data. MIRA output integrates with AnnData data structure for interoperability with Scanpy. The initial model training is faster with GPU hardware but can be accomplished with CPU computation.
+
+Please refer to [our tutorial](https://colab.research.google.com/drive/1dtBMWNlkf58yGKylsJUFMxtNwHAo0h04?usp=sharing) for an overview of analyses that can be achieved with MIRA using an example 10x Multiome embryonic brain dataset.
+
+
+## System Requirements
+
+* Linux or MacOS
+* Python >=3.5, <3.8
+* (optional) CUDA-enable GPU
+
 
 ## Install
 
@@ -24,11 +38,41 @@ or
 conda install -c conda-forge -c liulab-dfci -c bioconda mira-multiome
 </pre>
 
-## Getting Started
+Installation will take about a minute.
 
-MIRA takes count matrices of transcripts and accessible regions measured by single cell multimodal RNA-seq and ATAC-seq from any platform as input data. MIRA output integrates with AnnData data structure for interoperability with Scanpy. The initial model training is faster with GPU hardware but can be accomplished with CPU computation.
+Please note, currently MIRA may only be installed on Python < 3.8 due to some dependencies' requirements. We are working to make it accessible on newer Python versions. To set up an a new analysis, it is recommended to start with a fresh environment:
 
-Please refer to [our tutorial](https://colab.research.google.com/drive/1dtBMWNlkf58yGKylsJUFMxtNwHAo0h04?usp=sharing) for an overview of analyses that can be achieved with MIRA using an example 10x Multiome embryonic brain dataset.
+<pre>
+conda create --name mira-env -c conda-forge -c liulab-dfci -c bioconda mira-multiome scanpy jupyter leidenalg
+conda activate mira-env
+python -m ipykernel install --user --name mira-env
+</pre>
+
+To use the environment in a jupyter notebook, start the notebook server, then go to Kernel > Change kernel > mira-env.
+
+
+## Dependencies
+
+* pytorch
+* pyro-ppl
+* tqdm
+* moods
+* pyfaidx
+* matplotlib
+* lisa2
+* requests
+* networkx
+* numpy
+* scipy
+* optuna
+* anndata
+
+See [environment.yaml](https://github.com/cistrome/MIRA/blob/main/environment.yaml) for versioning details.
+
+## Changelog
+
+See [changelog](https://github.com/cistrome/MIRA/blob/main/docs/changelog.md) for details.
+
 
 ## Gallery
 
@@ -127,7 +171,7 @@ MIRA quantifies the regulatory influence of local chromatin accessibility by com
 
 ## Citations
 
-MIRA was created by researchers in the X. Shirley Liu Lab at Dana-Farber Cancer Institute. If you use MIRA in your research, we would appreciate citation of [our manuscript](bioarxiv_link) ([bibtex](https://github.com/AllenWLynch/Kladi/blob/adata/docs/references/mira_bioarxiv.bib)).
+MIRA was created by researchers in the X. Shirley Liu Lab at Dana-Farber Cancer Institute. If you use MIRA in your research, we would appreciate citation of [our manuscript](https://www.biorxiv.org/content/10.1101/2021.12.06.471401v1) ([bibtex](https://github.com/AllenWLynch/Kladi/blob/adata/docs/references/mira_bioarxiv.bib)).
 
 <p>&nbsp;</p>
 

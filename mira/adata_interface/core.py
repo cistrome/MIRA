@@ -231,3 +231,9 @@ def add_layer(adata, output, add_layer = 'imputed', sparse = False):
         new_layer = project_sparse_matrix(adata.var_names, features, vals)
 
     adata.layers[add_layer] = new_layer
+
+
+def add_obsm(adata, output,*,add_key):
+
+    logger.info('Added key to obsm: ' + str(add_key))
+    adata.obsm[add_key] = output
