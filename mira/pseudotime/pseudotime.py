@@ -148,13 +148,16 @@ def get_connected_components(*,distance_matrix, diffmap):
     return component_num.astype(str)
 
 
-def get_pseudotime(max_iterations = 25, n_waypoints = 3000, n_jobs = -1,*, start_cell, distance_matrix, diffmap):
+def get_pseudotime(max_iterations = 25, n_waypoints = 3000, n_jobs = 1,*, start_cell, distance_matrix, diffmap):
 
     assert(isinstance(max_iterations, int) and max_iterations > 0)
     N = distance_matrix.shape[0]
     cells = np.union1d(sample_waypoints(num_waypoints=n_waypoints, diffmap = diffmap), np.array([start_cell]))
     
-    logger.info('Calculting inter-cell distances ...')
+    logger.info('Calculating inter-cell distances ...')
+    if n_jobs == 1:
+        logging.info('Using {} core. Speed this up by allocating more n_jobs.'.format(str(n_jobs)))
+        
     # Distances
     dists = Parallel(n_jobs=n_jobs, max_nbytes=None)(
         delayed(csgraph.dijkstra)(distance_matrix, False, cell)

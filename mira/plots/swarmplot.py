@@ -238,7 +238,7 @@ def _plot_swarm_segment(is_leaf = False, centerline = 0, palette = 'inferno', fe
         pseudotime[plot_order], 
         np.ones_like(pseudotime) * centerline, 
         s = size, 
-        c = cell_colors,
+        c = cell_colors[plot_order],
         edgecolors = linecolor,
         linewidths = linewidth,
     )

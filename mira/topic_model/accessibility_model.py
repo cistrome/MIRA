@@ -68,7 +68,7 @@ class DANEncoder(nn.Module):
         else:
             corrupted_idx = idx
 
-        if self.calc_readdepth:
+        if self.calc_readdepth: # for compatibility with older models
             read_depth = (corrupted_idx > 0).sum(-1, keepdim=True)
 
         embeddings = self.embedding(corrupted_idx) # N, T, D
@@ -95,7 +95,7 @@ class AccessibilityTopicModel(BaseModel):
     encoder_model = DANEncoder
 
     @classmethod
-    def load_old_model(cls, filename, varnames):
+    def _load_old_model(cls, filename, varnames):
 
         old_model = torch.load(filename)
 
@@ -209,13 +209,13 @@ class AccessibilityTopicModel(BaseModel):
         ).to(self.device)
 
 
-    def _argsort_peaks(self, module_num):
-        assert(isinstance(module_num, int) and module_num < self.num_topics and module_num >= 0)
-        return np.argsort(self._score_features()[module_num, :])
+    def _argsort_peaks(self, topic_num):
+        assert(isinstance(topic_num, int) and topic_num < self.num_topics and topic_num >= 0)
+        return np.argsort(self._score_features()[topic_num, :])
 
 
-    def rank_peaks(self, module_num):
-        return self.peaks[self._argsort_peaks(module_num)]
+    def rank_peaks(self, topic_num):
+        return self.peaks[self._argsort_peaks(topic_num)]
 
     def _validate_hits_matrix(self, hits_matrix):
         assert(isspmatrix(hits_matrix))
@@ -226,15 +226,41 @@ class AccessibilityTopicModel(BaseModel):
         hits_matrix.data = np.ones_like(hits_matrix.data)
         return hits_matrix
     
+
     @adi.wraps_modelfunc(ri.fetch_factor_hits, adi.return_output,
         ['hits_matrix','metadata'])
     def get_enriched_TFs(self, factor_type = 'motifs', top_quantile = 0.2, *, 
-            module_num, hits_matrix, metadata):
+            topic_num, hits_matrix, metadata):
+        '''
+        Get TF enrichments in top peaks associated with a topic. Can be used to
+        associate a topic with either motif or ChIP hits from Cistrome's 
+        collection of public ChIP-seq data.
+
+        Before running this function, one must run either:
+        **mira.tl.get_motif_hits_in_peaks**
+
+        or:
+        **mira.tl.get_ChIP_hits_in_peaks**
+
+        Parameters
+        ----------
+        factor_type : str, 'motifs' or 'chip', default = 'motifs'
+            Which factor type to use for enrichment
+        top_quantile : float > 0, default = 0.2
+            Top quantile of peaks to use to represent topic in fisher exact test.
+        topic_num : int > 0
+            Topic for which to get enrichments
+        
+        Examples
+        --------
+        >>> mira.tl.get_motif_hits_in_peaks(atac_data, genome_fasta = '~/genome.fa')
+        >>> atac_model.get_enriched_TFs(atac_data, topic_num = 10)
+        '''
 
         assert(isinstance(top_quantile, float) and top_quantile > 0 and top_quantile < 1)
         hits_matrix = self._validate_hits_matrix(hits_matrix)
 
-        module_idx = self._argsort_peaks(module_num)[-int(self.num_exog_features*top_quantile) : ]
+        module_idx = self._argsort_peaks(topic_num)[-int(self.num_exog_features*top_quantile) : ]
 
         pvals, test_statistics = [], []
         for i in tqdm(range(hits_matrix.shape[0]), 'Finding enrichments'):
@@ -255,9 +281,7 @@ class AccessibilityTopicModel(BaseModel):
             for meta, pval, test_stat in zip(metadata, pvals, test_statistics)
         ]
 
-        self.enrichments[(factor_type, module_num)] = results
-
-        return results
+        self.enrichments[(factor_type, topic_num)] = results
 
 
     @adi.wraps_modelfunc(ri.fetch_factor_hits_and_latent_comps, ri.make_motif_score_adata,
@@ -278,12 +302,12 @@ class AccessibilityTopicModel(BaseModel):
         return metadata, motif_scores, normalized_scores
 
 
-    def get_enrichments(self, module_num, factor_type = 'motifs'):
+    def get_enrichments(self, topic_num, factor_type = 'motifs'):
         try:
-            return self.enrichments[(factor_type, module_num)]
+            return self.enrichments[(factor_type, topic_num)]
         except KeyError:
             raise KeyError('User has not gotten enrichments yet for module {} using factor_type: {}. Run "get_enriched_TFs" function.'\
-                .format(str(module_num), str(factor_type)))
+                .format(str(topic_num), str(factor_type)))
 
 
     def plot_compare_module_enrichments(self, module_1, module_2, factor_type = 'motifs', 

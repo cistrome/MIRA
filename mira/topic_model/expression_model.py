@@ -222,13 +222,16 @@ class ExpressionTopicModel(BaseModel):
     
     def rank_genes(self, topic_num):
         '''
-        Ranks genes according to their activation in module ``topic_num``. Sorted from most suppressed to most activated.
+        Ranks genes according to their activation in module **topic_num**. Sorted from most to least activated.
 
-        Args:
-            topic_num (int): For which module to rank genes
+        Parameters
+        ----------
+        topic_num : int
+            For which module to rank genes
 
-        Returns:
-            np.ndarray: sorted array of gene names in order from most suppressed to most activated given the specified module
+        Returns
+        -------
+        np.ndarray: sorted array of gene names in order from most suppressed to most activated given the specified module
         '''
         assert(isinstance(topic_num, int) and topic_num < self.num_topics and topic_num >= 0)
 
@@ -238,14 +241,18 @@ class ExpressionTopicModel(BaseModel):
         '''
         For a gene, rank how much its expression is activated by each module
 
-        Args:
-            gene (str): name of gene
+        Parameters
+        ----------
+        gene : str
+            Name of gene
+    
+        Raises
+        ------
+        AssertionError: if **gene** is not in self.genes
         
-        Raises:
-            AssertionError: if ``gene`` is not in self.genes
-        
-        Returns:
-            (list): of format [(topic_num, activation), ...]
+        Returns
+        -------
+        list : of format [(topic_num, activation), ...]
         '''
         
         assert(gene in self.genes)
@@ -258,17 +265,27 @@ class ExpressionTopicModel(BaseModel):
         '''
         For a module, return the top n genes that are most activated.
 
-        Args:
-            topic_num (int): For which module to return most activated genes
-            top_n (int): number of genes to return
+        Parameters
+        ----------
+        topic_num : int
+            For which module to return most activated genes
+        top_n : int > 0
+            Number of genes to return
+        min_genes : int > 0
+            If top_n is None, all activations (distributed standard normal) 
+            greater than 3 will be posted. If this is less than **min_genes**,
+            then **min_genes** will be posted.
+        max_genes : int > 0
+            If top_n is None, a maximum of **max_genes** will be posted.
 
         Returns
-            (np.ndarray): Names of top n genes, sorted from least to most activated
+        -------
+        np.ndarray : Names of top n genes, sorted from least to most activated
         '''
 
         if top_n is None:
             gene_scores = self._score_features()[topic_num,:]
-            top_genes_mask = gene_scores - np.maximum(gene_scores.mean(),0) > 2
+            top_genes_mask = gene_scores - np.maximum(gene_scores.mean(),0) > 3
 
             genes_found = top_genes_mask.sum() 
 
@@ -288,7 +305,28 @@ class ExpressionTopicModel(BaseModel):
             return self.rank_genes(topic_num)[-top_n : ]
 
 
-    def post_topic(self, topic_num, top_n = None, min_genes = 200, max_genes = 600):
+    def post_topic(self, topic_num, top_n = 500, min_genes = 200, max_genes = 600):
+        '''
+        Post the top genes from topic to Enrichr for geneset enrichment analysis.
+
+        Parameters
+        ----------
+        topic_num : int
+            Topic number to post geneset
+        top_n : int, default = 500
+            Number of genes to post
+        min_genes : int > 0
+            If top_n is None, all activations (distributed standard normal) 
+            greater than 3 will be posted. If this is less than **min_genes**,
+            then **min_genes** will be posted.
+        max_genes : int > 0
+            If top_n is None, a maximum of **max_genes** will be posted.
+
+        Examples
+        --------
+        >>> rna_model.post_topic(10, top_n = 500)
+        >>> rna_model.post_topic(10)
+        '''
 
         list_id = enrichr.post_genelist(
             self.get_top_genes(topic_num, top_n = top_n, min_genes = min_genes, max_genes = max_genes)
@@ -299,13 +337,46 @@ class ExpressionTopicModel(BaseModel):
             results = {}
         )
 
-    def post_topics(self, top_n = None, min_genes = 200, max_genes = 600):
+    def post_topics(self, top_n = 500, min_genes = 200, max_genes = 600):
+        '''
+        Iterate through all topics and post top genes to Enrichr.
+
+        Parameters
+        ----------
+        top_n : int, default = 500
+            Number of genes to post
+        min_genes : int > 0
+            If top_n is None, all activations (distributed standard normal) 
+            greater than 3 will be posted. If this is less than **min_genes**,
+            then **min_genes** will be posted.
+        max_genes : int > 0
+            If top_n is None, a maximum of **max_genes** will be posted.
+
+        Examples
+        --------
+        >>> rna_model.post_topics()
+        '''
 
         for i in range(self.num_topics):
             self.post_topic(i, top_n = top_n, min_genes = min_genes, max_genes = max_genes)
 
 
     def fetch_topic_enrichments(self, topic_num, ontologies = enrichr.LEGACY_ONTOLOGIES):
+        '''
+        Fetch Enrichr enrichments for a topic. Will return results for the ontologies listed.
+
+        Parameters
+        ----------
+        topic_num : int
+            Topic number to fetch enrichments
+        ontologies : list[str], default = mira.tools.enrichr_enrichments.LEGACY_ONTOLOGIES
+            List of ontology names from which to retrieve results. May provide
+            a list of any onlogies hosted on Enrichr.
+
+        Examples
+        --------
+        >>> rna_model.fetch_topic_enrichments(10, ontologies = ['WikiPathways_2019_Mouse'])        
+        '''
 
         try:
             self.enrichments
@@ -325,12 +396,52 @@ class ExpressionTopicModel(BaseModel):
 
 
     def fetch_enrichments(self,  ontologies = enrichr.LEGACY_ONTOLOGIES):
+        '''
+        Iterate through all topics and fetch enrichments.
+
+        Parameters
+        ----------
+        ontologies : list[str], default = mira.tools.enrichr_enrichments.LEGACY_ONTOLOGIES
+            List of ontology names from which to retrieve results. May provide
+            a list of any onlogies hosted on Enrichr.
+
+        Examples
+        --------
+        >>> rna_model.fetch_enrichments(ontologies = ['WikiPathways_2019_Mouse'])
+        '''
         
         for i in range(self.num_topics):
             self.fetch_topic_enrichments(i, ontologies = ontologies)
 
 
     def get_enrichments(self, topic_num):
+        '''
+        Return the enrichment results for a  given topic.
+
+        Paramters
+        ---------
+        topic_num : int
+            Topic for which to return enrichment results
+        
+        Returns
+        -------
+        enrichments : dict
+            Dictionary with schema:
+            {
+                <ontology> : {
+                    [
+                        {'rank' : <rank>,
+                        'term' : <term>,
+                        'pvalue' : <pval>,
+                        'zscore': <zscore>,
+                        'combined_score': <combined_score>,
+                        'genes': [<gene1>, ..., <geneN>],
+                        'adj_pvalue': <adj_pval>},
+                        ...,
+                    ]
+                }
+            }   
+        '''
         
         try:
             return self.enrichments[topic_num]['results']
@@ -343,29 +454,50 @@ class ExpressionTopicModel(BaseModel):
         color_by_adj = True, palette = 'Reds', gene_fontsize=10):
 
         '''
-        Make plot of geneset enrichments given results from ``get_ontology`` or ``get_enrichments``.
+        Make plot of geneset enrichments results.
 
-        Example:
+        Parameters
+        ----------
+        topic_num : int
+            Topic for which to plot results
+        show_genes : boolean, default = True
+            Whether to show gene names on enrichment barplot bars
+        show_top : int > 0, default = 10
+            Plot this many top terms for each ontology
+        barcolor : str or tuple[int] (r,g,b,a) or tuple[int] (r,g,b)
+            Color of barplot bars
+        label_genes : list[str] or np.ndarray[str]
+            Add an asterisc by the gene name of genes in this list. Useful for
+            finding transcription factors or signaling factors of interest in
+            enrichment results.
+        text_color : str or tuple[int] (r,g,b,a) or tuple[int] (r,g,b)
+            Color of text on plot
+        plots_per_row : int > 0, default = 2
+            Number of onotology plots per row in figure
+        height : float > 0, default = 4
+            Height of each ontology plot
+        aspect : float > 0, default = 2.5
+            Aspect ratio of ontology plot
+        max_genes : int > 0, default = 15
+            Maximum number of genes to plot on each term bar
+        pval_threshold : float (0, 1), default = 1e-5
+            Upper bound on color map for adjusted p-value coloring of bar
+            outlines.
+        color_by_adj : boolean, default = True
+            Whether to outline term bars with adjusted p-value
+        palette : str
+            Color palette for adjusted p-value
+        gene_fontsize : float > 0, default = 10
+            Fontsize of gene names on term bars
 
-            post_id = expr_model.post_genelist(0) #post top 250 module 0 genes
-            enrichments = expr_model.get_enrichments(post_id)
-            expr_model.plot_enrichments(enrichments)
+        Returns
+        -------
+        ax : matplotlib.pyplot.axes
 
-        Args:
-            enrichment_results (dict): output from ``get_ontology`` or ``get_enrichments``
-            show_genes (bool): overlay gene names on top of bars
-            show_top (int): plot top n enrichment results
-            barcolor (color): color of barplot bars
-            text_color (text_color): color of text on barplot bars
-            return_fig (bool): return fig and axes objects
-            enrichments_per_row (int): number of plots per row
-            height (float): height of each plot
-            aspect (float): multiplier for width of each plot, width = aspect * height
-            max_genes (int): maximum number of genes to display on bar
-
-        Returns (if return_fig is True):
-            matplotlib.figure, matplotlib.axes.Axes
-
+        Examples
+        --------
+        >>> rna_model.plot_enrichments(10, pval_threshold = 1e-3, show_genes = False,
+            plot_per_row = 3, aspect = 1.5, max_genes = 10)
         '''
 
         try:

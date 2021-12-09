@@ -96,10 +96,10 @@ def get_fc_stack(layer_dims = [256, 128, 128, 128], dropout = 0.2, skip_nonlin =
 
 class BaseModel(torch.nn.Module, BaseEstimator):
 
-    I = 100
+    I = 50
 
     @classmethod
-    def load_old_model(cls, filename):
+    def _load_old_model(cls, filename):
 
         old_model = torch.load(filename)
 
@@ -254,6 +254,10 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             Number of endogenous feature used for encoder network
         device : torch.device
             Device on which model is allocated
+        enrichments : dict
+            Results from enrichment analysis of topics. For expression topic model,
+            this gives geneset enrichments from Enrichr. For accessibility topic
+            model, this gives motif enrichments.
         '''
         super().__init__()
 
@@ -721,13 +725,38 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         return ax
 
 
-    def _fit(self,*,training_bar = True, 
-            features, highly_variable, endog_features, exog_features):
+    @adi.wraps_modelfunc(tmi.fit_adata, adi.return_output,
+        fill_kwargs=['features','highly_variable','endog_features','exog_features'])
+    def instantiate_model(self,*, features, highly_variable, endog_features, exog_features):
+        '''
+        Given the exogenous and enxogenous features provided, instantiate weights
+        of neural network. Called internally by **fit**.
 
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            AnnData of expression or accessibility features to model
+
+        Returns
+        -------
+        self : object
+        '''
         self._instantiate_model(
-            features = features, highly_variable = highly_variable, 
-            endog_features = endog_features, exog_features = exog_features,
-        )
+                features = features, highly_variable = highly_variable, 
+                endog_features = endog_features, exog_features = exog_features,
+            )
+
+        return self
+
+
+    def _fit(self,*,training_bar = True, reinit = True,
+            features, highly_variable, endog_features, exog_features):
+        
+        if reinit:
+            self._instantiate_model(
+                features = features, highly_variable = highly_variable, 
+                endog_features = endog_features, exog_features = exog_features,
+            )
 
         self._get_dataset_statistics(endog_features, exog_features)
 
@@ -802,7 +831,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @adi.wraps_modelfunc(tmi.fit_adata, adi.return_output,
         fill_kwargs=['features','highly_variable','endog_features','exog_features'])
-    def fit(self,*,features, highly_variable, endog_features, exog_features):
+    def fit(self, reinit = True,*,features, highly_variable, endog_features, exog_features):
         '''
         Initializes new weights, then fits model to data.
 
@@ -816,7 +845,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self : object
             Fitted topic model
         '''
-        for _ in self._fit(features = features, highly_variable = highly_variable, 
+        for _ in self._fit(reinit = reinit, features = features, highly_variable = highly_variable, 
             endog_features = endog_features, exog_features = exog_features):
             pass
 
