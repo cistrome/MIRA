@@ -526,6 +526,9 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             features = features, highly_variable = highly_variable, 
             endog_features = endog_features, exog_features = exog_features,
         )
+
+        self._get_dataset_statistics(endog_features, exog_features)
+
         n_batches = self.get_num_batches(endog_features.shape[0], self.batch_size)
 
         eval_steps = ceil((n_batches * num_epochs)/eval_every)
