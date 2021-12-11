@@ -49,7 +49,8 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
         def rp_signature(*, expr_adata, atac_adata, atac_topic_comps_key = 'X_topic_compositions'):
             pass
 
-        def isd_signature(*, expr_adata, atac_adata, atac_topic_comps_key = 'X_topic_compositions', factor_type = 'motifs'):
+        def isd_signature(*, expr_adata, atac_adata, checkpoint = None, 
+            atac_topic_comps_key = 'X_topic_compositions', factor_type = 'motifs'):
             pass
 
         func_signature = inspect.signature(func).parameters.copy()
@@ -66,7 +67,7 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
         
         @wraps(func)
         def get_RP_model_features(self,*, expr_adata, atac_adata, atac_topic_comps_key = 'X_topic_compositions', 
-            factor_type = 'motifs', **kwargs):
+            factor_type = 'motifs', checkpoint = None, **kwargs):
 
             if not 'model_read_scale' in expr_adata.obs.columns:
                 self.expr_model._get_read_depth(expr_adata)
@@ -121,6 +122,10 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
                     model_features[region_name + '_distances'] = np.abs(tss_distance[mask])
 
                 model_features.pop('promoter_distances')
+
+                if include_factor_data and not checkpoint is None:
+                    logger.warn('Resuming pISD from checkpoint. If wanting to recalcuate, use a new checkpoint file, or set checkpoint to None.')
+                    kwargs['checkpoint'] = checkpoint
                 
                 results.append(func(
                         self, model, 
@@ -146,7 +151,8 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
 
 def add_isd_results(self, expr_adata, atac_adata, output, factor_type = 'motifs', **kwargs):
 
-    ko_logp, f_Z, expression, logp_data, informative_samples = list(zip(*output))
+    #ko_logp, f_Z, expression, logp_data, informative_samples = list(zip(*output))
+    ko_logp, informative_samples = list(zip(*output))
 
     factor_mask = atac_adata.uns[factor_type]['in_expr_data']
     

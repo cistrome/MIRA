@@ -25,6 +25,8 @@ from scipy.sparse import isspmatrix
 from mira.adata_interface.rp_model import wraps_rp_func, add_isd_results
 from mira.adata_interface.core import add_layer
 from collections.abc import Sequence
+import h5py as h5
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -270,8 +272,29 @@ class BaseModel:
 
     @wraps_rp_func(add_isd_results, 
         bar_desc = 'Predicting TF influence', include_factor_data = True)
-    def probabilistic_isd(self, model, features, n_samples = 1500, *,hits_matrix, metadata):
-        return model.probabilistic_isd(features, hits_matrix, n_samples = n_samples)
+    def probabilistic_isd(self, model, features, n_samples = 1500, checkpoint = None,
+        *,hits_matrix, metadata):
+
+        if not checkpoint is None:
+            if not os.path.isfile(checkpoint):
+                h5.File(checkpoint, 'w').close()
+
+            with h5.File(checkpoint, 'r') as h:
+                written_genes = list(h.keys())
+
+        if checkpoint is None or not model.gene in written_genes:
+            result = model.probabilistic_isd(features, hits_matrix, n_samples = n_samples)
+            with h5.File(checkpoint, 'a') as h:
+                g = h.create_group(model.gene)
+                g.create_dataset('samples_mask', data = result[1])
+                g.create_dataset('isd', data = result[0])
+            return result
+        else:
+            with h5.File(checkpoint, 'r') as h:
+                g = h[model.gene]
+                result = g['isd'][...], g['samples_mask'][...]
+
+            return result
 
 
 class LITE_Model(BaseModel):
@@ -660,7 +683,7 @@ class GeneModel:
 
         logp_data = nbinom(params['theta'], 1 - p).logpmf(expression)
         logp_summary = logp_data.sum(0)
-        return logp_summary[0] - logp_summary[1:], f_Z, expression, logp_data
+        return logp_summary[0] - logp_summary[1:]#, f_Z, expression, logp_data
 
 
     def probabilistic_isd(self, features, hits_matrix, n_samples = 1500, n_bins = 20):
@@ -682,8 +705,8 @@ class GeneModel:
         samples_mask[informative_samples] = 1
         samples_mask = samples_mask.astype(bool)
         
-        return (*self._prob_ISD(
+        return self._prob_ISD(
             hits_matrix, **features, 
             params = self.get_normalized_params(), 
             bn_eps= self.bn.eps
-        ), samples_mask)
+        ), samples_mask
