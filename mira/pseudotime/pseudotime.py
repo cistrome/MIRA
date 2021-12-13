@@ -126,14 +126,14 @@ def sample_waypoints(num_waypoints = 3000,*, diffmap):
     return waypoints
 
 
-@adi.wraps_functional(pti.fetch_diffmap_distances, 
+@adi.wraps_functional(pti.fetch_connectivities, 
     partial(adi.add_obs_col, colname = 'mira_connected_components'),
-    ['distance_matrix','diffmap'])
-def get_connected_components(*,distance_matrix, diffmap):
+    ['connectivities'])
+def get_connected_components(*,connectivities):
 
-    assert(isspmatrix(distance_matrix))
-    N = distance_matrix.shape[0]
-    G = nx.convert_matrix.from_scipy_sparse_matrix(distance_matrix)
+    assert(isspmatrix(connectivities))
+    N = connectivities.shape[0]
+    G = nx.convert_matrix.from_scipy_sparse_matrix(connectivities)
 
     components = nx.algorithms.components.connected_components(G)
     

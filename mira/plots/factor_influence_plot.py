@@ -168,6 +168,6 @@ def compare_driver_TFs_plot(background = None, alt_hypothesis = 'greater', facto
     return plot_factor_influence(m1, m2, ax = ax, label_factors = label_factors,
             pval_threshold = pval_threshold, hue = hue, hue_order = hue_order, 
             palette = palette, legend_label = legend_label, show_legend = show_legend, 
-            label_closeness = label_closeness, 
+            label_closeness = label_closeness, figsize = figsize,
             na_color = na_color, max_label_repeats = max_label_repeats,
             axlabels = axlabels, fontsize = fontsize, color = color)        

@@ -20,10 +20,27 @@ def add_diffmap(adata, output, diffmap_key = 'X_diffmap'):
     adata.obsm[diffmap_key] = output
 
 
+def fetch_connectivities(self, adata, connectivities_key = 'X_diffmap'):
+
+    if connectivities_key is None or connectivities_key == '':
+        connectivities_key = 'connectivities'
+    else:
+        connectivities_key+='_connectivities'
+
+
+    connectivities = adata.obsp[connectivities_key]
+    
+    return dict(connectivities = connectivities)
+
+
 def fetch_diffmap_distances(self, adata, diffmap_distances_key = 'X_diffmap'):
 
     try:
-        distance_matrix = adata.obsp[diffmap_distances_key + "_distances"]
+        if diffmap_distances_key == '' or diffmap_distances_key == None:
+            distance_matrix = adata.obsp['distances']
+        else:
+            distance_matrix = adata.obsp[diffmap_distances_key + "_distances"]
+
         diffmap = adata.obsm[diffmap_distances_key]
     except KeyError:
         raise KeyError(
@@ -32,7 +49,8 @@ You must calculate a diffusion map for the data, and get diffusion-based distanc
     
     sc.tl.diffmap(adata)
     sc.pp.neighbors(adata, n_neighbors = 30, use_rep = "X_diffmap", key_added = "X_diffmap")
-            
+
+Or you can set **diffmap_distances_key** to None to use directly use the joint KNN graph.
             '''
         )
     return dict(distance_matrix = distance_matrix, diffmap = diffmap)
