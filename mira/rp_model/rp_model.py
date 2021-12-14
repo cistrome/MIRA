@@ -1,4 +1,7 @@
 from functools import partial
+from itertools import count
+from operator import ge, mod
+from scipy.stats.stats import mode
 import torch
 import pyro
 import pyro.distributions as dist
@@ -27,6 +30,7 @@ from mira.adata_interface.core import add_layer
 from collections.abc import Sequence
 import h5py as h5
 import os
+import glob
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +62,20 @@ def mean_default_init_to_value(
 class BaseModel:
 
     @classmethod
+    def load_dir(cls,counts_layer = None,*,expr_model, accessibility_model, path):
+
+        paths = glob.glob(os.path.join(glob, cls.prefix + '*.pth'))
+
+        genes = [os.path.basename(x.split('_')[-1].split('.')[0]) 
+                for x in paths]
+
+        model = cls(expr_model = expr_model, accessibility_model = accessibility_model,
+                counts_layer = counts_layer, genes = genes).load(path)
+
+        return model
+
+
+    @classmethod
     def _make(cls, expr_model, accessibility_model, counts_layer, models, learning_rate, use_NITE_features):
         self = BaseModel.__new__(cls)
         self.expr_model = expr_model
@@ -74,18 +92,13 @@ class BaseModel:
         accessibility_model, 
         genes,
         learning_rate = 1,
-        use_NITE_features = False,
         counts_layer = None,
         initialization_model = None):
 
         self.expr_model = expr_model
         self.accessibility_model = accessibility_model
         self.learning_rate = learning_rate
-        self.use_NITE_features = use_NITE_features
         self.counts_layer = counts_layer
-
-        if use_NITE_features and initialization_model is None:
-            logger.warn('Training global regulation models without providing pre-trained LITE models may cause divergence in statistical testing.')
 
         self.models = []
         for gene in genes:
@@ -94,14 +107,14 @@ class BaseModel:
             try:
                 init_params = initialization_model.get_model(gene).posterior_map
             except (IndexError, AttributeError):
-                if use_NITE_features:
+                if self.use_NITE_features:
                     logger.warn('No initialization model found for gene {}.'.format(gene))
 
             self.models.append(
                 GeneModel(
                     gene = gene, 
                     learning_rate = learning_rate, 
-                    use_NITE_features = use_NITE_features,
+                    use_NITE_features = self.use_NITE_features,
                     init_params= init_params
                 )
             )
@@ -275,19 +288,27 @@ class BaseModel:
     def probabilistic_isd(self, model, features, n_samples = 1500, checkpoint = None,
         *,hits_matrix, metadata):
 
+        already_calculated = False
         if not checkpoint is None:
             if not os.path.isfile(checkpoint):
                 h5.File(checkpoint, 'w').close()
 
             with h5.File(checkpoint, 'r') as h:
-                written_genes = list(h.keys())
+                try:
+                    h[model.gene]
+                    already_calculated = True
+                except KeyError:
+                    pass
 
-        if checkpoint is None or not model.gene in written_genes:
+        if checkpoint is None or not already_calculated:
             result = model.probabilistic_isd(features, hits_matrix, n_samples = n_samples)
-            with h5.File(checkpoint, 'a') as h:
-                g = h.create_group(model.gene)
-                g.create_dataset('samples_mask', data = result[1])
-                g.create_dataset('isd', data = result[0])
+
+            if not checkpoint is None:
+                with h5.File(checkpoint, 'a') as h:
+                    g = h.create_group(model.gene)
+                    g.create_dataset('samples_mask', data = result[1])
+                    g.create_dataset('isd', data = result[0])
+
             return result
         else:
             with h5.File(checkpoint, 'r') as h:
@@ -299,18 +320,26 @@ class BaseModel:
 
 class LITE_Model(BaseModel):
 
+    use_NITE_features = False
+
     def __init__(self,*, expr_model, accessibility_model, genes, learning_rate = 1, counts_layer = None):
         super().__init__(
             expr_model = expr_model, 
             accessibility_model = accessibility_model, 
             genes = genes,
             learning_rate = learning_rate,
-            use_NITE_features = False, 
             initialization_model = None,
             counts_layer=counts_layer,
         )
 
+
+    @property
+    def prefix(self):
+        return 'LITE_'
+
 class NITE_Model(BaseModel):
+
+    use_NITE_features = True
 
     def __init__(self,*, expr_model, accessibility_model, genes, learning_rate = 1, 
         counts_layer = None, initialization_model = None):
@@ -319,10 +348,13 @@ class NITE_Model(BaseModel):
             accessibility_model = accessibility_model, 
             genes = genes,
             learning_rate = learning_rate,
-            use_NITE_features = True, 
             initialization_model = initialization_model,
             counts_layer=counts_layer,
         )
+
+    @property
+    def prefix(self):
+        return 'NITE_'
 
 
 class GeneModel:
@@ -344,13 +376,17 @@ class GeneModel:
         self.bn = torch.nn.BatchNorm1d(1, momentum = 1.0, affine = False)
 
         if self.init_params is None:
+            if self.use_NITE_features:
+                logger.info('Training NITE regulation model for {} without providing pre-trained LITE models may cause divergence in statistical testing.'\
+                    .format(self.gene))
+
             self.guide = AutoDelta(self.model, init_loc_fn = init_to_mean)
         else:
             self.seed_params = {self.prefix + '/' + k.split('/')[-1] : v.detach().clone() for k,v in self.init_params.items()}
             self.guide = AutoDelta(self.model, init_loc_fn = mean_default_init_to_value(values = self.seed_params))
 
     def get_prefix(self):
-        return ('NITE' if self.use_NITE_features else 'cis') + '_' + self.gene
+        return ('NITE' if self.use_NITE_features else 'LITE') + '_' + self.gene
 
     def RP(self, weights, distances, d):
         return (weights * torch.pow(0.5, distances/(1e3 * d))).sum(-1)

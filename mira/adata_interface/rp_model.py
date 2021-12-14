@@ -104,6 +104,10 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
                 hits_data = fetch_factor_hits(self.accessibility_model, atac_adata, factor_type = factor_type,
                     binarize = True)
 
+            if include_factor_data and not checkpoint is None:
+                logger.warn('Resuming pISD from checkpoint. If wanting to recalcuate, use a new checkpoint file, or set checkpoint to None.')
+                kwargs['checkpoint'] = checkpoint
+
             results = []
             for model in tqdm.tqdm(self.models, desc = bar_desc):
 
@@ -128,10 +132,6 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
 
                 model_features.pop('promoter_distances')
 
-                if include_factor_data and not checkpoint is None:
-                    logger.warn('Resuming pISD from checkpoint. If wanting to recalcuate, use a new checkpoint file, or set checkpoint to None.')
-                    kwargs['checkpoint'] = checkpoint
-                
                 results.append(func(
                         self, model, 
                         self._get_features_for_model(
