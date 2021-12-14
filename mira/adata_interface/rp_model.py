@@ -32,10 +32,15 @@ def get_peak_and_tss_data(self, adata, tss_data = None, peak_chrom = 'chr', peak
 
 def add_peak_gene_distances(adata, output):
 
-    distances, genes = output
+    distances, gene, chrom, start, end, strand = output
 
     adata.varm['distance_to_TSS'] = distances.tocsc()
-    adata.uns['distance_to_TSS_genes'] = list(genes)
+    adata.uns['distance_to_TSS_genes'] = list(gene)
+
+    adata.uns['TSS_metadata'] = {
+        'gene' : gene, 'chromosome' : chrom, 'txStart' : start,
+        'txEnd' : end, 'strand' : strand,
+    }
 
     logger.info('Added key to var: distance_to_TSS')
     logger.info('Added key to uns: distance_to_TSS_genes')
