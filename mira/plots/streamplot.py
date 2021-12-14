@@ -19,19 +19,30 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def _plot_fill(is_top = False,*, ax, time, fill_top, fill_bottom, color, linecolor, linewidth, alpha = 1.):
+def _plot_fill(is_top = False,*, ax, time, fill_top, fill_bottom, color, linecolor, linewidth, alpha = 1., orientation = 'h'):
 
-    ax.fill_between(time, fill_top, fill_bottom, color = color, alpha = alpha)
+    if orientation == 'v':
+        ax.fill_betweenx(time, fill_top, fill_bottom, color = color, alpha = alpha)
 
-    if not linecolor is None:
-        ax.plot(time, fill_top, color = linecolor, linewidth = linewidth)
-        if is_top:
-            ax.plot(time, fill_bottom, color = linecolor, linewidth = linewidth)
+        if not linecolor is None:
+            ax.plot(fill_top, time, color = linecolor, linewidth = linewidth)
+            if is_top:
+                ax.plot(fill_bottom, time, color = linecolor, linewidth = linewidth)
+
+    else:
+        ax.fill_between(time, fill_top, fill_bottom, color = color, alpha = alpha)
+
+        if not linecolor is None:
+            ax.plot(time, fill_top, color = linecolor, linewidth = linewidth)
+            if is_top:
+                ax.plot(time, fill_bottom, color = linecolor, linewidth = linewidth)
+        
+
 
 
 def _plot_stream_segment(is_leaf = True, centerline = 0, window_size = 101,center_baseline = True, is_root = True,
         palette = 'Set3', linecolor = 'black', linewidth = 0.1, feature_labels = None, hide_feature_threshold = 0,
-        hue_order = None, show_legend = True, max_bar_height = 0.6, legend_cols = 5,
+        hue_order = None, show_legend = True, max_bar_height = 0.6, legend_cols = 5, orientation = 'h',
         color = 'black', segment_connection = None,*, ax, features, pseudotime, **kwargs,):
 
     if (features.shape) == 1:
@@ -63,7 +74,7 @@ def _plot_stream_segment(is_leaf = True, centerline = 0, window_size = 101,cente
     linecolor = linecolor if num_features > 1 else color
     
     plot_kwargs = dict(
-        ax = ax, time = ascending_time,
+        ax = ax, time = ascending_time, orientation = orientation,
         linecolor = linecolor, linewidth = linewidth
     )
 
@@ -97,7 +108,8 @@ def _plot_stream_segment(is_leaf = True, centerline = 0, window_size = 101,cente
 
 
 def _plot_scatter_segment(is_leaf = True, centerline = 0, window_size = 101, is_root = True, size = 3, show_points = True,
-        palette = 'Set3', linecolor = 'black', linewidth = 0.5, feature_labels = None, hue_order = None, show_legend = True, legend_cols = 5,
+        palette = 'Set3', linecolor = 'black', linewidth = 0.5, feature_labels = None, 
+        hue_order = None, show_legend = True, legend_cols = 5, orientation = 'h',
         color = 'black', max_bar_height = 0.6, alpha = 1.,*, ax, features, pseudotime, **kwargs,):
     
     if (features.shape) == 1:
@@ -126,31 +138,49 @@ def _plot_scatter_segment(is_leaf = True, centerline = 0, window_size = 101, is_
     
     def scatter(features, smoothed_features, _color):
 
-        if show_points:
-            ax.scatter(
+        if orientation == 'v':
+            if show_points:
+                ax.scatter(
+                    centerline + features,
+                    ascending_time,
+                    color = _color, s = size
+                )
+
+            ax.plot(
+                smoothed_features + centerline,
                 ascending_time,
-                centerline + features,
-                color = _color,
-                s = size
+                color = _color, linewidth = np.sqrt(size), alpha = alpha,
             )
+            
+            ax.hlines(min_time, xmin = centerline, xmax = centerline + max_bar_height, color = linecolor, linewidth = linewidth)
+            ax.hlines(max_time, xmin = centerline, xmax = centerline + max_bar_height, color = linecolor, linewidth = linewidth)
+            #ax.hlines(centerline, xmin = min_time, xmax = max_time, color = linecolor, linewidth = linewidth)
 
-        ax.plot(
-            ascending_time,
-            smoothed_features + centerline,
-            color = _color, 
-            linewidth = np.sqrt(size),
-            alpha = alpha,
-        )
-        
-        ax.vlines(min_time, ymin = centerline, ymax = centerline + max_bar_height, color = linecolor, linewidth = linewidth)
-        ax.vlines(max_time, ymin = centerline, ymax = centerline + max_bar_height, color = linecolor, linewidth = linewidth)
-        #ax.hlines(centerline, xmin = min_time, xmax = max_time, color = linecolor, linewidth = linewidth)
+            ax.spines['right'].set_visible(False)
+            ax.spines['bottom'].set_visible(False)
+        else:
+            if show_points:
+                ax.scatter(
+                    ascending_time,
+                    centerline + features,
+                    color = _color, s = size
+                )
 
-        ax.spines['right'].set_visible(False)
-        ax.spines['top'].set_visible(False)
-        #ax.spines['left'].set_visible(False)
-        #ax.set(xticks = [], yticks = [])
-        #ax.hlines(centerline, xmin = min_time, xmax = max_time, color = linecolor, linewidth = linewidth)
+            ax.plot(
+                ascending_time,
+                smoothed_features + centerline,
+                color = _color, linewidth = np.sqrt(size), alpha = alpha,
+            )
+            
+            ax.vlines(min_time, ymin = centerline, ymax = centerline + max_bar_height, color = linecolor, linewidth = linewidth)
+            ax.vlines(max_time, ymin = centerline, ymax = centerline + max_bar_height, color = linecolor, linewidth = linewidth)
+            #ax.hlines(centerline, xmin = min_time, xmax = max_time, color = linecolor, linewidth = linewidth)
+
+            ax.spines['right'].set_visible(False)
+            ax.spines['top'].set_visible(False)
+            #ax.spines['left'].set_visible(False)
+            #ax.set(xticks = [], yticks = [])
+            #ax.hlines(centerline, xmin = min_time, xmax = max_time, color = linecolor, linewidth = linewidth)
     
     if num_features == 1:
         scatter(features[:,0], smoothed_features[:,0], color)
@@ -226,7 +256,7 @@ def _plot_pseudotime_scale(*, ax, pseudotime, plot_bottom = 0):
     base = plot_bottom
     ax.fill_between(
         [start, end], 
-        [base, base + 0.15], 
+        [base, base + 0.1], 
         [base, base],
         color = 'lightgrey'
     )
@@ -245,7 +275,8 @@ def _plot_scaffold(is_leaf = True, centerline = 0, linecolor = 'lightgrey', line
         ax.text(pseudotime.max()*1.01, centerline, lineage_name, fontsize='x-large', ha = 'left')
         
     
-def _build_tree(cell_colors = None, size = None, shape = None,*, max_bar_height = 0.75, ax, features, pseudotime, cluster_id, tree_graph, lineage_names, min_pseudotime, plot_fn):
+def _build_tree(cell_colors = None, size = None, shape = None, max_bar_height = 0.75,*,
+    ax, features, pseudotime, cluster_id, tree_graph, lineage_names, min_pseudotime, plot_fn):
 
     centerlines = get_dendogram_levels(tree_graph)
     source = get_root_state(tree_graph)
@@ -325,7 +356,7 @@ def _normalize_numerical_features(features,*, clip, scale_features, max_bar_heig
 def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_features = False, order = 'ascending',
     title = None, show_legend = True, legend_cols = 5, max_bar_height = 0.6, size = None, max_swarm_density = 2000, hide_feature_threshold = 0,
     palette = None, color = 'black', linecolor = 'black', linewidth = None, hue_order = None, pseudotime_triangle = True,
-    scaffold_linecolor = 'lightgrey', scaffold_linewidth = 1, min_pseudotime = 0.05,
+    scaffold_linecolor = 'lightgrey', scaffold_linewidth = 1, min_pseudotime = 0.05, orientation = 'h',
     figsize = (10,5), ax = None, plots_per_row = 4, height = 4, aspect = 1.3, tree_structure = True,
     center_baseline = True, window_size = 101, clip = 10, alpha = 1., vertical = False,
     feature_labels = None, group_names = None, tree_graph = None,*, features, pseudotime, group):
@@ -333,6 +364,9 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
     assert(isinstance(max_bar_height, float) and max_bar_height > 0 and max_bar_height <= 1)
     assert(isinstance(features, np.ndarray))
     assert(style in ['line','scatter','stream','swarm', 'heatmap'])
+    if orientation == 'v':
+        pseudotime_triangle = False
+        assert(not tree_structure)
 
     show_points = True
     if style == 'line':
@@ -386,7 +420,8 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
     segment_kwargs = dict(
         window_size = window_size, center_baseline = center_baseline, hide_feature_threshold = hide_feature_threshold, legend_cols = legend_cols,
         palette = palette, linecolor = linecolor, linewidth = linewidth, hue_order = hue_order, show_legend = show_legend, alpha = alpha,
-        color = color, size = size, max_bar_height = max_bar_height, max_swarm_density = max_swarm_density, show_points = show_points,
+        color = color, size = size, max_bar_height = max_bar_height, max_swarm_density = max_swarm_density, show_points = show_points, 
+        orientation = orientation,
     )
     segment_kwargs = {k : v for k, v in segment_kwargs.items() if not v is None} #eliminate None values to allow segment functions to fill default values
     
@@ -424,7 +459,12 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
             segment_fn(features = features, pseudotime = pseudotime, is_leaf = False, ax = ax, max_bar_height = max_bar_height,
                 centerline = 0, lineage_name = '', segment_connection = None, is_root = True, cell_colors = cell_colors)
 
-            ax.set(ylim = (plot_bottom, max_bar_height/2 + 0.15))
+            if orientation == 'h':
+                ax.set(ylim = (plot_bottom, max_bar_height/2 + 0.15))
+            else:
+                ax.set(xlim = (-max_bar_height/2, max_bar_height/2))
+                #ax.set(ylim = (pseudotime.min() - 0.05, pseudotime.max() + 0.05))
+                ax.invert_yaxis()
         
         if pseudotime_triangle:
             _plot_pseudotime_scale(ax = ax, pseudotime = pseudotime, plot_bottom = plot_bottom)
@@ -451,7 +491,7 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
                         vertical = vertical)
         if not title is None:
             fig.suptitle(title, fontsize = 16)
-        
+
     plt.tight_layout()
 
     if not fig is None:

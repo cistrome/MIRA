@@ -217,7 +217,7 @@ def _get_swarm_colors(*, ax, features, palette, show_legend, hue_order):
 
 
 def _plot_swarm_segment(is_leaf = False, centerline = 0, palette = 'inferno', feature_labels = None, linecolor = 'black', 
-    linewidth = 0.1, hue_order = None, show_legend = True, size = 15, is_root = True, max_swarm_density = 2000,
+    linewidth = 0.1, hue_order = None, show_legend = True, size = 15, is_root = True, max_swarm_density = 2000, orientation = 'h',
         color = 'black', min_pseudotime = 0., max_bar_height = 0.5,*, ax, features, pseudotime, cell_colors, **kwargs,):
     
     features = np.ravel(features)
@@ -234,14 +234,29 @@ def _plot_swarm_segment(is_leaf = False, centerline = 0, palette = 'inferno', fe
         cell_colors = cell_colors[downsample_mask]
     
     plot_order = features.argsort()
-    points = ax.scatter(
-        pseudotime[plot_order], 
-        np.ones_like(pseudotime) * centerline, 
+
+    kwargs = dict(
         s = size, 
         c = cell_colors[plot_order],
         edgecolors = linecolor,
         linewidths = linewidth,
     )
 
-    Beeswarm(orient='h', width = max_bar_height)(points, centerline)
+    if orientation == 'v':
+        points = ax.scatter(
+            np.ones_like(pseudotime) * centerline, 
+            pseudotime[plot_order], 
+            **kwargs,
+        )
+
+        Beeswarm(orient='v', width = max_bar_height)(points, centerline)
+    else:
+        points = ax.scatter(
+            pseudotime[plot_order], 
+            np.ones_like(pseudotime) * centerline, 
+            **kwargs,
+        )
+
+        Beeswarm(orient='h', width = max_bar_height)(points, centerline)
+        
     ax.axis('off')
