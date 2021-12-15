@@ -114,7 +114,7 @@ def _influence_plot(ax, l1_pvals, l2_pvals, factor_names, pval_threshold = (1e-5
     ax.spines["right"].set_visible(False)
     ax.spines["top"].set_visible(False)
 
-    ax.axis('square')
+    #ax.axis('square')
     plt.tight_layout()
 
     return ax
