@@ -332,7 +332,6 @@ class LITE_Model(BaseModel):
             counts_layer=counts_layer,
         )
 
-
     @property
     def prefix(self):
         return 'LITE_'
@@ -599,7 +598,6 @@ class GeneModel:
     def load(self, prefix):
         state = torch.load(self.get_savename(prefix))
         self._load_save_data(state)
-
 
     def get_normalized_params(self):
         d = {
