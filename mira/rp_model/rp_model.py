@@ -64,7 +64,10 @@ class BaseModel:
     @classmethod
     def load_dir(cls,counts_layer = None,*,expr_model, accessibility_model, path):
 
-        paths = glob.glob(os.path.join(glob, cls.prefix + '*.pth'))
+        paths = glob.glob(os.path.join(path, cls.prefix + '*.pth'))
+
+        if len(paths) == 0:
+            raise ValueError('No models found at {}'.format(str(path)))
 
         genes = [os.path.basename(x.split('_')[-1].split('.')[0]) 
                 for x in paths]
@@ -107,8 +110,7 @@ class BaseModel:
             try:
                 init_params = initialization_model.get_model(gene).posterior_map
             except (IndexError, AttributeError):
-                if self.use_NITE_features:
-                    logger.warn('No initialization model found for gene {}.'.format(gene))
+                pass
 
             self.models.append(
                 GeneModel(
@@ -321,25 +323,7 @@ class BaseModel:
 class LITE_Model(BaseModel):
 
     use_NITE_features = False
-
-    def __init__(self,*, expr_model, accessibility_model, genes, learning_rate = 1, counts_layer = None):
-        super().__init__(
-            expr_model = expr_model, 
-            accessibility_model = accessibility_model, 
-            genes = genes,
-            learning_rate = learning_rate,
-            initialization_model = None,
-            counts_layer=counts_layer,
-        )
-
-
-    @property
-    def prefix(self):
-        return 'LITE_'
-
-class NITE_Model(BaseModel):
-
-    use_NITE_features = True
+    prefix = 'LITE_'
 
     def __init__(self,*, expr_model, accessibility_model, genes, learning_rate = 1, 
         counts_layer = None, initialization_model = None):
@@ -352,9 +336,22 @@ class NITE_Model(BaseModel):
             counts_layer=counts_layer,
         )
 
-    @property
-    def prefix(self):
-        return 'NITE_'
+class NITE_Model(BaseModel):
+
+    use_NITE_features = True
+    prefix = 'NITE_'
+
+    def __init__(self,*, expr_model, accessibility_model, genes, learning_rate = 1, 
+        counts_layer = None, initialization_model = None):
+        super().__init__(
+            expr_model = expr_model, 
+            accessibility_model = accessibility_model, 
+            genes = genes,
+            learning_rate = learning_rate,
+            initialization_model = initialization_model,
+            counts_layer=counts_layer,
+        )
+        
 
 
 class GeneModel:
@@ -371,13 +368,13 @@ class GeneModel:
         self.was_fit = False
         self.init_params = init_params
 
-    def _get_weights(self):
+    def _get_weights(self, loading = False):
         pyro.clear_param_store()
         self.bn = torch.nn.BatchNorm1d(1, momentum = 1.0, affine = False)
 
         if self.init_params is None:
-            if self.use_NITE_features:
-                logger.info('Training NITE regulation model for {} without providing pre-trained LITE models may cause divergence in statistical testing.'\
+            if self.use_NITE_features and not loading:
+                logger.warn('\nTraining NITE regulation model for {} without providing pre-trained LITE models may cause divergence in statistical testing.'\
                     .format(self.gene))
 
             self.guide = AutoDelta(self.model, init_loc_fn = init_to_mean)
@@ -589,7 +586,7 @@ class GeneModel:
         return dict(bn = self.bn.state_dict(), guide = self.posterior_map)
 
     def _load_save_data(self, state):
-        self._get_weights()
+        self._get_weights(loading = True)
         self.bn.load_state_dict(state['bn'])
         self.posterior_map = state['guide']
 
