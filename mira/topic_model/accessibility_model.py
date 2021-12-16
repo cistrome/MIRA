@@ -306,22 +306,22 @@ class AccessibilityTopicModel(BaseModel):
         try:
             return self.enrichments[(factor_type, topic_num)]
         except KeyError:
-            raise KeyError('User has not gotten enrichments yet for module {} using factor_type: {}. Run "get_enriched_TFs" function.'\
+            raise KeyError('User has not gotten enrichments yet for topic {} using factor_type: {}. Run "get_enriched_TFs" function.'\
                 .format(str(topic_num), str(factor_type)))
 
 
-    def plot_compare_module_enrichments(self, module_1, module_2, factor_type = 'motifs', 
+    def plot_compare_module_enrichments(self, topic_1, topic_2, factor_type = 'motifs', 
         label_factors = None, hue = None, palette = 'coolwarm', hue_order = None, 
         ax = None, figsize = (8,8), legend_label = '', show_legend = True, fontsize = 13, 
         pval_threshold = (1e-50, 1e-50), na_color = 'lightgrey',
         color = 'grey', label_closeness = 3, max_label_repeats = 3, show_factor_ids = False):
 
-        m1 = self.get_enrichments(module_1, factor_type)
-        m2 = self.get_enrichments(module_2, factor_type)        
+        m1 = self.get_enrichments(topic_1, factor_type)
+        m2 = self.get_enrichments(topic_2, factor_type)        
         
         return plot_factor_influence(m1, m2, ax = ax, label_factors = label_factors,
             pval_threshold = pval_threshold, hue = hue, hue_order = hue_order, 
             palette = palette, legend_label = legend_label, show_legend = show_legend, label_closeness = label_closeness, 
             na_color = na_color, max_label_repeats = max_label_repeats,
-            axlabels = ('Module {} Enrichments'.format(str(module_1)),'Module {} Enrichments'.format(str(module_2))), 
+            axlabels = ('Topic {} Enrichments'.format(str(topic_1)),'Todule {} Enrichments'.format(str(topic_2))), 
             fontsize = fontsize, color = color)
