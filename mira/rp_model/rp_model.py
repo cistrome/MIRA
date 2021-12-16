@@ -29,6 +29,7 @@ from mira.adata_interface.rp_model import wraps_rp_func, add_isd_results
 from mira.adata_interface.core import add_layer
 from collections.abc import Sequence
 import h5py as h5
+import tqdm
 import os
 import glob
 
@@ -62,22 +63,51 @@ def mean_default_init_to_value(
 class BaseModel:
 
     @classmethod
-    def load_dir(cls,counts_layer = None,*,expr_model, accessibility_model, path):
+    def load_dir(cls,counts_layer = None,*,expr_model, accessibility_model, prefix):
 
-        paths = glob.glob(os.path.join(path, cls.prefix + '*.pth'))
+        paths = glob.glob(prefix + cls.prefix + '*.pth')
 
         if len(paths) == 0:
-            raise ValueError('No models found at {}'.format(str(path)))
+            if len(glob.glob(prefix + cls.old_prefix + '*.pth')) > 0:
+                logger.error('''
+    Cannot load models, but found a models using older file conventions. 
+    Please use "mira.rp.{}Model.convert_models(<prefix>) to convert old 
+    models to the new format.
+                '''.format(cls.prefix))
+
+            raise ValueError('No models found at {}'.format(str(prefix)))
 
         genes = [os.path.basename(x.split('_')[-1].split('.')[0]) 
                 for x in paths]
 
         model = cls(expr_model = expr_model, accessibility_model = accessibility_model,
-                counts_layer = counts_layer, genes = genes).load(path)
+                counts_layer = counts_layer, genes = genes).load(prefix)
 
         return model
 
+    @classmethod
+    def convert_models(cls, prefix):
 
+        paths = glob.glob(prefix + cls.old_prefix + '*.pth')
+
+        if len(paths) == 0:
+            raise ValueError('No models found at {}'.format(str(prefix)))
+
+        for path in tqdm.tqdm(paths, desc = 'Reformatting models'):
+            old_model = torch.load(path)
+            old_model['guide'] = {
+                old_key.replace(cls.old_prefix, cls.prefix).replace('logdistance','distance') : v
+                for old_key,v in old_model['guide'].items()
+            }
+
+            gene = os.path.basename(path).split('_')[-1].split('.')[0]
+
+            torch.save(old_model, 
+                os.path.join(prefix, 
+                '{}{}.pth'.format(cls.prefix, gene))
+            )
+
+            
     @classmethod
     def _make(cls, expr_model, accessibility_model, counts_layer, models, learning_rate, use_NITE_features):
         self = BaseModel.__new__(cls)
@@ -89,6 +119,7 @@ class BaseModel:
         self.models = models
 
         return self
+
 
     def __init__(self,*,
         expr_model, 
@@ -179,9 +210,7 @@ class BaseModel:
             return (x - model._get_bn_mean()[idx])/np.sqrt(model._get_bn_var()[idx] + model.decoder.bn.eps)
 
         rate = model._get_gamma()[idx] * bn(NITE_features.dot(model._get_beta()[:, idx])) + model._get_bias()[idx]
-
         region_probabilities = np.exp(rate)/softmax_denom[:, np.newaxis]
-
         return region_probabilities
 
     
@@ -233,7 +262,21 @@ class BaseModel:
                 model.load(prefix)
                 self.models.append(model)
             except FileNotFoundError:
-                logger.warn('Cannot load {} model. File not found.'.format(gene))
+                old_filename = prefix + self.old_prefix + gene + '.pth'
+                print(old_filename)
+                if os.path.isfile(old_filename):
+                    logger.warn('''
+    Cannot load {} model, but found a model using older file conventions: {}. 
+    Please use "mira.rp.{}_Model.convert_models(<prefix>) to convert old 
+    models to the new format.
+                    '''.format(
+                        gene, old_filename, self.model_type
+                    ))
+                else:
+                    logger.warn('Cannot load {} model. File not found.'.format(gene))
+
+        if len(self.models) == 0:
+            raise ValueError('No models loaded.')
 
         return self
 
@@ -324,6 +367,7 @@ class LITE_Model(BaseModel):
 
     use_NITE_features = False
     prefix = 'LITE_'
+    old_prefix = 'cis_'
 
     def __init__(self,*, expr_model, accessibility_model, genes, learning_rate = 1, 
         counts_layer = None, initialization_model = None):
@@ -340,6 +384,7 @@ class NITE_Model(BaseModel):
 
     use_NITE_features = True
     prefix = 'NITE_'
+    old_prefix = 'trans_'
 
     def __init__(self,*, expr_model, accessibility_model, genes, learning_rate = 1, 
         counts_layer = None, initialization_model = None):
@@ -405,7 +450,7 @@ class GeneModel:
                 a = pyro.sample("a", dist.HalfNormal(1.))
 
             with pyro.plate("upstream-downstream", 2):
-                d = pyro.sample('logdistance', dist.LogNormal(np.log(15), 1.2))
+                d = pyro.sample('distance', dist.LogNormal(np.log(15), 1.2))
 
             if self.use_NITE_features and hasattr(self, 'seed_params'):
                 theta = self.seed_params[self.prefix + '/theta']
@@ -693,8 +738,8 @@ class GeneModel:
         def RP(weights, distances, d):
             return (weights * np.power(0.5, distances/(1e3 * d))).sum(-1)
 
-        f_Z = params['a'][0] * RP(upstream_weights, upstream_distances, params['logdistance'][0]) \
-        + params['a'][1] * RP(downstream_weights, downstream_distances, params['logdistance'][1]) \
+        f_Z = params['a'][0] * RP(upstream_weights, upstream_distances, params['distance'][0]) \
+        + params['a'][1] * RP(downstream_weights, downstream_distances, params['distance'][1]) \
         + params['a'][2] * promoter_weights.sum(-1) # cells, factors
 
         original_data = f_Z[:,0]

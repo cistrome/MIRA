@@ -13,35 +13,31 @@ def fetch_diffmap_eigvals(self, adata, diffmap_key = 'X_diffmap'):
 
 
 def add_diffmap(adata, output, diffmap_key = 'X_diffmap'):
+    diffmap, eigen_gap = output
     logging.info('Added key to obsm: {}, normalized diffmap with {} components.'.format(
         diffmap_key,
-        str(output.shape[-1])
+        str(diffmap.shape[-1])
     ))
-    adata.obsm[diffmap_key] = output
+    logging.info('Added key to uns: eigen_gap')
+
+    logging.warn('Be sure to inspect the diffusion components to make sure they captured the heterogeniety of your dataset. Occasionally, the eigen_gap heuristic truncates the number of diffusion map components too early, leading to loss of variance.')
+    adata.obsm[diffmap_key] = diffmap
+    adata.uns['eigen_gap'] = eigen_gap
 
 
-def fetch_connectivities(self, adata, connectivities_key = 'X_diffmap'):
+def fetch_connectivities(self, adata, connectivities_key = 'X_diffmap_connectivities'):
 
-    if connectivities_key is None or connectivities_key == '':
-        connectivities_key = 'connectivities'
-    else:
-        connectivities_key+='_connectivities'
-
-
-    connectivities = adata.obsp[connectivities_key]
-    
+    connectivities = adata.obsp[connectivities_key]   
     return dict(connectivities = connectivities)
 
 
-def fetch_diffmap_distances(self, adata, diffmap_distances_key = 'X_diffmap'):
+def fetch_diffmap_distances(self, adata, diffmap_distances_key = 'X_diffmap_distnaces', 
+        diffmap_coordinates_key = 'X_diffmap'):
 
     try:
-        if diffmap_distances_key == '' or diffmap_distances_key == None:
-            distance_matrix = adata.obsp['distances']
-        else:
-            distance_matrix = adata.obsp[diffmap_distances_key + "_distances"]
 
-        diffmap = adata.obsm[diffmap_distances_key]
+        distance_matrix = adata.obsp[diffmap_distances_key]
+        diffmap = adata.obsm[diffmap_coordinates_key]
     except KeyError:
         raise KeyError(
             '''
@@ -50,20 +46,21 @@ You must calculate a diffusion map for the data, and get diffusion-based distanc
     sc.tl.diffmap(adata)
     sc.pp.neighbors(adata, n_neighbors = 30, use_rep = "X_diffmap", key_added = "X_diffmap")
 
-Or you can set **diffmap_distances_key** to None to use directly use the joint KNN graph.
+Or you can set **diffmap_distances_key** to "distances" to use directly use the joint KNN graph.
             '''
         )
     return dict(distance_matrix = distance_matrix, diffmap = diffmap)
 
 
-def fetch_diffmap_distances_and_components(self, adata, diffmap_distances_key = 'X_diffmap'):
+def fetch_diffmap_distances_and_components(self, adata, diffmap_distances_key = 'X_diffmap_distances',
+        diffmap_coordinates_key = 'X_diffmap'):
     try:
         components = adata.obs_vector('mira_connected_components')
     except KeyError:
         raise KeyError('User must run "get_connected_components" before running this function.')
         
     return dict(
-        **fetch_diffmap_distances(self, adata, diffmap_distances_key),
+        **fetch_diffmap_distances(self, adata, diffmap_distances_key, diffmap_coordinates_key = diffmap_coordinates_key),
         components = components
     )
 

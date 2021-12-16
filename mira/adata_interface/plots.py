@@ -6,7 +6,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-def fetch_differential_plot(self, adata, genes=None, counts_layer = None):
+def fetch_differential_plot(self, adata, genes=None, counts_layer = None, basis = 'X_umap'):
 
     assert(not genes is None)
 
@@ -28,7 +28,7 @@ def fetch_differential_plot(self, adata, genes=None, counts_layer = None):
         raise KeyError('User must run function "get_cis_differential" before running this function.')
 
     try:
-        r['umap'] = adata.obsm['X_umap']
+        r['umap'] = adata.obsm[basis]
     except KeyError:
         raise KeyError('X_umap: adata must have a UMAP representation to make this plot.')
 
