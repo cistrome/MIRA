@@ -1,4 +1,7 @@
 from functools import partial
+from itertools import count
+from operator import ge, mod
+from scipy.stats.stats import mode
 import torch
 import pyro
 import pyro.distributions as dist
@@ -26,7 +29,9 @@ from mira.adata_interface.rp_model import wraps_rp_func, add_isd_results
 from mira.adata_interface.core import add_layer
 from collections.abc import Sequence
 import h5py as h5
+import tqdm
 import os
+import glob
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +63,52 @@ def mean_default_init_to_value(
 class BaseModel:
 
     @classmethod
+    def load_dir(cls,counts_layer = None,*,expr_model, accessibility_model, prefix):
+
+        paths = glob.glob(prefix + cls.prefix + '*.pth')
+
+        if len(paths) == 0:
+            if len(glob.glob(prefix + cls.old_prefix + '*.pth')) > 0:
+                logger.error('''
+    Cannot load models, but found a models using older file conventions. 
+    Please use "mira.rp.{}Model.convert_models(<prefix>) to convert old 
+    models to the new format.
+                '''.format(cls.prefix))
+
+            raise ValueError('No models found at {}'.format(str(prefix)))
+
+        genes = [os.path.basename(x.split('_')[-1].split('.')[0]) 
+                for x in paths]
+
+        model = cls(expr_model = expr_model, accessibility_model = accessibility_model,
+                counts_layer = counts_layer, genes = genes).load(prefix)
+
+        return model
+
+    @classmethod
+    def convert_models(cls, prefix):
+
+        paths = glob.glob(prefix + cls.old_prefix + '*.pth')
+
+        if len(paths) == 0:
+            raise ValueError('No models found at {}'.format(str(prefix)))
+
+        for path in tqdm.tqdm(paths, desc = 'Reformatting models'):
+            old_model = torch.load(path)
+            old_model['guide'] = {
+                old_key.replace(cls.old_prefix, cls.prefix).replace('logdistance','distance') : v
+                for old_key,v in old_model['guide'].items()
+            }
+
+            gene = os.path.basename(path).split('_')[-1].split('.')[0]
+
+            torch.save(old_model, 
+                os.path.join(prefix, 
+                '{}{}.pth'.format(cls.prefix, gene))
+            )
+
+            
+    @classmethod
     def _make(cls, expr_model, accessibility_model, counts_layer, models, learning_rate, use_NITE_features):
         self = BaseModel.__new__(cls)
         self.expr_model = expr_model
@@ -69,23 +120,19 @@ class BaseModel:
 
         return self
 
+
     def __init__(self,*,
         expr_model, 
         accessibility_model, 
         genes,
         learning_rate = 1,
-        use_NITE_features = False,
         counts_layer = None,
         initialization_model = None):
 
         self.expr_model = expr_model
         self.accessibility_model = accessibility_model
         self.learning_rate = learning_rate
-        self.use_NITE_features = use_NITE_features
         self.counts_layer = counts_layer
-
-        if use_NITE_features and initialization_model is None:
-            logger.warn('Training global regulation models without providing pre-trained LITE models may cause divergence in statistical testing.')
 
         self.models = []
         for gene in genes:
@@ -94,14 +141,13 @@ class BaseModel:
             try:
                 init_params = initialization_model.get_model(gene).posterior_map
             except (IndexError, AttributeError):
-                if use_NITE_features:
-                    logger.warn('No initialization model found for gene {}.'.format(gene))
+                pass
 
             self.models.append(
                 GeneModel(
                     gene = gene, 
                     learning_rate = learning_rate, 
-                    use_NITE_features = use_NITE_features,
+                    use_NITE_features = self.use_NITE_features,
                     init_params= init_params
                 )
             )
@@ -164,9 +210,7 @@ class BaseModel:
             return (x - model._get_bn_mean()[idx])/np.sqrt(model._get_bn_var()[idx] + model.decoder.bn.eps)
 
         rate = model._get_gamma()[idx] * bn(NITE_features.dot(model._get_beta()[:, idx])) + model._get_bias()[idx]
-
         region_probabilities = np.exp(rate)/softmax_denom[:, np.newaxis]
-
         return region_probabilities
 
     
@@ -218,7 +262,21 @@ class BaseModel:
                 model.load(prefix)
                 self.models.append(model)
             except FileNotFoundError:
-                logger.warn('Cannot load {} model. File not found.'.format(gene))
+                old_filename = prefix + self.old_prefix + gene + '.pth'
+                print(old_filename)
+                if os.path.isfile(old_filename):
+                    logger.warn('''
+    Cannot load {} model, but found a model using older file conventions: {}. 
+    Please use "mira.rp.{}_Model.convert_models(<prefix>) to convert old 
+    models to the new format.
+                    '''.format(
+                        gene, old_filename, self.model_type
+                    ))
+                else:
+                    logger.warn('Cannot load {} model. File not found.'.format(gene))
+
+        if len(self.models) == 0:
+            raise ValueError('No models loaded.')
 
         return self
 
@@ -275,19 +333,27 @@ class BaseModel:
     def probabilistic_isd(self, model, features, n_samples = 1500, checkpoint = None,
         *,hits_matrix, metadata):
 
+        already_calculated = False
         if not checkpoint is None:
             if not os.path.isfile(checkpoint):
                 h5.File(checkpoint, 'w').close()
 
             with h5.File(checkpoint, 'r') as h:
-                written_genes = list(h.keys())
+                try:
+                    h[model.gene]
+                    already_calculated = True
+                except KeyError:
+                    pass
 
-        if checkpoint is None or not model.gene in written_genes:
+        if checkpoint is None or not already_calculated:
             result = model.probabilistic_isd(features, hits_matrix, n_samples = n_samples)
-            with h5.File(checkpoint, 'a') as h:
-                g = h.create_group(model.gene)
-                g.create_dataset('samples_mask', data = result[1])
-                g.create_dataset('isd', data = result[0])
+
+            if not checkpoint is None:
+                with h5.File(checkpoint, 'a') as h:
+                    g = h.create_group(model.gene)
+                    g.create_dataset('samples_mask', data = result[1])
+                    g.create_dataset('isd', data = result[0])
+
             return result
         else:
             with h5.File(checkpoint, 'r') as h:
@@ -299,18 +365,9 @@ class BaseModel:
 
 class LITE_Model(BaseModel):
 
-    def __init__(self,*, expr_model, accessibility_model, genes, learning_rate = 1, counts_layer = None):
-        super().__init__(
-            expr_model = expr_model, 
-            accessibility_model = accessibility_model, 
-            genes = genes,
-            learning_rate = learning_rate,
-            use_NITE_features = False, 
-            initialization_model = None,
-            counts_layer=counts_layer,
-        )
-
-class NITE_Model(BaseModel):
+    use_NITE_features = False
+    prefix = 'LITE_'
+    old_prefix = 'cis_'
 
     def __init__(self,*, expr_model, accessibility_model, genes, learning_rate = 1, 
         counts_layer = None, initialization_model = None):
@@ -319,10 +376,27 @@ class NITE_Model(BaseModel):
             accessibility_model = accessibility_model, 
             genes = genes,
             learning_rate = learning_rate,
-            use_NITE_features = True, 
             initialization_model = initialization_model,
             counts_layer=counts_layer,
         )
+
+class NITE_Model(BaseModel):
+
+    use_NITE_features = True
+    prefix = 'NITE_'
+    old_prefix = 'trans_'
+
+    def __init__(self,*, expr_model, accessibility_model, genes, learning_rate = 1, 
+        counts_layer = None, initialization_model = None):
+        super().__init__(
+            expr_model = expr_model, 
+            accessibility_model = accessibility_model, 
+            genes = genes,
+            learning_rate = learning_rate,
+            initialization_model = initialization_model,
+            counts_layer=counts_layer,
+        )
+        
 
 
 class GeneModel:
@@ -339,18 +413,22 @@ class GeneModel:
         self.was_fit = False
         self.init_params = init_params
 
-    def _get_weights(self):
+    def _get_weights(self, loading = False):
         pyro.clear_param_store()
         self.bn = torch.nn.BatchNorm1d(1, momentum = 1.0, affine = False)
 
         if self.init_params is None:
+            if self.use_NITE_features and not loading:
+                logger.warn('\nTraining NITE regulation model for {} without providing pre-trained LITE models may cause divergence in statistical testing.'\
+                    .format(self.gene))
+
             self.guide = AutoDelta(self.model, init_loc_fn = init_to_mean)
         else:
             self.seed_params = {self.prefix + '/' + k.split('/')[-1] : v.detach().clone() for k,v in self.init_params.items()}
             self.guide = AutoDelta(self.model, init_loc_fn = mean_default_init_to_value(values = self.seed_params))
 
     def get_prefix(self):
-        return ('NITE' if self.use_NITE_features else 'cis') + '_' + self.gene
+        return ('NITE' if self.use_NITE_features else 'LITE') + '_' + self.gene
 
     def RP(self, weights, distances, d):
         return (weights * torch.pow(0.5, distances/(1e3 * d))).sum(-1)
@@ -372,7 +450,7 @@ class GeneModel:
                 a = pyro.sample("a", dist.HalfNormal(1.))
 
             with pyro.plate("upstream-downstream", 2):
-                d = pyro.sample('logdistance', dist.LogNormal(np.log(15), 1.2))
+                d = pyro.sample('distance', dist.LogNormal(np.log(15), 1.2))
 
             if self.use_NITE_features and hasattr(self, 'seed_params'):
                 theta = self.seed_params[self.prefix + '/theta']
@@ -553,7 +631,7 @@ class GeneModel:
         return dict(bn = self.bn.state_dict(), guide = self.posterior_map)
 
     def _load_save_data(self, state):
-        self._get_weights()
+        self._get_weights(loading = True)
         self.bn.load_state_dict(state['bn'])
         self.posterior_map = state['guide']
 
@@ -660,8 +738,8 @@ class GeneModel:
         def RP(weights, distances, d):
             return (weights * np.power(0.5, distances/(1e3 * d))).sum(-1)
 
-        f_Z = params['a'][0] * RP(upstream_weights, upstream_distances, params['logdistance'][0]) \
-        + params['a'][1] * RP(downstream_weights, downstream_distances, params['logdistance'][1]) \
+        f_Z = params['a'][0] * RP(upstream_weights, upstream_distances, params['distance'][0]) \
+        + params['a'][1] * RP(downstream_weights, downstream_distances, params['distance'][1]) \
         + params['a'][2] * promoter_weights.sum(-1) # cells, factors
 
         original_data = f_Z[:,0]

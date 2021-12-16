@@ -77,16 +77,23 @@ def get_dendogram_levels(G):
 ### ___ PALANTIR FUNCTIONS ____ ##
 
 @adi.wraps_functional(pti.fetch_diffmap_eigvals, pti.add_diffmap, ['diffmap','eig_vals'])
-def normalize_diffmap(*,diffmap, eig_vals):
+def normalize_diffmap(num_comps = None, rescale = True,*,diffmap, eig_vals):
 
-    num_comps = np.maximum(np.argmax(eig_vals[:-1] - eig_vals[1:]), 4)
+    eigen_gap = eig_vals[:-1] - eig_vals[1:]
+    if num_comps is None:
+        num_comps = np.maximum(np.argmax(eigen_gap), 3) + 1
+    else:
+        assert(isinstance(num_comps, int) and num_comps > 1)
+        num_comps+=1
+
     diffmap = diffmap[:, 1:num_comps]
-    
-    diffmap/=np.linalg.norm(diffmap, axis = 0, keepdims = True)
-    eig_vals = eig_vals[1:num_comps]
-    diffmap *= (eig_vals / (1 - eig_vals))[np.newaxis, :]
 
-    return diffmap
+    if rescale:
+        diffmap/=np.linalg.norm(diffmap, axis = 0, keepdims = True)
+        eig_vals = eig_vals[1:num_comps]
+        diffmap *= (eig_vals / (1 - eig_vals))[np.newaxis, :]
+
+    return diffmap, eigen_gap
 
 
 def sample_waypoints(num_waypoints = 3000,*, diffmap):
@@ -126,14 +133,14 @@ def sample_waypoints(num_waypoints = 3000,*, diffmap):
     return waypoints
 
 
-@adi.wraps_functional(pti.fetch_diffmap_distances, 
+@adi.wraps_functional(pti.fetch_connectivities, 
     partial(adi.add_obs_col, colname = 'mira_connected_components'),
-    ['distance_matrix','diffmap'])
-def get_connected_components(*,distance_matrix, diffmap):
+    ['connectivities'])
+def get_connected_components(*,connectivities):
 
-    assert(isspmatrix(distance_matrix))
-    N = distance_matrix.shape[0]
-    G = nx.convert_matrix.from_scipy_sparse_matrix(distance_matrix)
+    assert(isspmatrix(connectivities))
+    N = connectivities.shape[0]
+    G = nx.convert_matrix.from_scipy_sparse_matrix(connectivities)
 
     components = nx.algorithms.components.connected_components(G)
     

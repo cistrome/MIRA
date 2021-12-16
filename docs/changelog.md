@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.0
+
+#### Updates
+
+* Changed mira.time API to be able to take arbitrary connectivity/distance
+matrices from anndata object for more flexibility.
+* Changed saving names from cis to LITE for LITE model. Added methods to convert
+savenames from older models to new models and added methods to detect when a 
+user should run the convert command.
+* Added method ``mira.rp.LITE_Model.load_dir`` to load in a bunch of RP models at
+once without having to specify the genes up-front.
+* Changed signature of ``mira.topics.AccessibilityModel.plot_compare_module_enrichments``
+to ``mira.topics.AccessibilityModel.plot_compare_topic_enrichments`` to reflect change
+in vernacular from "modules" to "topics".
+* Changed all references to "modules" in function signatures to "topics".
+
+#### Fixes
+
+* Fixed bug where ``mira.time.normalize_diffmap`` was taking one less diffusion map
+component than expected.
+
+
 ## 0.0.7
 
 #### Updates

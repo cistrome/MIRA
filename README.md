@@ -171,7 +171,7 @@ MIRA quantifies the regulatory influence of local chromatin accessibility by com
 
 ## Citations
 
-MIRA was created by researchers in the X. Shirley Liu Lab at Dana-Farber Cancer Institute. If you use MIRA in your research, we would appreciate citation of [our manuscript](https://www.biorxiv.org/content/10.1101/2021.12.06.471401v1) ([bibtex](https://github.com/AllenWLynch/Kladi/blob/adata/docs/references/mira_bioarxiv.bib)).
+MIRA was created by researchers in the X. Shirley Liu Lab at Dana-Farber Cancer Institute. If you use MIRA in your research, we would appreciate citation of [our manuscript](https://www.biorxiv.org/content/10.1101/2021.12.06.471401v1).
 
 <p>&nbsp;</p>
 
