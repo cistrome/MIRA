@@ -20,6 +20,8 @@ import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 import gc
 import matplotlib.pyplot as plt
+from scipy.cluster.hierarchy import linkage, dendrogram, to_tree
+from sklearn.preprocessing import OneHotEncoder
 logger = logging.getLogger(__name__)
 
 class EarlyStopping:
@@ -56,14 +58,18 @@ class EarlyStopping:
 
 class Decoder(torch.nn.Module):
     
-    def __init__(self,*,num_exog_features, num_topics, dropout):
+    def __init__(self,*,num_exog_features, num_topics, num_batches, dropout):
         super().__init__()
-        self.beta = nn.Linear(num_topics, num_exog_features, bias = False)
+        self.beta = nn.Linear(num_topics + num_batches, num_exog_features, bias = False)
         self.bn = nn.BatchNorm1d(num_exog_features)
         self.drop = nn.Dropout(dropout)
 
-    def forward(self, inputs):
-        return F.softmax(self.bn(self.beta(self.drop(inputs))), dim=1)
+    def forward(self, comps, batch):
+
+        comps = torch.hstack([comps, batch])
+        comps = self.drop(comps)
+
+        return F.softmax(self.bn(self.beta(comps)), dim=1)
 
     def get_softmax_denom(self, inputs):
         return self.bn(self.beta(inputs)).exp().sum(-1)
@@ -150,6 +156,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             endogenous_key = None,
             exogenous_key = None,
             counts_layer = None,
+            batch_key = None,
             num_topics = 16,
             hidden = 128,
             num_layers = 3,
@@ -264,6 +271,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.endogenous_key = endogenous_key
         self.exogenous_key = exogenous_key
         self.counts_layer = counts_layer
+        self.batch_key = batch_key
         self.num_topics = num_topics
         self.hidden = hidden
         self.num_layers = num_layers
@@ -288,8 +296,14 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         pyro.set_rng_seed(self.seed)
         np.random.seed(self.seed)
 
-    def _get_dataset_statistics(self, endog_features, exog_features):
-        pass
+    def _get_dataset_statistics(self, endog_features, exog_features, batch):
+        if self.num_batches == 0 or self.batch_key is None:
+            self.batch_encoder = lambda x : []
+        else:
+            batch = batch.astype(str).reshape((-1,1))
+            self.batch_encoder = OneHotEncoder(drop = 'first', sparse = False)\
+                    .fit(batch)
+
 
     def _get_weights(self, on_gpu = True, inference_mode = False):
         
@@ -318,6 +332,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.decoder = Decoder(
             num_exog_features=self.num_exog_features, 
             num_topics=self.num_topics, 
+            num_batches = self.num_batches,
             dropout = self.decoder_dropout
         )
 
@@ -325,6 +340,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             embedding_size = self.embedding_size,
             num_endog_features = self.num_endog_features, 
             num_topics = self.num_topics, 
+            num_batches = self.num_batches,
             hidden = self.hidden, 
             dropout = self.encoder_dropout, 
             num_layers = self.num_layers
@@ -404,25 +420,36 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         for i in range(num_batches) if not bar else tqdm(range(num_batches), desc = desc):
             yield i * batch_size, (i + 1) * batch_size
 
-    def _preprocess_endog(self, X):
+    def _preprocess_endog(self, X, read_depth, start, end):
         raise NotImplementedError()
 
-    def _preprocess_exog(self, X):
+    def _preprocess_exog(self, X, start, end):
         raise NotImplementedError()
+    
+    def _preprocess_batch(self, X, start, end):
+        if X is None or self.num_batches == 0:
+            return torch.tensor([], requires_grad = False, dtype = torch.float).to(self.device)
+        else:
+            X = X[start:end].astype(str).reshape((-1,1))
+            return torch.tensor(self.batch_encoder.transform(X).astype(np.float32), 
+                requires_grad = False).to(self.device)
 
-    def _preprocess_read_depth(self, X):
-        return torch.tensor(X, requires_grad = False).to(self.device)
 
-    def _iterate_batches(self, endog_features, exog_features, batch_size = 32, bar = True, desc = None):
+    def _preprocess_read_depth(self, X, start, end):
+        return torch.tensor(X[start:end], requires_grad = False).to(self.device)
+
+    def _iterate_batches(self,*, endog_features, exog_features, batch,
+            batch_size = 32, bar = True, desc = None):
         
         N = endog_features.shape[0]
         read_depth = np.array(exog_features.sum(-1)).reshape((-1,1))
 
         for start, end in self._iterate_batch_idx(N, batch_size=batch_size, bar = bar, desc = desc):
             yield dict(
-                endog_features = self._preprocess_endog(endog_features[start:end], read_depth[start : end]),
-                exog_features = self._preprocess_exog(exog_features[start:end]),
-                read_depth = self._preprocess_read_depth(read_depth[start:end]),
+                endog_features = self._preprocess_endog(endog_features, read_depth, start, end),
+                exog_features = self._preprocess_exog(exog_features, start, end),
+                read_depth = self._preprocess_read_depth(read_depth, start, end),
+                batch = self._preprocess_batch(batch, start, end)
             )
 
     def _get_1cycle_scheduler(self, n_batches_per_epoch):
@@ -462,7 +489,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self._features = f
 
     def _instantiate_model(self,*, features, highly_variable,
-        endog_features, exog_features):
+        endog_features, exog_features, batch):
 
         assert(isinstance(self.num_epochs, int) and self.num_epochs > 0)
         assert(isinstance(self.batch_size, int) and self.batch_size > 0)
@@ -477,6 +504,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.num_exog_features = exog_features.shape[-1]
         self.features = features
         self.highly_variable = highly_variable
+        self.num_batches = len(np.unique(batch)) - 1
         
         self._get_weights()
 
@@ -484,7 +512,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         fill_kwargs=['features','highly_variable','endog_features','exog_features'])
     def get_learning_rate_bounds(self, num_epochs = 6, eval_every = 10, 
         lower_bound_lr = 1e-6, upper_bound_lr = 1,*,
-        features, highly_variable, endog_features, exog_features):
+        features, highly_variable, endog_features, exog_features, batch):
         '''
         Use the learning rate range test (LRRT) to determine minimum and maximum learning
         rates that enable the model to traverse the gradient of the loss. 
@@ -525,9 +553,10 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self._instantiate_model(
             features = features, highly_variable = highly_variable, 
             endog_features = endog_features, exog_features = exog_features,
+            batch = batch,
         )
 
-        self._get_dataset_statistics(endog_features, exog_features)
+        self._get_dataset_statistics(endog_features, exog_features, batch)
 
         n_batches = self.get_num_batches(endog_features.shape[0], self.batch_size)
 
@@ -559,11 +588,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
                 #train step
                 self.train()
-                for batch in self._iterate_batches(endog_features = endog_features, 
-                        exog_features = exog_features, 
+                for minbatch in self._iterate_batches(endog_features = endog_features, 
+                        exog_features = exog_features, batch = batch,
                         batch_size = self.batch_size, bar = False):
 
-                    step_loss += float(self.svi.step(**batch, anneal_factor = 1.))
+                    step_loss += float(self.svi.step(**minbatch, anneal_factor = 1.))
                     batches_complete+=1
                     
                     if batches_complete % eval_every == 0 and batches_complete > 0:
@@ -729,8 +758,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     @adi.wraps_modelfunc(tmi.fit_adata, adi.return_output,
-        fill_kwargs=['features','highly_variable','endog_features','exog_features'])
-    def instantiate_model(self,*, features, highly_variable, endog_features, exog_features):
+        fill_kwargs=['features','highly_variable','endog_features','exog_features','batch'])
+    def instantiate_model(self,*, features, highly_variable, endog_features, exog_features, batch):
         '''
         Given the exogenous and enxogenous features provided, instantiate weights
         of neural network. Called internally by **fit**.
@@ -747,21 +776,23 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self._instantiate_model(
                 features = features, highly_variable = highly_variable, 
                 endog_features = endog_features, exog_features = exog_features,
+                batch = batch
             )
 
         return self
 
 
     def _fit(self,*,training_bar = True, reinit = True,
-            features, highly_variable, endog_features, exog_features):
+            features, highly_variable, endog_features, exog_features, batch):
         
         if reinit:
             self._instantiate_model(
                 features = features, highly_variable = highly_variable, 
                 endog_features = endog_features, exog_features = exog_features,
+                batch = batch,
             )
 
-        self._get_dataset_statistics(endog_features, exog_features)
+        self._get_dataset_statistics(endog_features, exog_features, batch)
 
         n_observations = endog_features.shape[0]
         n_batches = self.get_num_batches(n_observations, self.batch_size)
@@ -787,14 +818,15 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 
                 self.train()
                 running_loss = 0.0
-                for batch in self._iterate_batches(endog_features = endog_features, exog_features = exog_features, 
+                for minibatch in self._iterate_batches(endog_features = endog_features, 
+                    exog_features = exog_features, batch = batch,
                         batch_size = self.batch_size, bar = False):
                     
                     anneal_factor = anneal_fn(step_count)
                     self.anneal_factors.append(anneal_factor)
                     #if batch[0].shape[0] > 1:
                     try:
-                        running_loss += float(self.svi.step(**batch, anneal_factor = anneal_factor))
+                        running_loss += float(self.svi.step(**minibatch, anneal_factor = anneal_factor))
                         step_count+=1
                     except ValueError:
                         raise ModelParamError('Gradient overflow caused parameter values that were too large to evaluate. Try setting a lower learning rate.')
@@ -833,8 +865,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     @adi.wraps_modelfunc(tmi.fit_adata, adi.return_output,
-        fill_kwargs=['features','highly_variable','endog_features','exog_features'])
-    def fit(self, reinit = True,*,features, highly_variable, endog_features, exog_features):
+        fill_kwargs=['features','highly_variable','endog_features','exog_features','batch'])
+    def fit(self, reinit = True,*,features, highly_variable, endog_features, exog_features, batch):
         '''
         Initializes new weights, then fits model to data.
 
@@ -849,17 +881,17 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             Fitted topic model
         '''
         for _ in self._fit(reinit = reinit, features = features, highly_variable = highly_variable, 
-            endog_features = endog_features, exog_features = exog_features):
+            endog_features = endog_features, exog_features = exog_features, batch = batch):
             pass
 
         return self
 
     @adi.wraps_modelfunc(tmi.fit_adata, adi.return_output,
-        fill_kwargs=['features','highly_variable','endog_features','exog_features'])
-    def _internal_fit(self,*,features, highly_variable, endog_features, exog_features):
+        fill_kwargs=['features','highly_variable','endog_features','exog_features', 'batch'])
+    def _internal_fit(self,*,features, highly_variable, endog_features, exog_features, batch):
         return self._fit(training_bar = False, 
             features = features, highly_variable = highly_variable, 
-            endog_features = endog_features, exog_features = exog_features)
+            endog_features = endog_features, exog_features = exog_features, batch = batch)
 
 
     def _run_encoder_fn(self, fn, batch_size = 512, bar = True, desc = 'Predicting latent vars', **features):
@@ -871,15 +903,15 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         results = []
         for batch in self._iterate_batches(**features,
                 batch_size = batch_size, bar = bar,  desc = desc):
-            results.append(fn(batch['endog_features'], batch['read_depth']))
+            results.append(fn(batch['endog_features'], batch['read_depth'], batch['batch']))
 
         results = np.vstack(results)
         return results
 
 
     @adi.wraps_modelfunc(tmi.fetch_features, tmi.add_topic_comps,
-        fill_kwargs=['endog_features','exog_features'])
-    def predict(self, batch_size = 512, *,endog_features, exog_features):
+        fill_kwargs=['endog_features','exog_features','batch'])
+    def predict(self, batch_size = 512, *,endog_features, exog_features, batch):
         '''
         Predict the topic compositions of cells in the data.
 
@@ -901,7 +933,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 Columns for the activation of each topic.            
         '''
         return self._run_encoder_fn(self.encoder.topic_comps, batch_size = batch_size, 
-            endog_features = endog_features, exog_features = exog_features)
+            endog_features = endog_features, exog_features = exog_features, batch = batch)
 
 
     @staticmethod
@@ -927,7 +959,50 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         basis = self._gram_schmidt_basis(compositions.shape[-1])
         return self.centered_boxcox_transform(compositions, a = a).dot(basis)
-    
+
+
+    @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_obsm, add_key = 'X_umap_features'),
+        fill_kwargs=['topic_compositions'])
+    def get_phylo_ILR_features(self, box_cox = 'log',*, topic_compositions):
+
+        topics = np.abs(self._get_gamma())[np.newaxis, :] * self._score_features()[:self.num_topics, :] + self._get_bias()[np.newaxis, :]
+        topics = np.sqrt(np.exp(topics)/np.exp(topics).sum(-1, keepdims = True))
+        linkage_matrix = linkage(topics, method='ward', metric='euclidean')
+        
+        root, nodes = to_tree(linkage_matrix, rd = True)
+
+        def children(x):
+
+            if x is None:
+                return []
+
+            if x.left is None and x.right is None:
+                return [x.id]
+
+            return children(x.left) + children(x.right)
+        
+        n_topics = topics.shape[0]
+        
+        balance_matrix = np.zeros((self.num_topics -1, self.num_topics))
+        
+        n_plus, n_minus = [],[]
+        for i, node in enumerate(nodes[self.num_topics:]):
+            balance_matrix[i, children(node.left)] = 1
+            balance_matrix[i, children(node.right)] = -1
+            n_plus.append(len(children(node.left)))
+            n_minus.append(len(children(node.right)))
+
+        n_plus, n_minus = np.array(n_plus), np.array(n_minus)
+
+        plus_sites = 1/n_plus * np.sqrt((n_plus*n_minus)/(n_plus + n_minus))
+        minus_sites = -1/n_minus * np.sqrt((n_plus*n_minus)/(n_plus + n_minus))
+
+        g_matrix = np.zeros_like(balance_matrix) + (balance_matrix == 1).astype(int) * plus_sites[:,np.newaxis] +\
+            (balance_matrix == -1).astype(int) * minus_sites[:,np.newaxis]
+
+        return self.centered_boxcox_transform(topic_compositions, a = box_cox).dot(g_matrix.T)
+
+        
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_obsm, add_key = 'X_umap_features'),
         fill_kwargs=['topic_compositions'])
     def get_umap_features(self, box_cox = 'log', *, topic_compositions):
@@ -954,22 +1029,22 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         return self._project_to_orthospace(topic_compositions, a = box_cox)
 
 
-    def _get_elbo_loss(self, batch_size = 512, *,endog_features, exog_features):
+    def _get_elbo_loss(self, batch_size = 512, *,endog_features, exog_features, batch):
 
         self.eval()
         running_loss = 0
         #self.eps.device(self.device)
-        for batch in self._iterate_batches(endog_features = endog_features, 
-                        exog_features = exog_features, 
+        for minibatch in self._iterate_batches(endog_features = endog_features, 
+                        exog_features = exog_features, batch = batch,
                         batch_size = batch_size, bar = False):
                     
-            running_loss += float(self.svi.evaluate_loss(**batch, anneal_factor = 1.0))
+            running_loss += float(self.svi.evaluate_loss(**minibatch, anneal_factor = 1.0))
 
         return running_loss
     
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
         fill_kwargs=['endog_features','exog_features'])
-    def score(self, batch_size = 512, *,endog_features, exog_features):
+    def score(self, batch_size = 512, *,endog_features, exog_features, batch):
         '''
         Get normalized ELBO loss for data. This method is only available on
         topic models that have not been loaded from disk.
@@ -994,8 +1069,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         '''
         self.eval()
         return self._get_elbo_loss(
-            endog_features = endog_features, exog_features = exog_features,
-            batch_size = batch_size)\
+            endog_features = endog_features, exog_features = exog_features, 
+            batch = batch, batch_size = batch_size)\
             /(endog_features.shape[0] * self.num_exog_features)
 
     

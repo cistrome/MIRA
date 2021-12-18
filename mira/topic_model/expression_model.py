@@ -49,7 +49,8 @@ logger = logging.getLogger(__name__)
 class ExpressionEncoder(torch.nn.Module):
 
 
-    def __init__(self,embedding_size=None,*,num_endog_features, num_topics, hidden, dropout, num_layers):
+    def __init__(self,embedding_size=None,*,num_endog_features, num_batches, 
+        num_topics, hidden, dropout, num_layers):
         super().__init__()
 
         if embedding_size is None:
@@ -58,13 +59,14 @@ class ExpressionEncoder(torch.nn.Module):
         output_batchnorm_size = 2*num_topics + 2
         self.num_topics = num_topics
         self.fc_layers = get_fc_stack(
-            layer_dims = [num_endog_features + 1, embedding_size, *[hidden]*(num_layers-2), output_batchnorm_size],
+            layer_dims = [num_endog_features + 1 + num_batches, 
+            embedding_size, *[hidden]*(num_layers-2), output_batchnorm_size],
             dropout = dropout, skip_nonlin = True
         )
         
-    def forward(self, X, read_depth):
+    def forward(self, X, read_depth, batch):
 
-        X = torch.hstack([X, torch.log(read_depth)])
+        X = torch.hstack([X, torch.log(read_depth), batch])
 
         X = self.fc_layers(X)
 
@@ -76,15 +78,15 @@ class ExpressionEncoder(torch.nn.Module):
 
         return theta_loc, theta_scale, rd_loc, rd_scale
 
-    def topic_comps(self, X, read_depth):
+    def topic_comps(self, X, read_depth, batch):
 
-        theta = self.forward(X, read_depth)[0]
+        theta = self.forward(X, read_depth, batch)[0]
         theta = theta.exp()/theta.exp().sum(-1, keepdim = True)
         
         return theta.detach().cpu().numpy()
 
-    def read_depth(self, X, read_depth):
-        return self.forward(X, read_depth)[2].detach().cpu().numpy()
+    def read_depth(self, X, read_depth, batch):
+        return self.forward(X, read_depth, batch)[2].detach().cpu().numpy()
 
 
 class ExpressionTopicModel(BaseModel):
@@ -127,7 +129,7 @@ class ExpressionTopicModel(BaseModel):
         return weights
 
     @scope(prefix= 'rna')
-    def model(self,*,endog_features, exog_features, read_depth, anneal_factor = 1.):
+    def model(self,*,endog_features, exog_features, batch, read_depth, anneal_factor = 1.):
         theta_loc, theta_scale = super().model()
         pyro.module("decoder", self.decoder)
 
@@ -140,7 +142,7 @@ class ExpressionTopicModel(BaseModel):
                     "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1))
                 theta = theta/theta.sum(-1, keepdim = True)
                 
-                expr_rate = self.decoder(theta)
+                expr_rate = self.decoder(theta, batch)
 
                 read_scale = pyro.sample('read_depth', dist.LogNormal(torch.log(read_depth), 1.).to_event(1))
             
@@ -154,12 +156,12 @@ class ExpressionTopicModel(BaseModel):
 
 
     @scope(prefix= 'rna')
-    def guide(self,*,endog_features, exog_features, read_depth, anneal_factor = 1.):
+    def guide(self,*,endog_features, exog_features, batch, read_depth, anneal_factor = 1.):
         super().guide()
 
         with pyro.plate("cells", endog_features.shape[0]):
             
-            theta_loc, theta_scale, rd_loc, rd_scale = self.encoder(endog_features, read_depth)
+            theta_loc, theta_scale, rd_loc, rd_scale = self.encoder(endog_features, read_depth, batch)
 
             with poutine.scale(None, anneal_factor):
                 theta = pyro.sample(
@@ -170,8 +172,8 @@ class ExpressionTopicModel(BaseModel):
                     "read_depth", dist.LogNormal(rd_loc.reshape((-1,1)), rd_scale.reshape((-1,1))).to_event(1)
                 )
 
-    def _get_dataset_statistics(self, endog_features, exog_features):
-        super()._get_dataset_statistics(endog_features, exog_features)
+    def _get_dataset_statistics(self, endog_features, exog_features, batch):
+        super()._get_dataset_statistics(endog_features, exog_features, batch)
 
         self.residual_pi = np.array(endog_features.sum(axis = 0)).reshape(-1)/endog_features.sum()
 
@@ -184,10 +186,11 @@ class ExpressionTopicModel(BaseModel):
             batch_size =batch_size, bar = False, desc = 'Calculating reads scale')
         
 
-    def _preprocess_endog(self, X, read_depth):
+    def _preprocess_endog(self, X, read_depth, start, end):
         
         assert(isinstance(X, np.ndarray) or isspmatrix(X))
         
+        X = X[start:end]
         if isspmatrix(X):
             X = X.toarray()
 
@@ -201,10 +204,11 @@ class ExpressionTopicModel(BaseModel):
         return torch.tensor(X, requires_grad = False).to(self.device)
 
 
-    def _preprocess_exog(self, X):
+    def _preprocess_exog(self, X, start, end):
         
         assert(isinstance(X, np.ndarray) or isspmatrix(X))
         
+        X = X[start:end]
         if isspmatrix(X):
             X = X.toarray()
 
