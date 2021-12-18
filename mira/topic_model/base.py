@@ -509,7 +509,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self._get_weights()
 
     @adi.wraps_modelfunc(fetch = tmi.fit_adata, 
-        fill_kwargs=['features','highly_variable','endog_features','exog_features'])
+        fill_kwargs=['features','highly_variable','endog_features','exog_features', 'batch'])
     def get_learning_rate_bounds(self, num_epochs = 6, eval_every = 10, 
         lower_bound_lr = 1e-6, upper_bound_lr = 1,*,
         features, highly_variable, endog_features, exog_features, batch):

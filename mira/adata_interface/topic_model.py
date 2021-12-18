@@ -47,7 +47,8 @@ def fit_adata(self, adata):
         features = features,
         highly_variable = highly_variable,
         endog_features = fetch_layer(self, adata[:, highly_variable], self.counts_layer),
-        exog_features = fetch_layer(self, adata, self.counts_layer)
+        exog_features = fetch_layer(self, adata, self.counts_layer),
+        batch = adata.obs_vector(self.batch_key) if not self.batch_key is None else None
     )
 
 def fetch_features(self, adata):
@@ -57,6 +58,7 @@ def fetch_features(self, adata):
     return dict(
         endog_features = fetch_layer(self, adata[:, self.highly_variable], self.counts_layer),
         exog_features = fetch_layer(self, adata, self.counts_layer),
+        batch = adata.obs_vector(self.batch_key) if not self.batch_key is None else None,
     )
 
 def fetch_topic_comps(self, adata, key = 'X_topic_compositions'):
