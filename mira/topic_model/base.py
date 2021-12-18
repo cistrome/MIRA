@@ -63,16 +63,25 @@ class Decoder(torch.nn.Module):
         self.beta = nn.Linear(num_topics + num_batches, num_exog_features, bias = False)
         self.bn = nn.BatchNorm1d(num_exog_features)
         self.drop = nn.Dropout(dropout)
+        self.dropout_rate = dropout
 
     def forward(self, comps, batch):
 
-        comps = torch.hstack([comps, batch])
+        if self.training:
+            batch = torch.multiply(
+                    torch.empty_like(batch).bernoulli_(1-self.dropout_rate),
+                    batch
+                )
+
         comps = self.drop(comps)
+        X = torch.hstack([comps, batch])
 
-        return F.softmax(self.bn(self.beta(comps)), dim=1)
+        return F.softmax(self.bn(self.beta(X)), dim=1)
 
-    def get_softmax_denom(self, inputs):
-        return self.bn(self.beta(inputs)).exp().sum(-1)
+    def get_softmax_denom(self, comps, batch):
+
+        comps = torch.hstack([comps, batch])
+        return self.bn(self.beta(comps)).exp().sum(-1)
 
 
 class ModelParamError(ValueError):
@@ -1145,9 +1154,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             fit_params = dict(
                 num_endog_features = self.num_endog_features,
                 num_exog_features = self.num_exog_features,
+                num_batches = self.num_batches,
                 highly_variable = self.highly_variable,
                 features = self.features,
                 enrichments = self.enrichments,
+                batch_encoder = self.batch_encoder,
             )
         )
 

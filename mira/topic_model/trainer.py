@@ -70,7 +70,6 @@ def _print_study(study, trial):
             print('\n{:>7} | '.format(str(current_num_modules)), end = '')
 
         print(str(trial_result[1]), end = ' ')
-        #print(trial_result[1], ('*' trial_result[2] == study.best_trial.number else ''), end = '')
     
     print('', end = '\n\n')
     print('Trial Information:')
@@ -78,6 +77,7 @@ def _print_study(study, trial):
         print(get_trial_desc(trial))
 
     print('\n')
+    
 
 def print_study(study):
     _print_study(study, None)
