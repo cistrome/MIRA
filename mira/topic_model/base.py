@@ -69,10 +69,10 @@ class Decoder(torch.nn.Module):
 
         if self.training:
             batch = torch.multiply(
-                    torch.empty_like(batch).bernoulli_(1-self.dropout_rate),
+                    torch.empty_like(batch).bernoulli_(0.33),
                     batch
                 )
-
+                
         comps = self.drop(comps)
         X = torch.hstack([comps, batch])
 
@@ -306,11 +306,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         np.random.seed(self.seed)
 
     def _get_dataset_statistics(self, endog_features, exog_features, batch):
-        if self.num_batches == 0 or self.batch_key is None:
+        if self.num_batches == 1 or self.batch_key is None:
             self.batch_encoder = lambda x : []
         else:
             batch = batch.astype(str).reshape((-1,1))
-            self.batch_encoder = OneHotEncoder(drop = 'first', sparse = False)\
+            self.batch_encoder = OneHotEncoder(sparse = False)\
                     .fit(batch)
 
 
@@ -513,7 +513,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.num_exog_features = exog_features.shape[-1]
         self.features = features
         self.highly_variable = highly_variable
-        self.num_batches = len(np.unique(batch)) - 1
+        self.num_batches = len(np.unique(batch))
         
         self._get_weights()
 

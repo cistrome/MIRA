@@ -81,6 +81,7 @@ class ExpressionEncoder(torch.nn.Module):
     def topic_comps(self, X, read_depth, batch):
 
         theta = self.forward(X, read_depth, batch)[0]
+        
         theta = theta.exp()/theta.exp().sum(-1, keepdim = True)
         
         return theta.detach().cpu().numpy()
@@ -140,7 +141,6 @@ class ExpressionTopicModel(BaseModel):
             with poutine.scale(None, anneal_factor):
                 theta = pyro.sample(
                     "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1))
-                theta = theta/theta.sum(-1, keepdim = True)
                 
                 expr_rate = self.decoder(theta, batch)
 
