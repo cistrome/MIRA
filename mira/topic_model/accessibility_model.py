@@ -138,8 +138,8 @@ class AccessibilityTopicModel(BaseModel):
                     "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
                 )
 
-            theta = torch.hstack([theta, batch])
             theta = theta/theta.sum(-1, keepdim = True)
+            theta = torch.hstack([theta, batch/self.num_topics])
             
             peak_probs = self.decoder(theta)
             

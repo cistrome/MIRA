@@ -140,11 +140,12 @@ class ExpressionTopicModel(BaseModel):
         with pyro.plate("cells", endog_features.shape[0]):
             with poutine.scale(None, anneal_factor):
                 theta = pyro.sample(
-                    "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1))
+                    "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
+                )
                 
-                theta = torch.hstack([theta, batch])
                 theta = theta/theta.sum(-1, keepdim = True)
-                
+                theta = torch.hstack([theta, batch/self.num_topics])
+
                 expr_rate = self.decoder(theta)
 
                 read_scale = pyro.sample('read_depth', dist.LogNormal(torch.log(read_depth), 1.).to_event(1))
