@@ -300,7 +300,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     def _get_dataset_statistics(self, endog_features, exog_features, batch):
         if self.num_batches == 1 or self.batch_key is None:
-            self.batch_encoder = lambda x : []
+            self.batch_encoder = None
         else:
             batch = batch.astype(str).reshape((-1,1))
             self.batch_encoder = OneHotEncoder(sparse = False)\
@@ -514,6 +514,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.features = features
         self.highly_variable = highly_variable
         self.num_batches = len(np.unique(batch))
+        if self.num_batches == 1:
+            self.num_batches = 0
         
         self._get_weights()
 

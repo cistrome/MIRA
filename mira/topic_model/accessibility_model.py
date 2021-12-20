@@ -138,9 +138,10 @@ class AccessibilityTopicModel(BaseModel):
                     "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
                 )
 
+            theta = torch.hstack([theta, batch])
             theta = theta/theta.sum(-1, keepdim = True)
             
-            peak_probs = self.decoder(theta, batch)
+            peak_probs = self.decoder(theta)
             
             pyro.sample(
                 'obs', ZeroPaddedBinaryMultinomial(total_count = 1, probs = peak_probs), obs = exog_features,
