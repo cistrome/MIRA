@@ -64,24 +64,17 @@ class Decoder(torch.nn.Module):
         self.bn = nn.BatchNorm1d(num_exog_features)
         self.drop = nn.Dropout(dropout)
         self.dropout_rate = dropout
+        self.num_topics = num_topics
 
-    def forward(self, comps, batch):
+    def forward(self, theta):
 
-        if self.training:
-            batch = torch.multiply(
-                    torch.empty_like(batch).bernoulli_(0.33),
-                    batch
-                )
-                
-        comps = self.drop(comps)
-        X = torch.hstack([comps, batch])
+        X = self.drop(theta)
 
         return F.softmax(self.bn(self.beta(X)), dim=1)
 
-    def get_softmax_denom(self, comps, batch):
+    def get_softmax_denom(self, X):
 
-        comps = torch.hstack([comps, batch])
-        return self.bn(self.beta(comps)).exp().sum(-1)
+        return self.bn(self.beta(X)).exp().sum(-1)
 
 
 class ModelParamError(ValueError):
@@ -471,8 +464,15 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     @staticmethod
     def _get_KL_anneal_factor(step_num, *, n_epochs, n_batches_per_epoch):
         total_steps = n_epochs * n_batches_per_epoch
-        
-        return min(1., (step_num + 1)/(total_steps * 1/2 + 1))
+        n_cycles = 3
+        tau = ((step_num+1) % (total_steps/n_cycles))/(total_steps/n_cycles)
+
+        if tau > 0.5 or step_num > total_steps:
+            return 1.
+        else:
+            return tau/0.5
+
+        #return min(1., (step_num + 1)/(total_steps * 1/2 + 1))
 
     @property
     def highly_variable(self):
