@@ -470,7 +470,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         if tau > 0.5 or step_num > total_steps:
             return 1.
         else:
-            return tau/0.5
+            return max(tau/0.5, n_cycles/total_steps)
 
         #return min(1., (step_num + 1)/(total_steps * 1/2 + 1))
 
