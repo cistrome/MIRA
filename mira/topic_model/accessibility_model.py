@@ -128,7 +128,8 @@ class AccessibilityTopicModel(BaseModel):
         return self.features
             
     @scope(prefix='atac')
-    def model(self,*, endog_features, exog_features, read_depth, batch, anneal_factor = 1.):
+    def model(self,*, endog_features, exog_features, 
+        read_depth, batch, anneal_factor = 1.):
         theta_loc, theta_scale = super().model()
         
         with pyro.plate("cells", endog_features.shape[0]):

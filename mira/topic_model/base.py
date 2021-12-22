@@ -174,6 +174,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             initial_pseudocounts = 50,
             nb_parameterize_logspace = True,
             embedding_size = None,
+            kl_strategy = 'monotonic',
             ):
         '''
         Initialize a new MIRA topic model.
@@ -236,6 +237,13 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         nb_parameterize_logspace : boolean, default=True
             Parameterize negative-binomial distribution using log-space probability 
             estimates of gene expression. Is more numerically stable.
+        embedding_size : int > 0 or None, default = None
+            Number of nodes in first neural network layer. Wider networks may be more 
+            expressive, but take longer to train. Passing *None* makes embedding layer
+            same width as *hidden*.
+        kl_strategy : {'monotonic','cyclic'}, default = 'monotonic'
+            Whether to anneal KL divergence penalty term monotonically or cyclically.
+            Cyclic strategy may produce better models.
 
         Examples
         --------
@@ -289,6 +297,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.initial_pseudocounts = initial_pseudocounts
         self.nb_parameterize_logspace = nb_parameterize_logspace
         self.embedding_size = embedding_size
+        self.kl_strategy = kl_strategy
 
     def _set_seeds(self):
         if self.seed is None:
@@ -462,7 +471,14 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             'cycle_momentum' : False, 'three_phase' : False, 'verbose' : False})
 
     @staticmethod
-    def _get_KL_anneal_factor(step_num, *, n_epochs, n_batches_per_epoch):
+    def _get_monotonic_kl_factor(step_num, *, n_epochs, n_batches_per_epoch):
+        
+        total_steps = n_epochs * n_batches_per_epoch
+        return min(1., (step_num + 1)/(total_steps * 1/2 + 1)) 
+
+    @staticmethod
+    def _get_cyclic_KL_factor(step_num, *, n_epochs, n_batches_per_epoch):
+        
         total_steps = n_epochs * n_batches_per_epoch
         n_cycles = 3
         tau = ((step_num+1) % (total_steps/n_cycles))/(total_steps/n_cycles)
@@ -471,8 +487,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             return 1.
         else:
             return max(tau/0.5, n_cycles/total_steps)
-
-        #return min(1., (step_num + 1)/(total_steps * 1/2 + 1))
+        
 
     @property
     def highly_variable(self):
@@ -815,8 +830,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         self.training_loss, self.testing_loss, self.num_epochs_trained = [],[],0
         
-        anneal_fn = partial(self._get_KL_anneal_factor, n_epochs = self.num_epochs, 
-            n_batches_per_epoch = n_batches)
+        anneal_fn = partial(self._get_cyclic_KL_factor if self.kl_strategy == 'cyclic' else self._get_monotonic_kl_factor, 
+            n_epochs = self.num_epochs, n_batches_per_epoch = n_batches)
 
         step_count = 0
         self.anneal_factors = []
