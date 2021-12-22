@@ -1,4 +1,5 @@
 from functools import partial
+from os import link
 from scipy import interpolate
 import pyro
 import pyro.distributions as dist
@@ -20,6 +21,7 @@ import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 import gc
 import matplotlib.pyplot as plt
+from scipy.cluster.hierarchy import linkage, to_tree
 logger = logging.getLogger(__name__)
 
 class EarlyStopping:
@@ -948,6 +950,71 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         basis = self._gram_schmidt_basis(compositions.shape[-1])
         return self.centered_boxcox_transform(compositions, a = a).dot(basis)
+
+    @adi.wraps_modelfunc(tmi.fetch_topic_comps, tmi.add_phylo,
+        fill_kwargs=['topic_compositions'])
+    def get_phylo_umap_features(self, box_cox = 'log',*, topic_compositions):
+        '''
+        Leverage the hiearchical relationship between topic-feature distributions
+        to prduce a balance matrix for isometric logratio transformation. The 
+        function *get_umap_features* uses an arbitrary balance matrix that 
+        does not account for the relationship between topics.
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            AnnData of expression or accessibility features to model
+        box_cox : "log" or int > 0
+            Constant for box-cox transformation of topic compositions
+
+        Returns
+        -------
+        adata : anndata.AnnData
+            `.obsm['X_umap_features']` : np.ndarray[float] of shape (n_cells, n_topics)
+                Transformed topic compositions of cells
+            `.uns['topic_dendogram']` : np.ndarray
+                linkage matrix given by scipy.cluster.hierarchy.linkage of
+                hiearchical relationship between topic-feature distributions.
+                Hierarchy calculated by hellinger distance and ward linkage.
+        '''
+
+        topics = np.abs(self._get_gamma())[np.newaxis, :] * self._score_features()[:self.num_topics, :] + self._get_bias()[np.newaxis, :]
+        topics = np.sqrt(np.exp(topics)/np.exp(topics).sum(-1, keepdims = True))
+        linkage_matrix = linkage(topics, method='ward', metric='euclidean')
+        
+        root, nodes = to_tree(linkage_matrix, rd = True)
+
+        def children(x):
+
+            if x is None:
+                return []
+
+            if x.left is None and x.right is None:
+                return [x.id]
+
+            return children(x.left) + children(x.right)
+        
+        balance_matrix = np.zeros((self.num_topics -1, self.num_topics))
+        
+        n_plus, n_minus = [],[]
+        for i, node in enumerate(nodes[self.num_topics:]):
+            balance_matrix[i, children(node.left)] = 1
+            balance_matrix[i, children(node.right)] = -1
+            n_plus.append(len(children(node.left)))
+            n_minus.append(len(children(node.right)))
+
+        n_plus, n_minus = np.array(n_plus), np.array(n_minus)
+
+        plus_sites = 1/n_plus * np.sqrt((n_plus*n_minus)/(n_plus + n_minus))
+        minus_sites = -1/n_minus * np.sqrt((n_plus*n_minus)/(n_plus + n_minus))
+
+        g_matrix = np.zeros_like(balance_matrix) + (balance_matrix == 1).astype(int) * plus_sites[:,np.newaxis] +\
+            (balance_matrix == -1).astype(int) * minus_sites[:,np.newaxis]
+
+        umap_features = self.centered_boxcox_transform(topic_compositions, a = box_cox).dot(g_matrix.T)
+
+        return umap_features, linkage
+
     
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_obsm, add_key = 'X_umap_features'),
         fill_kwargs=['topic_compositions'])

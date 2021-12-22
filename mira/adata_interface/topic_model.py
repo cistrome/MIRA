@@ -1,9 +1,10 @@
+from os import link
 import anndata
 import numpy as np
 import logging
 from scipy.sparse import isspmatrix
 from scipy import sparse
-from mira.adata_interface.core import fetch_layer, add_obs_col
+from mira.adata_interface.core import fetch_layer, add_obs_col, add_obsm
 
 logger = logging.getLogger(__name__)
 
@@ -79,3 +80,9 @@ def add_topic_comps(adata, output, add_key = 'X_topic_compositions', add_cols = 
 def add_umap_features(adata, output, add_key = 'X_umap_features'):
     logger.info('Added key to obsm: ' + add_key)
     adata.obsm[add_key] = output
+
+def add_phylo(adata, output, add_key = 'X_umap_features'):
+    features, linkage = output
+    add_obsm(adata, features, add_key = add_key)
+    logger.info('Added key to uns: topic_dendogram')
+    adata.uns['topic_dendogram'] = linkage
