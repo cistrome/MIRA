@@ -90,6 +90,33 @@ except ImportError:
     NOTEBOOK_MODE = False
 
 class TopicModelTuner:
+    '''
+    Tune hyperparameters of the MIRA topic model using iterative Bayesian optimization.
+    By default, the optimization engine suggests a hyperparameter combination. The model
+    is then trained with those parameters for 5 folds of cross validation to compute
+    the performance of that model. If the parameter combination does not meet that of
+    previously-trained combinations, the trial is terminated early. 
+
+    Depending on the size of your dataset, you may change the pruning and cross validation
+    schemes to reduce training time. 
+
+    The tuner returns an ``study`` object from the package [Optuna](https://optuna.org/).
+    The study may be reloaded to resume optimization later, or printed to review results.
+
+    After tuning, the best models compete to minimize loss on a held-out set of cells.
+    The winning model is returned as the final model of the dataset.
+
+    Examples
+    --------
+    >>> tuner = mira.topics.TopicModelTuner(
+                topic_model,
+                save_name = 'study.pkl',
+            )
+    >>> tuner.train_test_split(data)
+    >>> tuner.tune(data)
+    >>> tuner.select_best_model(data)
+
+    '''
 
     @classmethod
     def load_study(cls, filename):
@@ -108,6 +135,73 @@ class TopicModelTuner:
         seed = 2556,
         pruner = 'halving',
     ):
+        '''
+        Initialize a new tuner.
+
+        Parameters
+        ----------
+        topic_model : mira.topics.ExpressionTopicModel or mira.topics.AccessibilityTopicModel
+            Topic model to tune. The provided model should have columns specified
+            to retrieve endogenous and exogenous features, and should have the learning
+            rate configued by ``get_learning_rate_bounds``.
+        save_name : str, default = None
+            Filename under which to save tuning results. After each iteration, the ``study``
+            object will be saved here.
+        test_column : str, default = 'test_set'
+            Column of anndata.obs marking cells held out for validation set. 
+        min_topics : int, default = 5
+            Minimum number of topics to try. Useful if approximate number of topics is known
+            ahead of time.
+        max_topics : int, default = 55
+        min_dropout : float > 0, default = 0.01
+            Minimum encoder dropout
+        max_dropout : float>0, default = 0.15
+        batch_sizes : list[int], default = [32,64,128]
+            Batch sizes to try. Higher batch sizes (e.g. 256) increase training speed, 
+            but seem to drastically reduce model quality.
+        cv : int > 1 or subclass of ``sklearn.model_selection.BaseCrossValidator``
+            If provided int, each trial is run for this many folds of cross validation.
+            If provided sklearn CV object, this will be used instead of K-fold cross validation.
+        iters : int > 1, default = 64
+            Number of trials to run.
+        study : None or `optuna.Study`
+            If None, begin a new hyperparameter optimization routine. If given a study, 
+            resume that study. If study is provided, `save_name` need not be set.
+        seed : int > 0, default = 2556
+            Random seed for K-fold cross validator and optuna optimizer.
+        pruner : "halving" or "median"
+            If "halving", use SuccessiveHalving Bandit pruner. Works best with default
+            five folds of cross validation. If "median", use median pruner.
+
+        Returns
+        -------
+        study : optuna.study
+
+        Raises
+        ------
+        ValueError : If study not provided and `save_name` not set.
+
+        Examples
+        --------
+        Using default parameters:
+
+        >>> tuner = mira.topics.TopicModelTuner(
+                topic_model,
+                save_name = 'study.pkl',
+            )
+
+        For large datasets, it may be useful to skip cross validation since the
+        variance of the estimate of model performance should be lower. It may also
+        be appropriate to limit the model to larger batch sizes.
+
+        >>> tuner = mira.topics.TopicModelTuner(
+                topic_model,
+                save_name = 'study.pkl',
+                cv = sklearn.model_selection.ShuffleSplit(n_splits = 1, train_size = 0.8),
+                batch_sizes = [64,128],
+            )
+
+        '''
         self.model = topic_model
         self.test_column = test_column or 'test_set'
         self.min_topics, self.max_topics = min_topics, max_topics
@@ -131,6 +225,24 @@ class TopicModelTuner:
 
     @adi.wraps_modelfunc(adi.fetch_adata_shape, tmi.add_test_column, ['shape'])
     def train_test_split(self, train_size = 0.8, *, shape):
+        '''
+        Randomly assigns cells to training and test sets given by proption `train_size`.
+        Test set cells will not be used in hyperparameter optimization, and are
+        reserved for validation and selection of the top-performing model.
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            AnnData of expression or accessibility data
+        train_size : float between 0 and 1, default = 0.8
+            Proportion of cells to use for training set.
+
+        Returns
+        -------
+        adata : anndata.AnnData
+            `.obs['test_set']` : np.ndarray[boolean] of shape (n_cells,)
+                Boolean variable, whether cell is in test set.
+        '''
 
         assert(isinstance(train_size, float) and train_size > 0 and train_size < 1)
         num_samples = shape[0]
@@ -200,6 +312,13 @@ class TopicModelTuner:
         joblib.dump(study, study.study_name)
 
     def save(self):
+        '''
+        Save study to `study_name`.
+
+        Parameters
+        ----------
+        None
+        '''
         self._save_study(self.study, None)
 
     def print(self):
@@ -223,6 +342,21 @@ class TopicModelTuner:
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, 
         fill_kwargs = ['all_data', 'train_data', 'test_data'])
     def tune(self,*, all_data, train_data, test_data):
+        '''
+        Run Bayesian optimization scheme for topic model hyperparameters. 
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            Anndata of expression or accessibility data.
+            Cells must be labeled with test or train set membership using
+            `tuner.train_test_split`.
+        
+        Returns
+        -------
+        study : optuna.Study
+            Study object summarizing results of tuning iterations.
+        '''
         
         '''error_file = logging.FileHandler(self.logfile, mode="a")
         logger.addHandler(error_file)
@@ -265,6 +399,9 @@ class TopicModelTuner:
 
 
     def get_tuning_results(self):
+        '''
+        Returns results from each tuning trail.
+        '''
 
         try:
             self.study
@@ -274,9 +411,20 @@ class TopicModelTuner:
         return self.study.trials
 
 
-    def get_best_trials(self, top_n_models = 5):
+    def get_best_trials(self, top_n_trials = 5):
+        '''
+        Return results from best-performing tuning trials.
+
+        Parameters
+        ----------
+        top_n_trials : int > 0, default = 5
+
+        Returns
+        -------
+        top_trials : list
+        '''
         
-        assert(isinstance(top_n_models, int) and top_n_models > 0)
+        assert(isinstance(top_n_trials, int) and top_n_trials > 0)
         try:
             self.study
         except AttributeError:
@@ -293,18 +441,44 @@ class TopicModelTuner:
 
         sorted_trials = sorted(self.study.trials, key = score_trial)
 
-        return sorted_trials[:top_n_models]
+        return sorted_trials[:top_n_trials]
 
-    def get_best_params(self, top_n_models = 5):
+    def get_best_params(self, top_n_trials = 5):
+        '''
+        Return hyperparameters from best-performing tuning trials.
 
-        return [trial.user_attrs['trial_params'] for trial in self.get_best_trials(top_n_models)]
+        Parameters
+        ----------
+        top_n_trials : int > 0, default = 5
+
+        Returns
+        -------
+        top_parameters : list[dict]
+            of format [{parameter combination 1}, ..., {parameter combination N}]
+        '''
+
+        return [trial.user_attrs['trial_params'] for trial in self.get_best_trials(top_n_trials)]
 
 
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, adi.return_output, ['all_data', 'train_data', 'test_data'])
-    def select_best_model(self,top_n_models = 5, *,all_data, train_data, test_data):
+    def select_best_model(self,top_n_trials, *,all_data, train_data, test_data):
+        '''
+        Retrain best parameter combinations on all training data, then compare validation data performance.
+        Best-performing model on test set returned as "official" topic model representation of dataset.
+
+        Parameters
+        ----------
+        top_n_trials : int > 0, default = 5
+            Number of top parameter combinations to test on validation data.
+
+        Returns
+        -------
+        best_model : sublcass of mira.topic_model.BaseModel
+            Best-performing model chosen using validation set.
+        '''
 
         scores = []
-        best_params = self.get_best_params(top_n_models)
+        best_params = self.get_best_params(top_n_trials)
         for params in best_params:
             logging.info('Training model with parameters: ' + str(params))
             try:

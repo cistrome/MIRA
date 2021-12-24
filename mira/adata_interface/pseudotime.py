@@ -1,6 +1,7 @@
 from itertools import combinations_with_replacement
 import logging
 import mira.adata_interface.core as adi
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -52,16 +53,30 @@ Or you can set **diffmap_distances_key** to "distances" to use directly use the 
     return dict(distance_matrix = distance_matrix, diffmap = diffmap)
 
 
-def fetch_diffmap_distances_and_components(self, adata, diffmap_distances_key = 'X_diffmap_distances',
+def fetch_diffmap_distances_and_components(self, adata, start_cell = None,
+        diffmap_distances_key = 'X_diffmap_distances',
         diffmap_coordinates_key = 'X_diffmap'):
+
     try:
         components = adata.obs_vector('mira_connected_components')
     except KeyError:
         raise KeyError('User must run "get_connected_components" before running this function.')
+
+    assert(not start_cell is None), 'Must provide a start cell.'
+    assert(isinstance(start_cell, (int, str)))
+
+    if isinstance(start_cell, str):
+        try:
+            start_cell = np.argwhere(adata.obs_names == start_cell)[0,0]
+        except IndexError:
+            raise ValueError('Cell {} not in adata.obs_names'.format(str(start_cell)))
+    elif start_cell >= len(adata):
+        raise ValueError('Invalid cell#: {}, only {} cells in dataset.'.format(str(start_cell), str(len(adata))))
         
     return dict(
         **fetch_diffmap_distances(self, adata, diffmap_distances_key, diffmap_coordinates_key = diffmap_coordinates_key),
-        components = components
+        components = components,
+        start_cell = start_cell
     )
 
 
@@ -71,18 +86,23 @@ def add_transport_map(adata, output):
 
     adata.obs['mira_pseudotime'] = pseudotime
     adata.obsp['transport_map'] = transport_map
-    adata.uns['iroot'] = start_cell
+    adata.uns['iroot'] = adata.obs_names[start_cell]
 
     logger.info('Added key to obs: mira_pseudotime')
     logger.info('Added key to obsp: transport_map')
     logger.info('Added key to uns: iroot')
 
 
+def get_cell_ids(adata, output):
+    return adata.obs_names[output]
+
+
 def add_branch_probs(adata, output):
-    branch_probs, lineage_names, entropy = output
+    branch_probs, lineage_names, terminal_cells, entropy = output
 
     adata.obsm['branch_probs'] = branch_probs
     adata.uns['lineage_names'] = lineage_names
+    adata.uns['terminal_cells'] = adata.obs_names[terminal_cells]
 
     logger.info('Added key to obsm: branch_probs')
     logger.info('Added key to uns: lineage_names')
@@ -93,8 +113,26 @@ def add_branch_probs(adata, output):
     adi.add_obs_col(adata, entropy, colname = 'differentiation_entropy')
 
 
-def fetch_transport_map(self, adata):
-    return dict(transport_map = adata.obsp['transport_map'])
+def fetch_transport_map(self, adata, terminal_cells = None):
+
+    assert(not terminal_cells is None)
+    assert(isinstance(terminal_cells, dict) and len(terminal_cells) > 0)
+
+    termini_dict = {}
+    for lineage, cell in terminal_cells:
+        assert(isinstance(lineage, str)), 'Lineage name {} is not of type str'.format(str(lineage))
+        assert(isinstance(cell, (int, str))), 'Cell may be cell# or cell name of type int or str only.'
+        if isinstance(cell, str):
+            try:
+                cell = np.argwhere(adata.obs_names == cell)[0,0]
+            except IndexError:
+                raise ValueError('Cell {} not found in adata.obs_names'.format(str(cell)))
+        elif cell >= len(adata):
+            raise ValueError('Invalid cell#: {}, only {} cells in dataset.'.format(str(cell), str(len(adata))))
+
+        termini_dict[lineage] = cell
+
+    return dict(transport_map = adata.obsp['transport_map'], terminal_cells = termini_dict)
 
 
 def fetch_tree_state_args(self, adata):

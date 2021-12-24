@@ -97,6 +97,28 @@ def get_fc_stack(layer_dims = [256, 128, 128, 128], dropout = 0.2, skip_nonlin =
 
 
 class BaseModel(torch.nn.Module, BaseEstimator):
+    '''
+    Learns regulatory "topics" from single-cell multiomics data. Topics capture 
+    patterns of covariance between gene or cis-regulatory elements. 
+    Each cell is represented by a composition over topics, and each 
+    topic corresponds with activations of co-regulated elements.
+
+    One may use enrichment analysis of the topics to understand signaling 
+    and transcription factor drivers of cell states, and embedding of 
+    cell-topic distributions to visualize and cluster cells, 
+    and to perform pseudotime trajectory inference.
+
+    Examples
+    --------
+    >>> rna_model = mira.topics.ExpressionTopicModel(
+                exogenous_key = 'predict_expression', 
+                endogenous_key = 'highly_variable',
+                counts_layer = 'rawcounts',
+                num_topics = 15,
+            )
+    >>> rna_model.fit(adata)
+    >>> rna_model.predict(adata)
+    '''
 
     I = 50
 
@@ -172,16 +194,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         '''
         Initialize a new MIRA topic model.
 
-        Learns regulatory "topics" from single-cell multiomics data. Topics capture 
-        patterns of covariance between gene or cis-regulatory elements. 
-        Each cell is represented by a composition over topics, and each 
-        topic corresponds with activations of co-regulated elements.
-
-        One may use enrichment analysis of the topics to understand signaling 
-        and transcription factor drivers of cell states, and embedding of 
-        cell-topic distributions to visualize and cluster cells, 
-        and to perform pseudotime trajectory inference.
-
         Parameters
         ----------
         endogenous_key : str, default=None
@@ -232,7 +244,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             estimates of gene expression. Is more numerically stable.
         embedding_size : int > 0 or None, default=None
             Number of nodes in first encoder neural network layer. Default of *None*
-            gives an embedding size of *hidden*.
+            gives an embedding size of `hidden`.
         kl_strategy : {'monotonic','cyclic'}, default='monotonic'
             Whether to anneal KL term using monotonic or cyclic strategies. Cyclic
             may produce slightly better models.
@@ -512,8 +524,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         Use the learning rate range test (LRRT) to determine minimum and maximum learning
         rates that enable the model to traverse the gradient of the loss. 
 
-        Steps through linear increase in log-learning rate from **lower_bound_lr** 
-        to **upper_bound_lr** while recording loss of model. Learning rates which
+        Steps through linear increase in log-learning rate from `lower_bound_lr`
+        to `upper_bound_lr` while recording loss of model. Learning rates which
         produce greater decreases in model loss mark range of possible
         learning rates.
 
@@ -668,7 +680,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         lower_bound_trim : float>=0, default=0.
             Log increase in learning rate of lower bound relative to estimated
             boundary given from LRRT. For example, if the estimated boundary by
-            LRRT is 1e-4 and user gives **lower_bound_trim**=1, the new lower
+            LRRT is 1e-4 and user gives `lower_bound_trim`=1, the new lower
             learning rate bound is set at 1e-3.
         upper_bound_trim : float>=0, default=0.5,
             Log decrease in learning rate of upper bound relative to estimated
@@ -756,7 +768,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def instantiate_model(self,*, features, highly_variable, endog_features, exog_features):
         '''
         Given the exogenous and enxogenous features provided, instantiate weights
-        of neural network. Called internally by **fit**.
+        of neural network. Called internally by `fit`.
 
         Parameters
         ----------
@@ -929,12 +941,18 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @staticmethod
     def centered_boxcox_transform(x, a = 'log'):
-        if not (a == 'log' or a == 0):
-            x = (x**a - 1)/a
-        else:
-            x = np.log(x)
 
-        return x - x.mean(-1, keepdims = True)
+        def geometric_mean(x):
+            return np.exp(np.log(x).mean(-1, keepdims = True))
+
+        def box_cox(x,a):
+            if a == 'log' or a == 0:
+                return np.log(x)
+            else:
+                return (x**a - 1)/a
+
+        x = x/geometric_mean(x)
+        return box_cox(x, a)
 
     @staticmethod
     def _gram_schmidt_basis(n):
@@ -957,7 +975,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         '''
         Leverage the hiearchical relationship between topic-feature distributions
         to prduce a balance matrix for isometric logratio transformation. The 
-        function *get_umap_features* uses an arbitrary balance matrix that 
+        function `get_umap_features` uses an arbitrary balance matrix that 
         does not account for the relationship between topics.
 
         Parameters
@@ -1111,7 +1129,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def impute(self, batch_size = 512, bar = True, *, topic_compositions):
         '''
         Impute the relative frequencies of features given the cells' topic
-        compositions. The value given is **rho** (see manscript for details).
+        compositions. The value given is *rho* (see manscript for details).
 
         Parameters
         ----------

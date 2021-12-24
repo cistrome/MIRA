@@ -1,3 +1,25 @@
+'''
+Infer pseudotime and lineage tree from nearest neighbors graph of multiome data.
+Uses an adaptation of the Palantir algorithm to calculate diffusion
+pseudotime and terminal state probabilities for each cell. Then, applies
+MIRA's lineage tree inference algorithm to reconstruct bicurcating tree
+structure of differentation data.
+
+Examples
+--------
+>>> sc.tl.diffmap(adata)
+>>> sc.pp.neighbors(adata, use_rep = 'X_diffmap', key_added = 'X_diffmap', n_neighbors = 30)
+>>> mira.time.normalize_diffmap(adata)
+>>> mira.get_connected_components(adata)
+>>> mira.time.get_transport_map(adata, start_cell = 0)
+>>> mira.time.find_terminal_cells(adata)
+[10,20,30]
+>>> mira.time.get_branch_probabilities(adata, terminal_cells = {
+    "lineage1" : 10, "lineage2" : 20, "lineage3" : 3
+})
+>>> mira.time.get_tree_structure(adata, treshold = 0.5)
+'''
+
 from networkx.algorithms import components
 import numpy as np
 import networkx as nx
@@ -78,13 +100,36 @@ def get_dendogram_levels(G):
 
 @adi.wraps_functional(pti.fetch_diffmap_eigvals, pti.add_diffmap, ['diffmap','eig_vals'])
 def normalize_diffmap(num_comps = None, rescale = True,*,diffmap, eig_vals):
+    '''
+    Estimates optimal number of diffusion map components to use for describing
+    KNN graph. Subsets and rescales diffusion map to enhance pseudotime
+    coherence.
 
-    eigen_gap = eig_vals[:-1] - eig_vals[1:]
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        Adata with diffusion map calculated.
+
+    Returns
+    -------
+    adata : anndata.AnnData
+        `.obs['diffmap']` : np.ndarray[float] of shape (n_cells, n_comps)
+            Rescaled diffusion map subset with estimated 
+            optimal number of components.
+        `.obs['eigen_gap']` : np.ndarray[float] of shape (15,)
+            Eigen gap, difference between previous and current eigenvalues,
+            e.g. [1st - 2nd, 3rd - 2nd, ...]. The component with the
+            largest eigengap is taken to be the number of components needed
+            to represent the dataset, as this represents the point where
+            subsequent eigenvectors drop-off in the amount of variance explained.
+    '''
+
+    eigen_gap = (eig_vals[:-1] - eig_vals[1:])
     if num_comps is None:
-        num_comps = np.maximum(np.argmax(eigen_gap), 3) + 1
+        num_comps = np.maximum(np.argmax(eigen_gap), 2) + 1
     else:
         assert(isinstance(num_comps, int) and num_comps > 1)
-        num_comps+=1
+        num_comps
 
     diffmap = diffmap[:, 1:num_comps]
 
@@ -137,7 +182,22 @@ def sample_waypoints(num_waypoints = 3000,*, diffmap):
     partial(adi.add_obs_col, colname = 'mira_connected_components'),
     ['connectivities'])
 def get_connected_components(*,connectivities):
+    '''
+    Finds subgraphs in diffusion map or KNN graph. Pseudotime inference
+    algorithms may only be calculated on connected graphs.
 
+    Parameters
+    ----------
+    connectivities_key : str, default="X_diffmap_connectivities"
+        Key under `.obsp` to find connectivities of nearest neighbors
+        graph used for pseudotime trajectory inference.
+
+    Returns
+    -------
+    adata : anndata.AnnData
+        `.obs["mira_connected_components"]` : np.ndarray[str] of shape (n_cells,)
+            Label for subgraph membership.
+    '''
     assert(isspmatrix(connectivities))
     N = connectivities.shape[0]
     G = nx.convert_matrix.from_scipy_sparse_matrix(connectivities)
@@ -284,9 +344,36 @@ def get_adaptive_affinity_matrix(*,kernel_width, distance_matrix, pseudotime = N
 
 
 @adi.wraps_functional(pti.fetch_diffmap_distances_and_components, pti.add_transport_map, 
-    ['distance_matrix','diffmap','components'])
-def get_transport_map(ka = 5, n_jobs = -1,*, start_cell, distance_matrix, diffmap,
+    ['distance_matrix','diffmap','components','start_cell'])
+def get_transport_map(ka = 5, n_jobs = 1,*, start_cell = None, distance_matrix, diffmap,
                 components):
+    '''
+    Calculate pseudotime and stochastic forward markov model of differentiation. Each
+    cell is assigned a pseudotime based on its progress through a differentiation. Each
+    cell is also given transition probabilities to other cells within the KNN graph. 
+    Transitions prioritize forward progress to more differentiated states.
+
+    Parameters
+    ----------
+    ka : int > 5, default = 5
+        Kernel width. The standard deviation of the adaptive gaussian kernel used to
+        convert distances to affinities is taken to be the distance between the current
+        cell and the cell's *ka*th nearest neighbor.
+    n_jobs : int > 0, default = 1
+        Number of cores to use for pseudotime calculation.
+    start_cell : int or barcode
+        Cell representing start state of differentiation.
+
+    Returns
+    -------
+    adata : anndata.AnnData
+        `.obs["mira_pseudotime"]` : np.ndarray[float] of shape (n_cells,)
+            Pseudotime of cells
+        `.obsp["transport_map"]` : scipy.spmatrix[float] of shape (n_cells, n_cells)
+            Sparse matrix of transition probabilities between cells.
+        `.uns["iroot"]` : str
+            name/id of start cell
+    '''
     
     assert(len(np.unique(components)) == 1), 'Graphs with multiple connected components may not be used. Subset cells to include only one connected component.'
 
@@ -307,8 +394,34 @@ def get_transport_map(ka = 5, n_jobs = -1,*, start_cell, distance_matrix, diffma
 
     return pseudotime, transport_map, start_cell
 
-@adi.wraps_functional(pti.fetch_transport_map, adi.return_output, ['transport_map'])
-def find_terminal_cells(iterations = 1, max_termini = 10, threshold = 1e-3, *, transport_map):
+
+@adi.wraps_functional(pti.fetch_transport_map, pti.get_cell_ids, ['transport_map'])
+def find_terminal_cells(iterations = 1, max_termini = 15, threshold = 1e-3, *, transport_map):
+    '''
+    Uses transport map to identify terminal cells where differentiation progress
+    reaches a steady state. Results are stochastic based on SVD initialization.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        Adata with a transition matrix in `.obsp["transport_map"]`
+    iterations : int > 0, default = 1
+        Number of iterations to try eigenvector decomposition of
+        transport map to find terminal cells.
+    max_termini : int > 0, default = 15
+        Maximum number of terminal cells that may be identified. Each
+        possible terminal cell increases computation time.
+    threshold : float > 0, default = 1e-3
+        Terminal cells are taken from eigvectors with eigenvalues equal to 1. 
+        Treshold includes eigenvectors that are greater than 1 - `threshold`.
+        To loosen the definition of terminal states and identify more cells,
+        increase `threshold`, e.g. 1e-2.
+
+    Returns
+    -------
+    terminal_cells : list[str]
+        List of terminal cell names
+    '''
 
     assert(transport_map.shape[0] == transport_map.shape[1])
     assert(len(transport_map.shape) == 2)
@@ -329,8 +442,13 @@ def find_terminal_cells(iterations = 1, max_termini = 10, threshold = 1e-3, *, t
 
     return np.array(list(terminal_points))
 
-@adi.wraps_functional(pti.fetch_transport_map, pti.add_branch_probs, ['transport_map'])
+
+@adi.wraps_functional(pti.fetch_transport_map, pti.add_branch_probs, ['transport_map',
+    'terminal_cells'])
 def get_branch_probabilities(*, transport_map, terminal_cells):
+    '''
+    
+    '''
 
     logger.info('Simulating random walks ...')
 
@@ -370,7 +488,7 @@ def get_branch_probabilities(*, transport_map, terminal_cells):
     branch_probs_including_terminal[absorbing_states_idx, np.arange(num_absorbing_cells)] = 1.
 
     return branch_probs_including_terminal, \
-        list(lineage_names), entropy(branch_probs_including_terminal, axis = -1)
+        list(lineage_names), list(absorbing_states_idx), entropy(branch_probs_including_terminal, axis = -1)
 
 
 ## __ TREE INFERENCE FUNCTIONS __ ##
