@@ -942,17 +942,13 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     @staticmethod
     def centered_boxcox_transform(x, a = 'log'):
 
-        def geometric_mean(x):
-            return np.exp(np.log(x).mean(-1, keepdims = True))
+        if a == 'log' or a == 0:
+            return np.log(x) - np.log(x).mean(-1, keepdims = True)
 
-        def box_cox(x,a):
-            if a == 'log' or a == 0:
-                return np.log(x)
-            else:
-                return (x**a - 1)/a
+        else:
+            x = (x**a)/(x**a).mean(-1, keepdims = True)
+            return ( x - 1 )/a
 
-        x = x/geometric_mean(x)
-        return box_cox(x, a)
 
     @staticmethod
     def _gram_schmidt_basis(n):
@@ -971,7 +967,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, tmi.add_phylo,
         fill_kwargs=['topic_compositions'])
-    def get_phylo_umap_features(self, box_cox = 'log',*, topic_compositions):
+    def get_phylo_umap_features(self, box_cox = 0.5,*, topic_compositions):
         '''
         Leverage the hiearchical relationship between topic-feature distributions
         to prduce a balance matrix for isometric logratio transformation. The 
@@ -1031,12 +1027,12 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         umap_features = self.centered_boxcox_transform(topic_compositions, a = box_cox).dot(g_matrix.T)
 
-        return umap_features, linkage
+        return umap_features, linkage_matrix
 
     
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_obsm, add_key = 'X_umap_features'),
         fill_kwargs=['topic_compositions'])
-    def get_umap_features(self, box_cox = 'log', *, topic_compositions):
+    def get_umap_features(self, box_cox = 0.5, *, topic_compositions):
         '''
         Predict transformed topic compositions for each cell to derive nearest-
         neighbors graph. Projects topic compositions to orthonormal space using
