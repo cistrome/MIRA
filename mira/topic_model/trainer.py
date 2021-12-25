@@ -247,6 +247,7 @@ class TopicModelTuner:
         assert(isinstance(train_size, float) and train_size > 0 and train_size < 1)
         num_samples = shape[0]
         assert(num_samples > 0), 'Adata must have length > 0.'
+        np.random.seed(self.seed)
         return self.test_column, np.random.rand(num_samples) > train_size
 
     @staticmethod
@@ -461,7 +462,7 @@ class TopicModelTuner:
 
 
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, adi.return_output, ['all_data', 'train_data', 'test_data'])
-    def select_best_model(self,top_n_trials, *,all_data, train_data, test_data):
+    def select_best_model(self, top_n_trials = 5, *,all_data, train_data, test_data):
         '''
         Retrain best parameter combinations on all training data, then compare validation data performance.
         Best-performing model on test set returned as "official" topic model representation of dataset.

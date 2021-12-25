@@ -421,10 +421,20 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @staticmethod
     def _iterate_batch_idx(N, batch_size, bar = False, desc = None):
-
+        
         num_batches = N//batch_size + int(N % batch_size > 0)
+
         for i in range(num_batches) if not bar else tqdm(range(num_batches), desc = desc):
-            yield i * batch_size, (i + 1) * batch_size
+
+            start, end = i * batch_size, (i + 1) * batch_size
+
+            if N - end == 1:
+                print('here')
+                yield start, end + 1
+                raise StopIteration()
+            else:
+                yield start, end
+
 
     def _preprocess_endog(self, X):
         raise NotImplementedError()
@@ -583,7 +593,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             'lr_lambda' : lr_function})
 
         self.svi = SVI(self.model, self.guide, scheduler, loss=TraceMeanField_ELBO())
-        batches_complete, steps_complete, step_loss = 0,0,0
+        batches_complete, steps_complete, step_loss, samples_seen = 0,0,0,0
         learning_rate_losses = []
         
         try:
@@ -600,12 +610,13 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
                     step_loss += float(self.svi.step(**batch, anneal_factor = 1.))
                     batches_complete+=1
+                    samples_seen += batch['endog_features'].shape[0]
                     
                     if batches_complete % eval_every == 0 and batches_complete > 0:
                         steps_complete+=1
                         scheduler.step()
-                        learning_rate_losses.append(step_loss/(eval_every * self.batch_size * self.num_exog_features))
-                        step_loss = 0.0
+                        learning_rate_losses.append(step_loss/(samples_seen * self.num_exog_features))
+                        step_loss, samples_seen = 0.0, 0
                         try:
                             next(_t)
                         except StopIteration:
