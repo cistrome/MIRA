@@ -86,15 +86,15 @@ def add_transport_map(adata, output):
 
     adata.obs['mira_pseudotime'] = pseudotime
     adata.obsp['transport_map'] = transport_map
-    adata.uns['iroot'] = adata.obs_names[start_cell]
+    adata.uns['start_cell'] = adata.obs_names[start_cell]
 
     logger.info('Added key to obs: mira_pseudotime')
     logger.info('Added key to obsp: transport_map')
-    logger.info('Added key to uns: iroot')
+    logger.info('Added key to uns: start_cell')
 
 
 def get_cell_ids(adata, output):
-    return adata.obs_names[output]
+    return adata.obs_names[output].values
 
 
 def add_branch_probs(adata, output):
@@ -102,7 +102,7 @@ def add_branch_probs(adata, output):
 
     adata.obsm['branch_probs'] = branch_probs
     adata.uns['lineage_names'] = lineage_names
-    adata.uns['terminal_cells'] = adata.obs_names[terminal_cells]
+    adata.uns['terminal_cells'] = adata.obs_names[terminal_cells].values
 
     logger.info('Added key to obsm: branch_probs')
     logger.info('Added key to uns: lineage_names')
@@ -113,13 +113,17 @@ def add_branch_probs(adata, output):
     adi.add_obs_col(adata, entropy, colname = 'differentiation_entropy')
 
 
-def fetch_transport_map(self, adata, terminal_cells = None):
+def fetch_transport_map(self, adata):
+    return dict(transport_map = adata.obsp['transport_map'])
+
+
+def fetch_transport_map_and_terminal_cells(self, adata, terminal_cells = None):
 
     assert(not terminal_cells is None)
     assert(isinstance(terminal_cells, dict) and len(terminal_cells) > 0)
 
     termini_dict = {}
-    for lineage, cell in terminal_cells:
+    for lineage, cell in terminal_cells.items():
         assert(isinstance(lineage, str)), 'Lineage name {} is not of type str'.format(str(lineage))
         assert(isinstance(cell, (int, str))), 'Cell may be cell# or cell name of type int or str only.'
         if isinstance(cell, str):
@@ -142,7 +146,7 @@ def fetch_tree_state_args(self, adata):
             lineage_names = adata.uns['lineage_names'],
             branch_probs = adata.obsm['branch_probs'],
             pseudotime = adata.obs['mira_pseudotime'].values,
-            start_cell = adata.uns['iroot'],
+            start_cell = np.argwhere(adata.obs_names == adata.uns['start_cell'])[0,0],
         )
     except KeyError:
         raise KeyError('One of the required pieces to run this function is not present. Make sure you\'ve first run "get_transport_map" and "get_branch_probabilities".')
@@ -157,3 +161,29 @@ def add_tree_state_args(adata, output):
     logger.info('Added key to obs: tree_states')
     logger.info('Added key to uns: tree_state_names')
     logger.info('Added key to uns: connectivities_tree')
+
+
+def fetch_eigengap(self, adata, basis = 'X_umap'):
+
+    try:
+        umap = adata.obsm[basis]
+    except KeyError:
+        raise KeyError('Basis {} has not been calculated'.format(str(basis)))
+
+    try:
+        eigvals = adata.uns['diffmap_evals']
+        diffmap = adata.obsm['X_diffmap']
+    except KeyError:
+        raise KeyError('User must run "sc.tl.diffmap" before running this function.')
+    
+    try:
+        eigen_gap = adata.uns['eigen_gap']
+    except KeyError:
+        raise KeyError('User must run "mira.time.normalized_diffmap" before running this function.')
+
+    return dict(
+        umap = umap,
+        diffmap = diffmap, 
+        eigen_gap = eigen_gap,
+        eigvals = eigvals
+    )

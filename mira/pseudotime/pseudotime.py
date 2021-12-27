@@ -99,7 +99,7 @@ def get_dendogram_levels(G):
 ### ___ PALANTIR FUNCTIONS ____ ##
 
 @adi.wraps_functional(pti.fetch_diffmap_eigvals, pti.add_diffmap, ['diffmap','eig_vals'])
-def normalize_diffmap(num_comps = None, rescale = True,*,diffmap, eig_vals):
+def normalize_diffmap(rescale = True,*,diffmap, eig_vals):
     '''
     Estimates optimal number of diffusion map components to use for describing
     KNN graph. Subsets and rescales diffusion map to enhance pseudotime
@@ -125,18 +125,16 @@ def normalize_diffmap(num_comps = None, rescale = True,*,diffmap, eig_vals):
     '''
 
     eigen_gap = (eig_vals[:-1] - eig_vals[1:])
-    if num_comps is None:
-        num_comps = np.maximum(np.argmax(eigen_gap), 2) + 1
-    else:
-        assert(isinstance(num_comps, int) and num_comps > 1)
-        num_comps
+    num_comps = np.maximum(np.argmax(eigen_gap), 2)
 
-    diffmap = diffmap[:, 1:num_comps]
+    diffmap = diffmap[:, 1:]
 
     if rescale:
         diffmap/=np.linalg.norm(diffmap, axis = 0, keepdims = True)
-        eig_vals = eig_vals[1:num_comps]
+        eig_vals = eig_vals[1:]
         diffmap *= (eig_vals / (1 - eig_vals))[np.newaxis, :]
+
+    logger.info('Recommending {} diffusion map components.'.format(str(num_comps)))
 
     return diffmap, eigen_gap
 
@@ -443,7 +441,7 @@ def find_terminal_cells(iterations = 1, max_termini = 15, threshold = 1e-3, *, t
     return np.array(list(terminal_points))
 
 
-@adi.wraps_functional(pti.fetch_transport_map, pti.add_branch_probs, ['transport_map',
+@adi.wraps_functional(pti.fetch_transport_map_and_terminal_cells, pti.add_branch_probs, ['transport_map',
     'terminal_cells'])
 def get_branch_probabilities(*, transport_map, terminal_cells):
     '''

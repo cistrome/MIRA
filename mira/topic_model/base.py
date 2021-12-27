@@ -429,7 +429,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             start, end = i * batch_size, (i + 1) * batch_size
 
             if N - end == 1:
-                print('here')
                 yield start, end + 1
                 raise StopIteration()
             else:

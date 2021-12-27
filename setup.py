@@ -72,7 +72,7 @@ See [environment.yaml](https://github.com/cistrome/MIRA/blob/main/environment.ya
 
 
 setup(name='mira-multiome',
-      version='0.1.0',
+      version='0.1.1',
       description='Single-cell multiomics data analysis package',
       long_description=long_text,
       long_description_content_type="text/markdown",
