@@ -977,7 +977,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, tmi.add_phylo,
         fill_kwargs=['topic_compositions'])
-    def get_phylo_umap_features(self, box_cox = 0.5,*, topic_compositions):
+    def get_hierarchical_umap_features(self, box_cox = 0.5,*, topic_compositions):
         '''
         Leverage the hiearchical relationship between topic-feature distributions
         to prduce a balance matrix for isometric logratio transformation. The 
