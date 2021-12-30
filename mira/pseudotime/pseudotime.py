@@ -109,6 +109,9 @@ def normalize_diffmap(rescale = True,*,diffmap, eig_vals):
     ----------
     adata : anndata.AnnData
         Adata with diffusion map calculated.
+    rescale : boolean, default = True
+        Whether to rescale magnitudes of eigenvectors. Rescaling produces smoother pseudotime,
+        but may distort KNN graph and obfuscate fine differences between lineages.
 
     Returns
     -------
@@ -134,7 +137,7 @@ def normalize_diffmap(rescale = True,*,diffmap, eig_vals):
         eig_vals = eig_vals[1:]
         diffmap *= (eig_vals / (1 - eig_vals))[np.newaxis, :]
 
-    logger.info('Recommending {} diffusion map components.'.format(str(num_comps)))
+    print('Recommending {} diffusion map components.'.format(str(num_comps)))
 
     return diffmap, eigen_gap
 
