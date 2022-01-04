@@ -100,9 +100,108 @@ def get_masked_distances(promoter_set, region_set, max_distance):
 @wraps_functional(get_peak_and_tss_data, add_peak_gene_distances, ['peaks','gene_id','chrom','start','end','strand'])
 def get_distance_to_TSS(max_distance = 6e5, promoter_width = 3000,*, 
     peaks, gene_id, chrom, start, end, strand, genome_file):
+    '''
+    Given TSS data for genes, find the distance between the TSS of each gene
+    and the center of each accessible site measured in the data. This distance
+    is used to train RP Models.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        AnnData object of chromatin accessibility. Peak locations located in
+        `.var` with columns corresponding to the chromosome, start, and end
+        coordinates given by the `peak_chrom`, `peak_start` and `peak_end`
+        parameters, respectively. 
+    tss_data : pd.DataFrame
+        DataFrame of TSS locations for each gene. TSS information must include
+        the chromosome, start, end, strand, and symbol of the gene.
+
+    peak_chrom : str, default = "chr"
+        The column in `adata.var` corresponding to the chromosome of peaks
+    peak_start : str, defualt = "start"
+        The column in `adata.var` corresponding to the start coordinate of peaks
+    peak_end : str, default = "end"
+        The column in `adata.var` corresponding to the end coordinate of peaks
+    
+    gene_chrom : str, default = "chrom"
+        The column in `tss_data` corresponding to the chromosome of genes
+    gene_start : str, default = "txStart"
+        The column in `tss_data` corresponding to the start index of a transcript.
+        For plus-strand genes, this will be the TSS location.
+    gene_end : str, default = "txEnd"
+        The column in `tss_data` corresponding to the end of a transcript.
+        For minus-strand genes, this will be the TSS location.
+    gene_strand : str, defualt = "strand"
+        The column in `tss_data` corresponding to the trandedness of the 
+        gene.
+    gene_id : str, default = "geneSymbol"
+        The column in `tss_data` corresponding to the symbol of the gene.
+        This will be used to refer to specific genes and to connect the loci
+        to observed expression for that gene. Make sure to
+        use identical symbology in TSS labeling as in the expression counts
+        data of your multiome expriment. If multiple loci have the same symbol,
+        or a gene has muliple loci, only the first encountered will be used. To
+        disambiguate symbol-loci mapping, use a single canonical splice variant for each
+        gene.
+
+    max_distance : float > 0, default = 6e5
+        Maximum distance to give a distance between a peak and a gene. All distances
+        exceeding this threshold will be set to infinity.
+    promoter_width : Width of the "promoter" region around each TSS, in base pairs. 
+        The distance between a gene and a peak inside another gene's promoter region 
+        is set to infinity. For PR modeling, this masks the effect of other 
+        genes' promoter accessibility on the RP model.
+    genome_file : str
+        String, file location of chromosome lengths for you organism. For example:
+
+        chr1	248956422
+        chr2	242193529
+        chr3	198295559
+        chr4	190214555
+
+    Returns
+    -------
+    adata : anndata.AnnData
+        `.varm["distance_to_TSS"] : scipy.spmatrix[float] of shape (n_genes x n_peaks)
+            Distance between genes' TSS and and peaks. 
+        `.uns["distance_to_TSS_genes"] : np.ndarray[str] of shape (n_genes,)
+            Gene symbols corresponding to rows in the `distance_to_TSS` matrix.
+
+    Examples
+    --------
+    >>> atac_data.var
+                         chr   start     end
+    chr1:9778-10670     chr1    9778   10670
+    chr1:180631-181281  chr1  180631  181281
+    chr1:183970-184795  chr1  183970  184795
+    chr1:190991-191935  chr1  190991  191935
+    >>> tss_data
+      chrom strand   geneSymbol chrom  chromStart  chromEnd
+    0  chr1      +      DDX11L1  chr1     11868.0   14409.0
+    2  chr1      -       WASH7P  chr1     14403.0   29570.0
+    3  chr1      -    MIR6859-1  chr1     17368.0   17436.0
+    4  chr1      +  MIR1302-2HG  chr1     29553.0   31097.0
+    >>> mira.tl.get_distance_to_TSS(atac_data, 
+                            tss_data = tss_data, 
+                            gene_chrom='chrom', 
+                            gene_strand='strand', 
+                            gene_start='chromStart',
+                            gene_end='chromEnd',
+                            genome_file = '~/genomes/hg38/hg38.genome'
+                           )
+    WARNING:mira.tools.connect_genes_peaks:71 regions encounted from unknown chromsomes: KI270728.1,GL000194.1,GL000205.2,GL000195.1,GL000219.1,KI270734.1,GL000218.1,KI270721.1,KI270726.1,KI270711.1,KI270713.1
+    INFO:mira.tools.connect_genes_peaks:Finding peak intersections with promoters ...
+    INFO:mira.tools.connect_genes_peaks:Calculating distances between peaks and TSS ...
+    INFO:mira.tools.connect_genes_peaks:Masking other genes' promoters ...
+    INFO:mira.adata_interface.rp_model:Added key to var: distance_to_TSS
+    INFO:mira.adata_interface.rp_model:Added key to uns: distance_to_TSS_genes
+    '''
 
     #load genome
     genome = Genome.from_file(genome_file)
+
+    for c in np.unique(chrom):
+        assert (c in genome.chromosomes), 'Chromosome {} from TSS data not found in genome file.'.format(str(c))
 
     #get gene promoters
     promoter_width/=2

@@ -92,10 +92,10 @@ except ImportError:
 class TopicModelTuner:
     '''
     Tune hyperparameters of the MIRA topic model using iterative Bayesian optimization.
-    By default, the optimization engine suggests a hyperparameter combination. The model
-    is then trained with those parameters for 5 folds of cross validation to compute
-    the performance of that model. If the parameter combination does not meet that of
-    previously-trained combinations, the trial is terminated early. 
+    First, the optimization engine suggests a hyperparameter combination. The model
+    is then trained with those parameters for 5 folds of cross validation (default option)
+    to compute the performance of that model. If the parameter combination does not 
+    meet the performance of previously-trained combinations, the trial is terminated early. 
 
     Depending on the size of your dataset, you may change the pruning and cross validation
     schemes to reduce training time. 
@@ -464,11 +464,16 @@ class TopicModelTuner:
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, adi.return_output, ['all_data', 'train_data', 'test_data'])
     def select_best_model(self, top_n_trials = 5, *,all_data, train_data, test_data):
         '''
-        Retrain best parameter combinations on all training data, then compare validation data performance.
-        Best-performing model on test set returned as "official" topic model representation of dataset.
+        Retrain best parameter combinations on all training data, then 
+        compare validation data performance. Best-performing model on test set 
+        returned as "official" topic model representation of dataset.
 
         Parameters
         ----------
+        adata : anndata.AnnData
+            Anndata of expression or accessibility data.
+            Cells must be labeled with test or train set membership using
+            `tuner.train_test_split`.
         top_n_trials : int > 0, default = 5
             Number of top parameter combinations to test on validation data.
 

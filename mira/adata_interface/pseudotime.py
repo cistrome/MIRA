@@ -136,6 +136,10 @@ def fetch_transport_map_and_terminal_cells(self, adata, terminal_cells = None):
 
         termini_dict[lineage] = cell
 
+    assert(
+        len(np.unique(termini_dict.keys()) == len(termini_dict))
+    ), 'All lineage names must be unique'
+
     return dict(transport_map = adata.obsp['transport_map'], terminal_cells = termini_dict)
 
 

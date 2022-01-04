@@ -237,10 +237,10 @@ class AccessibilityTopicModel(BaseModel):
         collection of public ChIP-seq data.
 
         Before running this function, one must run either:
-        **mira.tl.get_motif_hits_in_peaks**
+        `mira.tl.get_motif_hits_in_peaks`
 
         or:
-        **mira.tl.get_ChIP_hits_in_peaks**
+        `mira.tl.get_ChIP_hits_in_peaks`
 
         Parameters
         ----------

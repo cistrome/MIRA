@@ -192,6 +192,60 @@ def _parse_motif_name(motif_name):
 
 @wraps_functional(fetch_peaks, partial(add_factor_hits_data, factor_type = 'motifs'), ['peaks'])
 def get_motif_hits_in_peaks(peaks, pvalue_threshold = 0.0001,*, genome_fasta):
+    '''
+    Scan peak sequences for motif hits given by JASPAR position frequency matrices
+    using MOODS 3. Motifs are recorded as binary hits if the p-value exceeds a 
+    given threshold.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        AnnData object of chromatin accessibility. Peak locations located in
+        `.var` with columns corresponding to the chromosome, start, and end
+        coordinates given by the `chrom`, `start` and `end` parameters, respectively. 
+    genome_fasta : str
+        String, file location of fasta file of your organisms genome.
+    chrom : str, default = "chr"
+        The column in `adata.var` corresponding to the chromosome of peaks
+    start : str, defualt = "start"
+        The column in `adata.var` corresponding to the start coordinate of peaks
+    end : str, default = "end"
+        The column in `adata.var` corresponding to the end coordinate of peaks
+    pvalue_threshold : float > 0, defualt = 0.0001
+        Adjusted p-value threshold for calling a motif hit within a peak.
+
+    Returns
+    -------
+    adata : anndata.AnnData
+        `.varm["motifs_hits"]` : scipy.spmatrix[float] of shape (n_motifs, n_peaks)
+            Called motif hits for each peak. Each value is the affinity score of a motif
+            for a sequence. Non-significant hits are left empty in the sparse matrix.
+        `.uns['motifs']` : dict of type {str : list}
+            Dictionary of metadata for motifs. Each key is an attribute. Attributes 
+            recorded for each motif are the ID, name, parsed factor name (for lookup
+            in expression data), and whether expression data exists for that factor. The
+            columns are labeled id, name, parsed_name, and in_expr_data, respectively. 
+
+    Notes
+    -----
+    * To retrieve the metadata for motifs, one may use the method 
+    `mira.utils.fetch_factor_meta(adata)`.
+    * Currently, MIRA ships with the 2021 JASPAR core vertebrates collection. In the
+    future, this will be expanded to include options for updated JASPAR collections
+    and user-provided PFMs.
+
+    Examples
+    --------
+    >>> atac_data.var
+                         chr   start     end
+    chr1:9778-10670     chr1    9778   10670
+    chr1:180631-181281  chr1  180631  181281
+    chr1:183970-184795  chr1  183970  184795
+    chr1:190991-191935  chr1  190991  191935
+    >>> mira.tl.get_motif_hits_in_peaks(atac_data, 
+        chrom = "chr", start = "start", end = "end",
+        genome_file = "~/genomes/hg38/hg38.fa")
+    '''
 
     peaks = validate_peaks(peaks)
 

@@ -22,6 +22,7 @@ import mira.adata_interface.topic_model as tmi
 import gc
 import matplotlib.pyplot as plt
 from scipy.cluster.hierarchy import linkage, to_tree
+import typing as tp
 logger = logging.getLogger(__name__)
 
 class EarlyStopping:
@@ -279,6 +280,10 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             Results from enrichment analysis of topics. For expression topic model,
             this gives geneset enrichments from Enrichr. For accessibility topic
             model, this gives motif enrichments.
+        topic_cols : list
+            The names of the columns for the topics added by the
+            `predict` method to an anndata object. Useful for quickly accessing
+            topic columns for plotting.
         '''
         super().__init__()
 
@@ -543,7 +548,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         adata : anndata.AnnData
             AnnData of expression or accessibility features to model
         num_epochs : int, default=6
-            Number of epochs to run the LRRT, may be decreased for smaller datasets.
+            Number of epochs to run the LRRT, may be decreased for larger datasets.
         eval_every : int, default=10,
             Aggregate this number of batches per evaluation of the objective loss.
             Larger numbers give lower variance estimates of model performance.
@@ -956,6 +961,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             return np.log(x) - np.log(x).mean(-1, keepdims = True)
 
         else:
+
+            assert(isinstance(a, float) and a > 0 and a < 1)
             x = (x**a)/(x**a).mean(-1, keepdims = True)
             return ( x - 1 )/a
 
@@ -988,7 +995,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         ----------
         adata : anndata.AnnData
             AnnData of expression or accessibility features to model
-        box_cox : "log" or int > 0
+        box_cox : "log" or float between 0 and 1
             Constant for box-cox transformation of topic compositions
 
         Returns
@@ -1052,7 +1059,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         ----------
         adata : anndata.AnnData
             AnnData of expression or accessibility features to model
-        box_cox : "log" or int > 0
+        box_cox : "log" or float between 0 and 1
             Constant for box-cox transformation of topic compositions
 
         Returns
@@ -1260,4 +1267,18 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @property
     def topic_cols(self):
+        '''
+        Attribute, returns the names of the columns for the topics added by the
+        `predict` method to an anndata object. Useful for quickly accessing
+        topic columns for plotting.
+
+        Examples
+        --------
+        >>> model.num_topics
+        5
+        >>> model.topic_cols
+        ['topic_0', 'topic_1','topic_2','topic_3','topic_4']
+        >>> sc.pl.umap(adata, color = model.topic_cols, **mira.pref.topic_umap())
+
+        '''
         return ['topic_' + str(i) for i in range(self.num_topics)]

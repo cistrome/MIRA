@@ -285,7 +285,7 @@ class ExpressionTopicModel(BaseModel):
 
         if top_n is None:
             gene_scores = self._score_features()[topic_num,:]
-            top_genes_mask = gene_scores - np.maximum(gene_scores.mean(),0) > 3
+            top_genes_mask = (gene_scores - np.maximum(gene_scores.mean(),0)) > 3
 
             genes_found = top_genes_mask.sum() 
 
@@ -401,7 +401,7 @@ class ExpressionTopicModel(BaseModel):
 
         Parameters
         ----------
-        ontologies : list[str], default = mira.tools.enrichr_enrichments.LEGACY_ONTOLOGIES
+        ontologies : list[str], default = mira.tl.LEGACY_ONTOLOGIES
             List of ontology names from which to retrieve results. May provide
             a list of any onlogies hosted on Enrichr.
 

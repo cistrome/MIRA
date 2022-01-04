@@ -8,7 +8,8 @@ structure of differentation data.
 Examples
 --------
 >>> sc.tl.diffmap(adata)
->>> sc.pp.neighbors(adata, use_rep = 'X_diffmap', key_added = 'X_diffmap', n_neighbors = 30)
+>>> mira.pl.plot_eigengap(adata)
+>>> sc.pp.neighbors(adata, use_rep = 'X_diffmap', key_added = 'X_diffmap', n_neighbors = 30, n_pcs = 3)
 >>> mira.time.normalize_diffmap(adata)
 >>> mira.get_connected_components(adata)
 >>> mira.time.get_transport_map(adata, start_cell = 0)
@@ -101,9 +102,15 @@ def get_dendogram_levels(G):
 @adi.wraps_functional(pti.fetch_diffmap_eigvals, pti.add_diffmap, ['diffmap','eig_vals'])
 def normalize_diffmap(rescale = True,*,diffmap, eig_vals):
     '''
-    Estimates optimal number of diffusion map components to use for describing
-    KNN graph. Subsets and rescales diffusion map to enhance pseudotime
-    coherence.
+    Calculates the eigengap heuristic for selecting optimal number of
+    diffusion components to represent dataset. By default,
+    rescales and normalizes the l2 norm of each eigenvector to prioritize
+    components with larger eigenvalues. 
+
+    Rescaling eigenvectors produces a smoother pseudotime representation,
+    but may over-smooth the nearest neighbor space and may distort branch
+    points and lineage paths. If branch points appear poorly-defined, try
+    setting `rescale` to False.
 
     Parameters
     ----------
@@ -189,6 +196,7 @@ def get_connected_components(*,connectivities):
 
     Parameters
     ----------
+    adata : anndata.AnnData
     connectivities_key : str, default="X_diffmap_connectivities"
         Key under `.obsp` to find connectivities of nearest neighbors
         graph used for pseudotime trajectory inference.
@@ -356,6 +364,8 @@ def get_transport_map(ka = 5, n_jobs = 1,*, start_cell = None, distance_matrix, 
 
     Parameters
     ----------
+    adata : anndata.AnnData
+        Adata with connected components labeled in `.obs["mira_connected_components"]`
     ka : int > 5, default = 5
         Kernel width. The standard deviation of the adaptive gaussian kernel used to
         convert distances to affinities is taken to be the distance between the current
@@ -364,6 +374,13 @@ def get_transport_map(ka = 5, n_jobs = 1,*, start_cell = None, distance_matrix, 
         Number of cores to use for pseudotime calculation.
     start_cell : int or barcode
         Cell representing start state of differentiation.
+    diffmap_distances_key : str, default = "X_diffmap_distances"
+        Key in `.obsp` to find distance matrix between cells. By default, uses
+        distance between cells in diffusion space. Providing "distances" will
+        directly use Joint KNN graph without diffusion smoothing.
+    diffmap_coordinates_key : str, default = "X_diffmap"
+        Key in `.obsm` which holds the coordinates of cells used to calculate
+        the distances in `diffmap_distances_key`.
 
     Returns
     -------
@@ -448,7 +465,41 @@ def find_terminal_cells(iterations = 1, max_termini = 15, threshold = 1e-3, *, t
     'terminal_cells'])
 def get_branch_probabilities(*, transport_map, terminal_cells):
     '''
+    Simulate forward random walks through transport map modeling stochastic
+    differentiation process. For each cell, calculate probability of 
+    diffusing through map to each terminal state provided by user.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        Adata with a transition matrix in `.obsp["transport_map"]`
+    terminal_cells : dict of format
+        {"lineage_name" : int (cell number), ...} or {"lineage_name" : str (cell barcode), ...}
+        A dictionary mapping lineage names to cells marking terminal states. Cells may
+        be indicated by cell number / index, or by barcode.
     
+    Returns
+    -------
+    adata : anndata.AnnData
+        `.obsm["branch_probs"]` : np.ndarray[float] of shape (n_cells,n_lineages)
+            Probability of reaching each terminal state following random walk through
+            transport map from each cell.
+        `.obs["differentiation_entropy"]` : np.ndarray[float] of shape (n_cells,)
+            Entropy of differentiation probabilities for each cell.
+        `.uns["lineage_names"]` : list[str]
+            List of lineage names.
+        `.uns["terminal_cells"] : list[str]
+            List of terminal cell barcodes for each lineage.
+        `.obs["<lineage_1>_prob"], ..., .obs["<lineage_L>_prob"]` :  np.ndarray[float] of shape (n_cells,)
+            Column added for the probability of reaching each terminal state for each cell.
+
+    Examples
+    --------
+    >>> mira.time.get_branch_probabilities(adata, terminal_cells = {
+        "A" : "AACACATGTGTAC", "B" : "GTGTGCGAGCGAATT"
+    })
+    >>> sc.pl.umap(adata, color = ["A_prob", "B_prob"])
+    >>> sc.pl.umap(adata, color = 'differentiation_entropy")
     '''
 
     logger.info('Simulating random walks ...')
@@ -529,7 +580,48 @@ def get_lineage_branch_time(lineage1, lineage2, pseudotime, prob_fc, threshold =
 @adi.wraps_functional(pti.fetch_tree_state_args, pti.add_tree_state_args, 
     ['lineage_names', 'branch_probs', 'pseudotime', 'start_cell'])
 def get_tree_structure(threshold = 0.1,*, lineage_names, branch_probs, pseudotime, start_cell):
+    '''
+    Parse tree structure from terminal state probabilities. 
 
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        Adata with a transition matrix in `.obsp["transport_map"]` and
+        branch probabilities in `.obsm["branch_probs"]`.
+    threshold : float > 0, default = 0.1
+        Treshold to exceed to indicate divergence of lineages. Higher thresholds
+        allow more tolerance before a branch point is assigned, while lower 
+        thresholds are more sensitive to divergence events. Try multiple values
+        for threshold to find best value to parse lineage tree. Typically, 0.1 is a
+        very sensitive value, while 1.0-2.0 are very tolerant.
+
+    Returns
+    -------
+        adata : anndata.AnnData
+            `.obs["tree_states"] : np.ndarray[str] of shape (n_cells,)
+                "tree_states" columns indicate which lineages are downstream for
+                each cell. For instance, given a bifurcating differentitation 
+                into terminal lineages A and B, all cells before the branch point
+                would be labeled "A, B", while cells after the branch point would be
+                labeled "B" if they followed the path to the "B" terminal state. 
+            `.uns["connectivities_tree"] : np.ndarray[boolean] of shape (2*num_lineages - 1, 2*num_lineages - 1)
+                Digraph of relationships between `tree_states`. For instance,
+                an edge would be drawn from "A, B" to "A" and to "B".
+
+                                     "A"
+                                    /   
+                              "A, B"
+                                    \__"B"
+
+            `.uns["tree_state_names"] : np.ndarray[str] of shape (2*num_lineages - 1,)
+                Tree state labels for columns and rows of `connectivities_tree`
+
+    Examples
+    --------
+    >>> mira.time.get_tree_structure(adata, threshold = 0.5)
+    >>> sc.pl.umap(adata, color= "tree_states")
+
+    '''
     def get_all_leaves_from_node(edge):
 
         if isinstance(edge, tuple):
@@ -546,6 +638,7 @@ def get_tree_structure(threshold = 0.1,*, lineage_names, branch_probs, pseudotim
             x[:, ~np.isin(np.arange(x.shape[-1]), [col1, col2])]
         ])
 
+    assert(isinstance(threshold, (int, float)) and threshold > 0), '`threshold` must be a float greater than 0'
 
     num_cells, num_lineages = branch_probs.shape
     all_merged = False

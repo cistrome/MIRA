@@ -32,6 +32,39 @@ def _get_NITE_score(gene_expr, lite_logp, nite_logp, median_nonzero_expression =
     ['genes','gene_expr','lite_logp','nite_logp']
 )
 def get_NITE_score_genes(median_nonzero_expression = None,*, genes, gene_expr, lite_logp, nite_logp):
+    '''
+    Calculates the NITE score (Non-locally Influence Transcriptional Expression) for each **gene**. The NITE
+    score quantifies how well changes in local chromatin accessibility explain changes in gene expression.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        Adata of expression features per cell. This data must first be annotated with "LITE_logp" and
+        "NITE_logp" using LITE and NITE RP models\' `get_logp` function.
+    median_nonzero_expression : int > 0 or None, default = None
+        The NITE score is normalized for nonzero counts per gene, which means the test
+        is dependent on the genome-wide distribution of nonzero counts per gene. If you are not testing
+        a large quantity of genes simultaneously, then the median of the distribution of 
+        nonzero counts will be noisy. You may provide your own value for the median number 
+        of nonzero counts per cell in this instance.
+
+    Returns
+    -------
+    adata : anndata.AnnData
+        `.var["NITE_score"]` : np.ndarray[float] of shape (n_genes,)
+            Gene NITE score. Genes that were not tested will be assigned np.nan.
+
+    Raises
+    ------
+    KeyError : if adata is missing "LITE_logp" or "NITE_logp"
+
+    Examples
+    --------
+    >>> rp_args = dict(expr_adata = atac_data, expr_adata = rna_data)
+    >>> litemodel.get_logp(**rp_args)
+    >>> nitemodel.get_logp(**rp_args)
+    >>> mira.tl.get_NITE_score_genes(rna_data)
+    '''
 
     return (genes, *_get_NITE_score(gene_expr, lite_logp, nite_logp, 
         median_nonzero_expression = median_nonzero_expression, axis = 0))
@@ -42,6 +75,34 @@ def get_NITE_score_genes(median_nonzero_expression = None,*, genes, gene_expr, l
     ['genes','gene_expr','lite_logp','nite_logp']
 )
 def get_NITE_score_cells(median_nonzero_expression = None, *, genes, gene_expr, lite_logp, nite_logp):
+    '''
+    Calculates the NITE score (Non-locally Influence Transcriptional Expression) for each **cell**. The NITE
+    score quantifies how well changes in local chromatin accessibility explain changes in gene expression
+    in that cell.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        Adata of expression features per cell. This data must first be annotated with "LITE_logp" and
+        "NITE_logp" using LITE and NITE RP models\' `get_logp` function.
+
+    Returns
+    -------
+    adata : anndata.AnnData
+        `.obs["NITE_score"]` : np.ndarray[float] of shape (n_cells,)
+            Cell NITE score.
+
+    Raises
+    ------
+    KeyError : if adata is missing "LITE_logp" or "NITE_logp"
+
+    Examples
+    --------
+    >>> rp_args = dict(expr_adata = atac_data, expr_adata = rna_data)
+    >>> litemodel.get_logp(**rp_args)
+    >>> nitemodel.get_logp(**rp_args)
+    >>> mira.tl.get_NITE_score_cells(rna_data)
+    '''
 
     return _get_NITE_score(gene_expr, lite_logp, nite_logp, 
         median_nonzero_expression = median_nonzero_expression, axis = 1)
@@ -53,6 +114,37 @@ def get_NITE_score_cells(median_nonzero_expression = None, *, genes, gene_expr, 
     ['lite_prediction','nite_prediction','genes']
 )
 def get_chromatin_differential(*,lite_prediction, nite_prediction, genes):
+    '''
+    The per-cell difference in predictions between LITE and NITE models of gene
+    is called "chromatin differential", and reflects the over or under-
+    estimation of expression levels by local chromatin. Positive chromatin 
+    differential means local chromatin over-estimates expression in that cell,
+    negative chromatin differential means lcoal chromatin under-estimates
+    expression.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        Adata of expression features per cell. This data must first be annotated with "LITE_prediction" and
+        "NITE_prediction" using LITE and NITE RP models\' `predict` function.
+
+    Returns
+    -------
+    adata : anndata.AnnData
+        `.layers["chromatin_differential"]` : scipy.spmatrix of shape (n_cells, n_genes)
+            Chromatin differential matrix. Genes that were not modeled are left empty.
+
+    Raises
+    ------
+    KeyError : if adata is missing "LITE_prediction" or "NITE_prediction".
+
+    Examples
+    --------
+    >>> rp_args = dict(expr_adata = atac_data, expr_adata = rna_data)
+    >>> litemodel.predict(**rp_args)
+    >>> nitemodel.predict(**rp_args)
+    >>> mira.tl.get_chromatin_differential(rna_data)
+    '''
     return genes, np.log2(lite_prediction) - np.log2(nite_prediction)
 
 

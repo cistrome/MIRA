@@ -323,12 +323,209 @@ def _normalize_numerical_features(features,*, clip, scale_features, max_bar_heig
     ['group_names','features','pseudotime','group','tree_graph', 'feature_labels']
 )
 def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_features = False, order = 'ascending',
-    title = None, show_legend = True, legend_cols = 5, max_bar_height = 0.6, size = None, max_swarm_density = 2000, hide_feature_threshold = 0,
+    title = None, show_legend = True, legend_cols = 5, max_bar_height = 0.6, size = None, max_swarm_density = 1e5, hide_feature_threshold = 0,
     palette = None, color = 'black', linecolor = 'black', linewidth = None, hue_order = None, pseudotime_triangle = True,
     scaffold_linecolor = 'lightgrey', scaffold_linewidth = 1, min_pseudotime = 0.05,
     figsize = (10,5), ax = None, plots_per_row = 4, height = 4, aspect = 1.3, tree_structure = True,
     center_baseline = True, window_size = 101, clip = 10, alpha = 1., vertical = False,
     feature_labels = None, group_names = None, tree_graph = None,*, features, pseudotime, group):
+    '''
+
+    Plot a streamgraph representation of a differentiation or continuous process.
+    Modifying the parameters produces variations of the streamgraph for making different
+    sorts of comparisons. The available modes are:
+        
+        * stream - 3 to 20 continous features
+        * swarm - one discrete feature
+        * line and scatter - comparing modalities for one feature
+        * heatmap - 20 or more continous features, no lineage tree
+    
+    Parameters
+    ----------
+    data : list[str] or str
+        Which data features of dataframe to plot. If str, plots one feature.
+        If list, plots each feature. The feature may be the name of a gene or
+        a cell-level attribute in the `.obs` dataFrame. 
+    layers : list[str] or str
+        Which layer of dataframe to plot for a given attribute. If str, all features
+        provided in `data` will be found in the same layer. If list, must provide a
+        list where each element is a layer that is the same length as `data`. For 
+        features that are in `.obs`, any layer name may be provided.
+
+        To plot two attributes for the same gene, for example, expression and accessibility,
+        list that gene twice in `data`, then specify the layers to use:
+
+        mira.pl.plot_stream(adata, data = ["LEF1","LEF1"], 
+            layers = ["normalized_expression","accessibility"])
+    pseudotime_key : str, default = 'mira_pseudotime',
+        Which key in `.obs` to use for the pseudotime for each cell (x-axis of plot). 
+        Sometimes, the pseudotime calculated by the `mira.time` API may be inconvenient for
+        plotting because segments of the lineage tree may have unweildy lengths. You
+        can use your own pseudotime metric or transformation by specifying which column
+        in `.obs` to find it.
+    *style* : {"stream", "swarm", "heatmap", "line", "scatter"}, default = "stream"
+        Style to plot data. The attributes and advantages of each style are outlined 
+        in the *Notes* section.
+    split : boolean, defaut = False
+        Whether to split each feature into its own plot. By default, stream, scatter,
+        and line mode will plot multiple features on the same plot. Setting `split` to
+        True will create a separate plot for each feature. This feature is not available
+        for heatmaps, and is enforced behavior for swarms.
+    log_pseudotime : boolean, default = True
+        Diffusion pseudotime increases exponentially with distance from the root. Log
+        pseudotime compresses the upper ranges of pseudotime and typically yields more
+        balanced plots.
+    *scale_features* : boolean, default = False
+        Independently scale each feature to the range [0,1]. Enables comparisons of
+        feature trends with different magnitudes.
+    order : {"ascending", "descending", None}, default = "ascending"
+        Ascending order plots features in the order at which they peak in terms of 
+        pseudotime, so feature that peak earlier will appear first on the plot. Vice-
+        versa for descending order. Setting `order` to None will plot features in the
+        order they are provided to `data`.
+    title : str or None, default = None
+        Title of figure
+    show_legend : boolean, default = True
+        Show figure legend
+    legend_cols : int, default = 5
+        Number of columns for horizontal legend.
+    max_bar_height : float (0, 1), default = 0.6
+        The amount of space occupied by the stream/scatter/line/swarm at its maximum
+        magnitude. A `max_bar_height` of 1 will fill all available space with no 
+        room between lineages.
+    size : float > 0 or None, default = None
+        Size of dots for swarm or scatter plots. Default of None will use defaults
+        from swarmplot and scatterplot sub functions.
+    *max_swarm_density* : float > 0, default = 1e5
+        Maximum number of points per pseudotime on swarmplot. Reducing this parameter
+        reduces the number of points to draw and speeds up plotting. This parameter may
+        also be adjusted to prevent points from overflowing into the gutters of swarm
+        segments.
+    *hide_feature_threshold* : float >= 0, < 1, default = 0.
+        If a feature comprises less than this fraction of the magnitude of the plot at
+        some timepoint, hide that feature. This is useful when plotting streams with 
+        many features, many of which are close to zero at any given time. Increasing this 
+        parameter above 0. will hide those features and declutter the plot. 
+    palette : str or None, default = None
+        Palette of plot. Default of None will set `palette` to the style-specific default.
+    color : str, default = "black"
+        When only plotting one feature, streams, lines, or scatters, are colored by this
+        parameter rather than `palette`. This behavior is similar to matplotlib.
+    linecolor : str, default = "black"
+        Color of edges of plots, including outline of streams, scatters, and swarms.
+    linewidth : float > 0 or None, default = None
+        Width of elements colored by `linecolor`. Default of None differs to 
+        style-specific default values.
+    hue_order : list[str] or None, default = None
+        Order to assign hues to features provided by `data`. Works similarly to
+        hue_order in seaborn. User must provide list of features corresponding to 
+        the order of hue assignment. 
+    pseudotime_triange : boolean, default = True
+        Whether to plot the triange marking the pseudotime axis at bottom of plot.
+    scaffold_linecolor : str, default = "lightgrey"
+        Color of lineage tree scaffold
+    scaffold_linewidth : float > 0, default = 1
+        Linewidth of scaffold
+    *min_pseudotime* : float > 0, default = 0.05
+        This parameter ensures no segment on the lineage tree is shorter in 
+        pseudotime than the value provided. If a certain segment of the lineage 
+        tree is too short to be visualized, it may be increased.
+    figsize : tuple(float, float), default = (7,4)
+        Size of figure
+    ax : matplotlib.pyplot.axes, deafult = None
+        Provide axes object to function to add streamplot to a subplot composition,
+        et cetera. If no axes are provided, they are created internally.
+    plots_per_row : int > 0, default = 4
+        Number of plots per row when in swarm mode or when `split` is True.
+    height : flaot > 0, default = 4
+        Height of plot when split. Otherwise, function uses `figsize`.
+    aspect : float > 0, default 1.3
+        Apsect ratio of split plots
+    tree_structure : boolean, default = True
+        Whether to plot the lineage tree structure of the data. This is disabled
+        for heatmap mode. If set to False, this will not required that you have
+        conducted lineage inference on the data, only that you have some
+        sort of time assigned to each cell.
+    *window_size* : { i | i > 0, i is odd }, default = 101
+        Odd integer number. Used for smoothing of data for streams, lines, and 
+        scatter plots. Used as the number of cells to aggregate per column
+        in heatmap mode. Increasing this parameter will produce smoother plots.
+    clip : float > 0, default = 10
+        Values of feature *x* are clipped to be within the bounds of mean(x) +/- clip * std(x).
+        This trims in outliers and reduces their effect on smoothing. This is useful for 
+        noisy data.
+    alpha : float in [0,1], defaut = 1
+        Transparency of plot elements.
+    vertical : boolean, default = False
+        Does not currently do anything.
+    tree_graph_key : str, deafult = 'connectivities_tree', 
+        Which key in `.uns` to find the connectivities tree between lineage tree segments.
+        Contains a np.ndarray of shape (2*n_tree_states - 1, 2*n_tree_states - 1) with 
+        elements equal to one at index i,j meaning tree_state j is a descendent of i.
+        This is found by `mira.time.get_tree_structure`, but may be manually encoded.
+    group_names_key = 'tree_state_names',
+        Which key in `.uns` to find the names of the tree states corresponding to columns
+        and rows of `tree_graph_key`.
+    group_key = 'tree_states',
+        Which column in `.obs` to find the cell membership to particular tree states.
+
+    .. testsetup::
+
+        import mira
+        adata = 
+
+    Examples
+    --------
+    
+    **Plotting topics.** Plot the composition of topics along a differentiation.
+    Here `hide_feature_threshold` hides topics which aren't contributing to the
+    cell composition. This significantly cleans up the plot.
+
+    >>> mira.pl.plot_stream(adata, data = rna_model.topic_cols, style = "stream",
+        hide_feature_threshold = 0.03, window_size = 301, max_bar_height = 0.8, 
+        palette = "Set3", legend_cols = 4)
+
+    **Comparing expression and accessibility.** We provide the gene "LEF1" to
+    `data` twice, then indicate to MIRA to plot the expression, then accessibility
+    of "LEF1". We set `order` to `None` so that the provided palette always matches 
+    with the correct mode. We also set `scale_features` to `True` so that we can
+    compare trends instead of absolute magnitudes.
+
+    >>> mira.pl.plot_stream(adata, data = ["LEF1","LEF1"], style = "line",
+        layers = ["expression","accessibility"], window_size = 301, max_bar_height = 0.8,
+        palette = ["red","black"], order = None, scale_features = True)
+
+    **Plotting cluster membership using swarm mode.** Swarm mode is useful
+    for plotting discrete features.
+
+    >>> mira.pl.plot_stream(adata, data = "leiden", sylte = "swarm", palette = "Set2",
+        max_swarm_density = 200, max_bar_height = 0.8)
+
+    **Visualizing marker genes.** Each gene is plotted on its own stream.
+
+    >>> mira.pl.plot_stream(adata, data = ["LEF1","WNT3","CTSC"], style = "stream", 
+        color = "black", split = True)
+
+    **Using heatmap mode.** Note that heatmap mode does not contain lineage tree information,
+    so it is best to subset the tree down to one lineage. You can do this by subsetting
+    the input data to only contain cells along the path you want to see.
+
+    Below, the boolean mask `adata.obs.tree_states.str.contains("Cortex")` selects for
+    cells whose `tree_state` attribute indicates that cell is upstream of the cortex 
+    lineage. 
+
+    >>> mira.pl.plot_stream(adata[adata.obs.tree_states.str.contains("Cortex")], 
+        data = ["LEF1","WNT3","CTSC"], style = "heatmap", window_size = 101,
+        tree_structure = False)
+
+    You can subset cells using more complicated filters. For example, all cells which
+    may differentiate to Cortex or Medulla, but not the IRS:
+
+    >>> mira.pl.plot_stream(adata[adata.obs.tree_states.str.contains("Cortex|Medulla") 
+        & ~adata.obs.tree_states.str.contains("Medulla")], 
+        data = ["LEF1","SOAT1"], style = "stream", window_size = 301,
+        scale_features = True)
+    '''
 
     assert(isinstance(max_bar_height, float) and max_bar_height > 0 and max_bar_height <= 1)
     assert(isinstance(features, np.ndarray))

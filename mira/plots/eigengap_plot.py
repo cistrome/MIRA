@@ -15,6 +15,37 @@ def plot_eigengap(
     diffmap,
     umap,
 ):
+    '''
+    Plots the eigengap, the difference between consecutive eigenvalues, 
+    for estimation of the optimal number of diffusion components to 
+    represent dataset. Also plots diffusion components projected onto
+    the UMAP basis. This allows the user to check to make sure that each
+    cell population is captured by the components.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        Adata with diffusion map in `.obsm["X_diffmap"]` and 
+        eigenvalues in `.uns["diffmap_evals"]`
+    basis : str, default = "X_umap"
+        Representation basis for arranging cells. By default,
+        uses the representation in `.obsm["X_umap"]`. Only the first two
+        components will be used of any representation.
+    height : float > 0, default = 2 
+        Height of each UMAP plot
+    aspect : float > 0, default = 1.5
+        Apsect ratio of each UMAP plot
+    size : float > 0, default = 0.3
+        Size of points on UMAP
+    eigengap_figsize : tuple(float, float), default = (7,4)
+        Size of the eigengap figure
+    palette : str, default = "plasma"
+        Matplotlib colormap string for projecting diffusion components 
+        onto UMAP plots.
+    plots_per_row : int > 0, default = 5
+        Number of UMAP plots per row
+    
+    '''
 
     fig1,ax = plt.subplots(2,1,figsize=(7,4), sharex = True, 
                         gridspec_kw={'height_ratios' : [3,2]})
