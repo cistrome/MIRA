@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.1
+
+#### Updates
+
+* Added method: `mira.pl.plot_eigengap`, which shows the eigengap heuristic
+for a dataset. User must now specify how many diffusion components to use for
+downstream analysis.
+* Added mira.info for tracking important links and attributes for the project.
+* Set default joint representation box-cox transformation to 0.5.
+
+
 ## 0.1.0
 
 #### Updates
