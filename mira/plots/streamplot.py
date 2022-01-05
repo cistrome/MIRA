@@ -363,7 +363,7 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
         plotting because segments of the lineage tree may have unweildy lengths. You
         can use your own pseudotime metric or transformation by specifying which column
         in `.obs` to find it.
-    *style* : {"stream", "swarm", "heatmap", "line", "scatter"}, default = "stream"
+    *style : {"stream", "swarm", "heatmap", "line", "scatter"}, default = "stream"
         Style to plot data. The attributes and advantages of each style are outlined 
         in the *Notes* section.
     split : boolean, defaut = False
@@ -375,7 +375,7 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
         Diffusion pseudotime increases exponentially with distance from the root. Log
         pseudotime compresses the upper ranges of pseudotime and typically yields more
         balanced plots.
-    *scale_features* : boolean, default = False
+    *scale_features : boolean, default = False
         Independently scale each feature to the range [0,1]. Enables comparisons of
         feature trends with different magnitudes.
     order : {"ascending", "descending", None}, default = "ascending"
@@ -396,12 +396,12 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
     size : float > 0 or None, default = None
         Size of dots for swarm or scatter plots. Default of None will use defaults
         from swarmplot and scatterplot sub functions.
-    *max_swarm_density* : float > 0, default = 1e5
+    *max_swarm_density : float > 0, default = 1e5
         Maximum number of points per pseudotime on swarmplot. Reducing this parameter
         reduces the number of points to draw and speeds up plotting. This parameter may
         also be adjusted to prevent points from overflowing into the gutters of swarm
         segments.
-    *hide_feature_threshold* : float >= 0, < 1, default = 0.
+    *hide_feature_threshold : float >= 0, < 1, default = 0.
         If a feature comprises less than this fraction of the magnitude of the plot at
         some timepoint, hide that feature. This is useful when plotting streams with 
         many features, many of which are close to zero at any given time. Increasing this 
@@ -426,7 +426,7 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
         Color of lineage tree scaffold
     scaffold_linewidth : float > 0, default = 1
         Linewidth of scaffold
-    *min_pseudotime* : float > 0, default = 0.05
+    *min_pseudotime : float > 0, default = 0.05
         This parameter ensures no segment on the lineage tree is shorter in 
         pseudotime than the value provided. If a certain segment of the lineage 
         tree is too short to be visualized, it may be increased.
@@ -446,7 +446,7 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
         for heatmap mode. If set to False, this will not required that you have
         conducted lineage inference on the data, only that you have some
         sort of time assigned to each cell.
-    *window_size* : { i | i > 0, i is odd }, default = 101
+    *window_size : { i | i > 0, i is odd }, default = 101
         Odd integer number. Used for smoothing of data for streams, lines, and 
         scatter plots. Used as the number of cells to aggregate per column
         in heatmap mode. Increasing this parameter will produce smoother plots.
@@ -469,21 +469,29 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
     group_key = 'tree_states',
         Which column in `.obs` to find the cell membership to particular tree states.
 
-    .. testsetup::
-
-        import mira
-        adata = 
-
     Examples
     --------
-    
+
+    .. doctestsetup::
+        >>> import mira
+        >>> import anndata
+        >>> import matplotlib.pyplot as plt
+        >>> adata = anndata.read_h5ad('/Users/alynch/projects/multiomics/mira/mira/data/shareseq/hf_minimal.h5ad')
+        >>> adata = adata[adata.obs.mira_pseudotime > 6]
+
     **Plotting topics.** Plot the composition of topics along a differentiation.
     Here `hide_feature_threshold` hides topics which aren't contributing to the
     cell composition. This significantly cleans up the plot.
 
-    >>> mira.pl.plot_stream(adata, data = rna_model.topic_cols, style = "stream",
-        hide_feature_threshold = 0.03, window_size = 301, max_bar_height = 0.8, 
-        palette = "Set3", legend_cols = 4)
+    .. plot::
+        :context: close-figs
+        :include-source: True
+
+        >>> topics = [6,9,10,5,4,22,7]
+        >>> mira.pl.plot_stream(adata, data = ["topic_" + str(i) for i in topics], style = "stream",
+        ...    hide_feature_threshold = 0.03, window_size = 301, max_bar_height = 0.8, 
+        ...    palette = "Set3", legend_cols = 4) # doctest: +SKIP
+        >>> plt.show()
 
     **Comparing expression and accessibility.** We provide the gene "LEF1" to
     `data` twice, then indicate to MIRA to plot the expression, then accessibility
@@ -491,21 +499,39 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
     with the correct mode. We also set `scale_features` to `True` so that we can
     compare trends instead of absolute magnitudes.
 
-    >>> mira.pl.plot_stream(adata, data = ["LEF1","LEF1"], style = "line",
-        layers = ["expression","accessibility"], window_size = 301, max_bar_height = 0.8,
-        palette = ["red","black"], order = None, scale_features = True)
+    .. plot::
+        :context: close-figs
+        :include-source: True
+
+        >>> mira.pl.plot_stream(adata, data = ["LEF1","LEF1"], style = "line",
+        ...    layers = ["expression","accessibility"], window_size = 301, max_bar_height = 0.8,
+        ...    palette = ["red","black"], order = None, scale_features = True, figsize=(5,3),
+        ...    clip = 3)
+        >>> plt.show()
 
     **Plotting cluster membership using swarm mode.** Swarm mode is useful
     for plotting discrete features.
 
-    >>> mira.pl.plot_stream(adata, data = "leiden", sylte = "swarm", palette = "Set2",
-        max_swarm_density = 200, max_bar_height = 0.8)
+    .. plot::
+        :context: close-figs
+        :include-source: True
+
+        >>> adata.obs.true_cell = adata.obs.true_cell.astype(str)
+        >>> mira.pl.plot_stream(adata, data = "true_cell", style = "swarm", palette = "Set2",
+        ...     max_swarm_density = 2000, max_bar_height = 0.8, size = 5)
+        >>> plt.show()
 
     **Visualizing marker genes.** Each gene is plotted on its own stream.
 
-    >>> mira.pl.plot_stream(adata, data = ["LEF1","WNT3","CTSC"], style = "stream", 
-        color = "black", split = True)
+    .. plot::
+        :context: close-figs
+        :include-source: True
 
+        >>> mira.pl.plot_stream(adata, data = ["LEF1","WNT3","CTSC"], style = "stream", 
+        ...     color = "black", split = True, layers = "smoothed", clip = 2, scale_features=True)
+        >>> plt.show()
+
+    
     **Using heatmap mode.** Note that heatmap mode does not contain lineage tree information,
     so it is best to subset the tree down to one lineage. You can do this by subsetting
     the input data to only contain cells along the path you want to see.
@@ -514,17 +540,27 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
     cells whose `tree_state` attribute indicates that cell is upstream of the cortex 
     lineage. 
 
-    >>> mira.pl.plot_stream(adata[adata.obs.tree_states.str.contains("Cortex")], 
-        data = ["LEF1","WNT3","CTSC"], style = "heatmap", window_size = 101,
-        tree_structure = False)
+    .. plot::
+        :context: close-figs
+        :include-source: True
+
+        >>> mira.pl.plot_stream(adata[adata.obs.tree_states.str.contains("Cortex")], 
+        ...    layers = "smoothed", data = ["LGR5","EDAR","LEF1","WNT3"], style = "heatmap",
+        ...     window_size = 101, scale_features=True, tree_structure = False, figsize=(7,3))
+        >>> plt.show()
 
     You can subset cells using more complicated filters. For example, all cells which
     may differentiate to Cortex or Medulla, but not the IRS:
 
-    >>> mira.pl.plot_stream(adata[adata.obs.tree_states.str.contains("Cortex|Medulla") 
-        & ~adata.obs.tree_states.str.contains("Medulla")], 
-        data = ["LEF1","SOAT1"], style = "stream", window_size = 301,
-        scale_features = True)
+    .. plot::
+        :context: close-figs
+        :include-source: True
+
+        >>> mira.pl.plot_stream(adata[adata.obs.tree_states.str.contains("Cortex|Medulla") 
+        ...     & ~adata.obs.tree_states.str.contains("IRS")], layers = "smoothed",
+        ...     data = ["DSG4","SOAT1","LEF1"], style = "stream", window_size = 301,
+        ...     scale_features = True, palette='Set2', linewidth=0.5, clip = 3)
+        >>> plt.show()
     '''
 
     assert(isinstance(max_bar_height, float) and max_bar_height > 0 and max_bar_height <= 1)
@@ -655,3 +691,7 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
         return fig, ax
     else:
         return ax
+
+if __name__ == "__main__":
+    import doctest
+    doctest.testmod()
