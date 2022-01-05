@@ -1,6 +1,16 @@
 from setuptools import setup
 from setuptools import find_packages
-from mira import info
+import configparser
+import os
+
+configpath = os.path.join(os.path.dirname(__file__), 'mira', 'config.ini')
+
+print(configpath)
+config = configparser.ConfigParser()
+config.read(configpath)
+
+#print(info, info.sections)
+info = config['MIRA']
 
 long_text='''
 **MIRA (Probabilistic Multimodal Models for Integrated Regulatory Analysis)** is a comprehensive methodology that systematically contrasts single cell transcription and accessibility to infer the regulatory circuitry driving cells along developmental trajectories. 
@@ -22,7 +32,9 @@ Please refer to [our tutorial]({tutorial}) for an overview of analyses that can 
 
 ## System Requirements
 
-{requirements}
+* Linux or MacOS
+* Python >=3.5, <3.8
+* (optional) CUDA-enabled GPU
 
 ## Install
 
@@ -51,18 +63,30 @@ To use the environment in a jupyter notebook, start the notebook server, then go
 
 ## Dependencies
 
-{dependencies}
+* pytorch
+* pyro-ppl
+* tqdm
+* moods
+* pyfaidx
+* matplotlib
+* lisa2
+* requests
+* networkx
+* numpy
+* scipy
+* optuna
+* anndata
 
 See [environment.yaml]({github}/blob/main/environment.yaml) for versioning details.
-'''.format(**info.__dict__)
+'''.format(**info)
 
 
 setup(name='mira-multiome',
-      version=info.version,
+      version=info['version'],
       description='Single-cell multiomics data analysis package',
       long_description=long_text,
       long_description_content_type="text/markdown",
-      url = info.github,
+      url = info['github'],
       author='Allen W Lynch',
       author_email='alynch@ds.dfci.harvard.edu',
       license='MIT',
