@@ -69,6 +69,10 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
         def get_RP_model_features(self,*, expr_adata, atac_adata, atac_topic_comps_key = 'X_topic_compositions', 
             factor_type = 'motifs', checkpoint = None, **kwargs):
 
+            unannotated_genes = np.setdiff1d(self.genes, atac_adata.uns['distance_to_TSS_genes'])
+            if len(unannotated_genes) > 0:
+                raise ValueError('The following genes for RP modeling were not found in the TSS annotation: ' + ', '.join(unannotated_genes))
+
             if not 'model_read_scale' in expr_adata.obs.columns:
                 self.expr_model._get_read_depth(expr_adata)
 

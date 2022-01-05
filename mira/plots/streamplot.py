@@ -339,6 +339,10 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
         * swarm - one discrete feature
         * line and scatter - comparing modalities for one feature
         * heatmap - 20 or more continous features, no lineage tree
+
+    *To plot a stream graph, you must first perform lineage inference on the
+    data using the `mira.time` API.*
+
     
     Parameters
     ----------
