@@ -48,7 +48,6 @@ logger = logging.getLogger(__name__)
 
 class ExpressionEncoder(torch.nn.Module):
 
-
     def __init__(self,embedding_size=None,*,num_endog_features, num_topics, hidden, dropout, num_layers):
         super().__init__()
 
@@ -222,7 +221,7 @@ class ExpressionTopicModel(BaseModel):
     
     def rank_genes(self, topic_num):
         '''
-        Ranks genes according to their activation in module **topic_num**. Sorted from most to least activated.
+        Ranks genes according to their activation in module `topic_num`. Sorted from least to most activated.
 
         Parameters
         ----------
@@ -232,6 +231,18 @@ class ExpressionTopicModel(BaseModel):
         Returns
         -------
         np.ndarray: sorted array of gene names in order from most suppressed to most activated given the specified module
+
+        Examples
+        --------
+
+        Genes are ranked from least to most activated. To get the top genes:
+
+        .. code-block :: python
+
+            >>> rna_model.rank_genes(0)[-10:]
+            array(['ESRRG', 'APIP', 'RPGRIP1L', 'TM4SF4', 'DSCAM', 'NRAD1', 'ST3GAL1',
+            'LEPR', 'EXOC6', 'SLC44A5'], dtype=object)
+
         '''
         assert(isinstance(topic_num, int) and topic_num < self.num_topics and topic_num >= 0)
 
@@ -253,6 +264,17 @@ class ExpressionTopicModel(BaseModel):
         Returns
         -------
         list : of format [(topic_num, activation), ...]
+
+        Examples
+        --------
+
+        To see the top 5 modules associated with gene "GHRL":
+
+        .. code-block:: python
+
+            >>> rna_model.rank_modules('GHRL')[:5]
+            [(14, 3.375548), (22, 2.321417), (1, 2.3068447), (0, 1.780294), (9, 1.3936363)]
+
         '''
         
         assert(gene in self.genes)
@@ -324,8 +346,12 @@ class ExpressionTopicModel(BaseModel):
 
         Examples
         --------
-        >>> rna_model.post_topic(10, top_n = 500)
-        >>> rna_model.post_topic(10)
+
+        .. code-block:: python
+
+            >>> rna_model.post_topic(10, top_n = 500)
+            >>> rna_model.post_topic(10)
+
         '''
 
         list_id = enrichr.post_genelist(
@@ -354,7 +380,11 @@ class ExpressionTopicModel(BaseModel):
 
         Examples
         --------
-        >>> rna_model.post_topics()
+
+        .. code-block:: python
+
+            >>> rna_model.post_topics()
+
         '''
 
         for i in range(self.num_topics):
@@ -375,7 +405,10 @@ class ExpressionTopicModel(BaseModel):
 
         Examples
         --------
-        >>> rna_model.fetch_topic_enrichments(10, ontologies = ['WikiPathways_2019_Mouse'])        
+
+        .. code-block:: python
+
+            >>> rna_model.fetch_topic_enrichments(10, ontologies = ['WikiPathways_2019_Mouse'])        
         '''
 
         try:
@@ -407,7 +440,10 @@ class ExpressionTopicModel(BaseModel):
 
         Examples
         --------
-        >>> rna_model.fetch_enrichments(ontologies = ['WikiPathways_2019_Mouse'])
+
+        .. code-block:: python
+
+            >>> rna_model.fetch_enrichments(ontologies = ['WikiPathways_2019_Mouse'])
         '''
         
         for i in range(self.num_topics):
@@ -496,8 +532,18 @@ class ExpressionTopicModel(BaseModel):
 
         Examples
         --------
-        >>> rna_model.plot_enrichments(10, pval_threshold = 1e-3, show_genes = False,
-            plot_per_row = 3, aspect = 1.5, max_genes = 10)
+
+        .. code-block:: python
+
+            >>> rna_model.post_topic(13, 500)
+            >>> rna_model.fetch_topic_enrichments(13, 
+            ... ontologies=['WikiPathways_2019_Mouse','BioPlanet_2019'])
+            >>> rna_model.plot_enrichments(13, height=4, show_top=6, max_genes=10, 
+            ... aspect=2.5, plots_per_row=1)
+
+        .. image:: _static/mira.topics.ExpressionTopicModel.plot_enrichments.svg
+            :width: 1200
+
         '''
 
         try:

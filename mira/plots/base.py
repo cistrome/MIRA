@@ -114,7 +114,7 @@ def plot_umap(X, hue, palette = 'viridis', projection = '2d', ax = None, figsize
         add_outline = False, outline_color = 'lightgrey', outline_width = (0, 0.5),
         **plot_kwargs):
     
-    plot_order = hue.argsort()
+    plot_order = hue.argsort().argsort()
 
     if ax is None:
         fig, ax = plt.subplots(1,1,figsize=figsize)

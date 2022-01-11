@@ -12,7 +12,9 @@
 #
 import os
 import sys
-sys.path.insert(0, '/Users/alynch/projects/multiomics/mira/mira/mira')
+import pathlib
+
+sys.path.insert(0, pathlib.Path(__file__).parents[2].resolve().as_posix())
 
 
 # -- Project information -----------------------------------------------------
@@ -93,5 +95,4 @@ adata = anndata.read_h5ad('/Users/alynch/projects/multiomics/mira/mira/data/shar
 adata = adata[adata.obs.mira_pseudotime > 6]
 '''
 
-def setup(app):
-    app.add_css_file('style.css')
+autoclass_content = "both"

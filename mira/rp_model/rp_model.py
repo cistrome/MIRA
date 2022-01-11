@@ -263,7 +263,6 @@ class BaseModel:
                 self.models.append(model)
             except FileNotFoundError:
                 old_filename = prefix + self.old_prefix + gene + '.pth'
-                print(old_filename)
                 if os.path.isfile(old_filename):
                     logger.warn('''
     Cannot load {} model, but found a model using older file conventions: {}. 
@@ -494,7 +493,7 @@ class GeneModel:
 
     @staticmethod
     def get_loss_fn():
-        return TraceMeanField_ELBO().differentiable_loss
+        return Trace_ELBO().differentiable_loss
 
     def get_optimizer(self, params):
         #return torch.optim.LBFGS(params, lr=self.learning_rate, line_search_fn = 'strong_wolfe')

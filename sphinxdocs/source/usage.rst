@@ -1,4 +1,6 @@
-Usage
-=====
+mira.topics.ExpressionTopicModel
+================================
 
-.. autofunction:: mira.pl.plot_stream
+.. autoclass:: mira.topics.ExpressionTopicModel
+    :members: 
+

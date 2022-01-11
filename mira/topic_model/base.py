@@ -98,28 +98,6 @@ def get_fc_stack(layer_dims = [256, 128, 128, 128], dropout = 0.2, skip_nonlin =
 
 
 class BaseModel(torch.nn.Module, BaseEstimator):
-    '''
-    Learns regulatory "topics" from single-cell multiomics data. Topics capture 
-    patterns of covariance between gene or cis-regulatory elements. 
-    Each cell is represented by a composition over topics, and each 
-    topic corresponds with activations of co-regulated elements.
-
-    One may use enrichment analysis of the topics to understand signaling 
-    and transcription factor drivers of cell states, and embedding of 
-    cell-topic distributions to visualize and cluster cells, 
-    and to perform pseudotime trajectory inference.
-
-    Examples
-    --------
-    >>> rna_model = mira.topics.ExpressionTopicModel(
-                exogenous_key = 'predict_expression', 
-                endogenous_key = 'highly_variable',
-                counts_layer = 'rawcounts',
-                num_topics = 15,
-            )
-    >>> rna_model.fit(adata)
-    >>> rna_model.predict(adata)
-    '''
 
     I = 50
 
@@ -159,8 +137,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         Examples
         --------
-        >>> rna_model = mira.topics.ExpressionTopicModel('rna_model.pth')
-        >>> atac_model = mira.topics.AccessibilityTopicModel('atac_model.pth')
+
+        .. code-block:: python
+
+            >>> rna_model = mira.topics.ExpressionTopicModel('rna_model.pth')
+            >>> atac_model = mira.topics.AccessibilityTopicModel('atac_model.pth')
 
         '''
 
@@ -193,7 +174,15 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             kl_strategy = 'monotonic',
             ):
         '''
-        Initialize a new MIRA topic model.
+        Learns regulatory "topics" from single-cell multiomics data. Topics capture 
+        patterns of covariance between gene or cis-regulatory elements. 
+        Each cell is represented by a composition over topics, and each 
+        topic corresponds with activations of co-regulated elements.
+
+        One may use enrichment analysis of the topics to understand signaling 
+        and transcription factor drivers of cell states, and embedding of 
+        cell-topic distributions to visualize and cluster cells, 
+        and to perform pseudotime trajectory inference.
 
         Parameters
         ----------
@@ -250,15 +239,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             Whether to anneal KL term using monotonic or cyclic strategies. Cyclic
             may produce slightly better models.
 
-        Examples
-        --------
-        >>> rna_model = mira.topics.ExpressionTopicModel(
-                exogenous_key = 'predict_expression', 
-                endogenous_key = 'highly_variable',
-                counts_layer = 'rawcounts',
-                num_topics = 15,
-            )
-
         Attributes
         ----------
         features : np.ndarray[str]
@@ -284,6 +264,21 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             The names of the columns for the topics added by the
             `predict` method to an anndata object. Useful for quickly accessing
             topic columns for plotting.
+
+        Examples
+        --------
+
+        .. code-block:: python
+
+            >>> rna_model = mira.topics.ExpressionTopicModel(
+                    exogenous_key = 'predict_expression', 
+                    endogenous_key = 'highly_variable',
+                    counts_layer = 'rawcounts',
+                    num_topics = 15,
+                )
+            >>> rna_model.fit(adata)
+            >>> rna_model.predict(adata)
+                
         '''
         super().__init__()
 
@@ -566,9 +561,12 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         Examples
         --------
-        >>> rna_model.get_learning_rate_bounds(rna_data, num_epochs = 3)
-        Learning rate range test: 100%|██████████| 85/85 [00:17<00:00,  4.73it/s]
-        (4.619921114045972e-06, 0.1800121741235493)
+
+        .. code-block:: python
+
+            >>> rna_model.get_learning_rate_bounds(rna_data, num_epochs = 3)
+            Learning rate range test: 100%|██████████| 85/85 [00:17<00:00,  4.73it/s]
+            (4.619921114045972e-06, 0.1800121741235493)
         '''
 
         self._instantiate_model(
@@ -710,8 +708,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         Examples
         --------
-        >>> rna_model.trim_learning_rate_bounds(2, 1)
-        (4.619921114045972e-04, 0.1800121741235493e-1)
+
+        .. code-block:: python
+
+            >>> rna_model.trim_learning_rate_bounds(2, 1)
+            (4.619921114045972e-04, 0.1800121741235493e-1)
         '''
 
         try:
@@ -749,6 +750,28 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         Returns
         -------
         ax : matplotlib.pyplot.axes
+
+        Examples
+        --------
+
+        When setting the learning rate bounds for the topic model, first
+        run the LLRT test with `get_learning_rate_bounds`. Then,
+        set the bounds on their respective ends of the part of the LRRT
+        plot with the greatest slope, like below.
+
+        .. code-block:: python
+            
+            >>> model.trim_learning_rate_bounds(5,1) # adjust the bounds
+            >>> model.plot_learning_rate_bounds()
+
+        .. image:: _static/mira.topics.plot_learning_rate_bounds.svg
+            :width: 400
+
+        *If the LRRT line appears to vary cyclically*, that means your 
+        batches may be not be independent of each other (perhaps batches
+        later in the epoch are more similar to eachother and more difficult than
+        earlier batches. If this happens, randomize the order of your
+        input data using.
         '''
 
         try:
@@ -897,6 +920,20 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         -------
         self : object
             Fitted topic model
+
+        Notes
+        -----
+        Fitting a topic model usually takes a 2-5 minutes for the expression model
+        and 5-10 minutes for the accessibility model for a typical experiment
+        (5K to 40K cells).
+
+        Optimizing the topic model hyperparameters, however, can take much longer.
+        We recommend running topic model tuners overnight, which is usually sufficient
+        training time. Finding the best number of topics significantly increases
+        the interpretability of the model and its faithfullness to the underlying
+        biology and is well worth the wait.
+
+        To learn about topic model tuning, see `mira.topics.TopicModelTuner`.
         '''
         for _ in self._fit(reinit = reinit, features = features, highly_variable = highly_variable, 
             endog_features = endog_features, exog_features = exog_features):
@@ -931,7 +968,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         fill_kwargs=['endog_features','exog_features'])
     def predict(self, batch_size = 512, *,endog_features, exog_features):
         '''
-        Predict the topic compositions of cells in the data.
+        Predict the topic compositions of cells in the data. Adds the 
+        topic compositions to the `.obsm` field of the adata object.
 
         Parameters
         ----------
@@ -948,7 +986,23 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             `.obsm['X_topic_compositions']` : np.ndarray[float] of shape (n_cells, n_topics)
                 Topic compositions of cells
             `.obs['topic_1'] ... .obs['topic_N']` : np.ndarray[float] of shape (n_cells,)
-                Columns for the activation of each topic.            
+                Columns for the activation of each topic.
+
+        Examples
+        --------
+
+        .. code-block:: python
+
+            >>> model.predict(adata)
+            Predicting latent vars: 100%|█████████████████████████| 36/36 [00:03<00:00,  9.29it/s]
+            INFO:mira.adata_interface.topic_model:Added key to obsm: X_topic_compositions
+            INFO:mira.adata_interface.topic_model:Added cols: topic_1, topic_2, topic_3, 
+            topic_4, topic_5
+            >>> scanpy.pl.umap(adata, color = model.topic_cols, **mira.pref.topic_umap(ncols = 3))
+
+        .. image:: _static/mira.topics.predict.png
+            :width: 1200
+
         '''
         return self._run_encoder_fn(self.encoder.topic_comps, batch_size = batch_size, 
             endog_features = endog_features, exog_features = exog_features)
@@ -991,6 +1045,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         function `get_umap_features` uses an arbitrary balance matrix that 
         does not account for the relationship between topics.
 
+        The "UMAP features" are the transformation of the topic compositions that
+        encode biological similarity in the high-dimensional space. Use those
+        features to produce a joint KNN graph for downstream analysis using UMAP, 
+        clustering, and pseudotime inference.
+
         Parameters
         ----------
         adata : anndata.AnnData
@@ -1007,6 +1066,18 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 linkage matrix given by scipy.cluster.hierarchy.linkage of
                 hiearchical relationship between topic-feature distributions.
                 Hierarchy calculated by hellinger distance and ward linkage.
+
+        Examples
+        --------
+
+        .. code-block:: python
+
+            >>> model.get_hierarchical_umap_features(adata) # to make features
+            INFO:mira.adata_interface.topic_model:Fetching key X_topic_compositions from obsm
+            INFO:mira.adata_interface.core:Added key to obsm: X_umap_features
+            INFO:mira.adata_interface.topic_model:Added key to uns: topic_dendogram
+            >>> scanpy.pp.neighbors(adata, metric = "manhattan", use_rep = "X_umap_features") # to make KNN graph
+
         '''
 
         topics = np.abs(self._get_gamma())[np.newaxis, :] * self._score_features()[:self.num_topics, :] + self._get_bias()[np.newaxis, :]
@@ -1055,6 +1126,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         neighbors graph. Projects topic compositions to orthonormal space using
         isometric logratio transformation.
 
+        The "UMAP features" are the transformation of the topic compositions that
+        encode biological similarity in the high-dimensional space. Use those
+        features to produce a joint KNN graph for downstream analysis using UMAP, 
+        clustering, and pseudotime inference.
+
         Parameters
         ----------
         adata : anndata.AnnData
@@ -1067,6 +1143,16 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         adata : anndata.AnnData
             `.obsm['X_umap_features']` : np.ndarray[float] of shape (n_cells, n_topics)
                 Transformed topic compositions of cells
+
+        Examples
+        --------
+
+        .. code-block:: python
+
+            >>> model.get_umap_features(adata) # to make features
+            INFO:mira.adata_interface.topic_model:Fetching key X_topic_compositions from obsm
+            INFO:mira.adata_interface.core:Added key to obsm: X_umap_features
+            >>> scanpy.pp.neighbors(adata, metric = "manhattan", use_rep = "X_umap_features") # to make KNN graph
         '''
         
         #compositions = self._run_encoder_fn(self.encoder.topic_comps, endog_features = endog_features, exog_features = exog_features, batch_size=batch_size)
@@ -1108,8 +1194,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         Examples
         --------
-        >>> rna_model.score(rna_data)
-        0.11564
+
+        .. code-block:: python
+
+            >>> rna_model.score(rna_data)
+            0.11564
         '''
         self.eval()
         return self._get_elbo_loss(
@@ -1161,10 +1250,13 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         Examples
         --------
-        >>> rna_model.impute(rna_data)
-        >>> rna_data
-        View of AnnData object with n_obs × n_vars = 18482 × 22293
-            layers: 'imputed'
+
+        .. code-block::
+
+            >>> rna_model.impute(rna_data)
+            >>> rna_data
+            View of AnnData object with n_obs × n_vars = 18482 × 22293
+                layers: 'imputed'
         '''
         return self.features, np.vstack([
             x for x  in self._batched_impute(topic_compositions, batch_size = batch_size, bar = bar)
@@ -1274,11 +1366,14 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         Examples
         --------
-        >>> model.num_topics
-        5
-        >>> model.topic_cols
-        ['topic_0', 'topic_1','topic_2','topic_3','topic_4']
-        >>> sc.pl.umap(adata, color = model.topic_cols, **mira.pref.topic_umap())
+
+        .. code-block::
+
+            >>> model.num_topics
+            5
+            >>> model.topic_cols
+            ['topic_0', 'topic_1','topic_2','topic_3','topic_4']
+            >>> sc.pl.umap(adata, color = model.topic_cols, **mira.pref.topic_umap())
 
         '''
         return ['topic_' + str(i) for i in range(self.num_topics)]
