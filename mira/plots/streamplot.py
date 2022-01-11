@@ -295,7 +295,7 @@ def _build_tree(cell_colors = None, size = None, shape = None,*, max_bar_height 
     return plot_bottom
 
 
-def _normalize_numerical_features(features,*, clip, scale_features, max_bar_height, style):
+def _normalize_numerical_features(features,*, clip, scale_features, max_bar_height, style, split):
 
     if not clip is None:
         means, stds = features.mean(0, keepdims = True), features.std(0, keepdims = True)
@@ -311,10 +311,12 @@ def _normalize_numerical_features(features,*, clip, scale_features, max_bar_heig
 
     features = np.maximum(features, 0) #just make sure no vals are negative
 
-    if style == 'stream':
-        features = features/(features.sum(-1).max()) * max_bar_height
-    elif style == 'scatter':
-        features = features/(features.max(0)) * max_bar_height
+    if style == 'stream' and not split:
+        height_normalizer = (features.sum(-1).max())
+    else:
+        height_normalizer = features.max(0)
+
+    features = features/height_normalizer * max_bar_height
 
     return features
     
@@ -549,7 +551,7 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
     num_features = features.shape[-1]
     
     if np.issubdtype(features.dtype, np.number):
-        features = _normalize_numerical_features(features, clip = clip, 
+        features = _normalize_numerical_features(features, clip = clip, split = split,
             scale_features = scale_features, max_bar_height = max_bar_height, style = style)
     
     if group_names is None:

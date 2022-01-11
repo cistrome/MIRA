@@ -117,7 +117,11 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
                     raise IndexError('Gene {} does not appear in peak annotation'.format(gene_name))
 
                 try:
-                    gene_expr = expr_adata.obs_vector(gene_name, layer = self.counts_layer).astype(int)
+                    gene_expr = expr_adata.obs_vector(gene_name, layer = self.counts_layer)
+
+                    assert(np.isclose(gene_expr.astype(np.int64), gene_expr, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
+                    gene_expr = gene_expr.astype(int)
+                    
                 except KeyError:
                     raise KeyError('Gene {} is not found in expression data var_names'.format(gene_name))
 
