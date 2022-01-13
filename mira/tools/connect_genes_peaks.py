@@ -209,6 +209,7 @@ def get_distance_to_TSS(max_distance = 6e5, promoter_width = 3000,*,
     if not len(np.unique(gene_id)) == len(gene_id):
         logger.warn('Gene IDs are not unique! When searching for peak annotations for a duplicated ID, the first found will be used.')
 
+    start_pos, end_pos = start, end
     promoters = []
     for chrom, gene_id, start, end, strand in zip(chrom, gene_id, start, end, strand):
 
@@ -245,7 +246,7 @@ def get_distance_to_TSS(max_distance = 6e5, promoter_width = 3000,*,
 
     gene_meta = [
         (r.annotation, r.chromosome, start, end, r.strand)
-        for r, start, end in zip(promoter_set.regions, start, end)
+        for r, start, end in zip(promoter_set.regions, start_pos, end_pos)
     ]
 
     return (unsorted_distance_matrix, *list(zip(*gene_meta)))
