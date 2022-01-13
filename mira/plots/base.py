@@ -142,6 +142,6 @@ def plot_umap(X, hue, palette = 'viridis', projection = '2d', ax = None, figsize
     ax.axis('off')
 
     if not title is None:
-        ax.set_title(str(title), fontdict= dict(fontsize = 'x-large'))
+        ax.set_title(str(title), fontdict= dict(fontsize = 'large'))
 
     return ax
