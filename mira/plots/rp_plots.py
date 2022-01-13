@@ -40,7 +40,7 @@ def _plot_rp_models(ax, color = 'lightgrey', linecolor = 'black',
             gene_chrom, gene_start, gene_end, gene_strand = TSS_data[model.gene]
             rp_params = model.get_normalized_params()
             
-            upstream, downstream = 1e3 * rp_params['logdistance']
+            upstream, downstream = 1e3 * rp_params['distance']
 
             left, right, start_pos = upstream, downstream, gene_start
             if gene_strand == '-':

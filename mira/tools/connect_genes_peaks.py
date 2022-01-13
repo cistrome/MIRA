@@ -244,8 +244,8 @@ def get_distance_to_TSS(max_distance = 6e5, promoter_width = 3000,*,
     )
 
     gene_meta = [
-        (r.annotation, r.chromosome, r.start, r.end, r.strand)
-        for r in promoter_set.regions
+        (r.annotation, r.chromosome, start, end, r.strand)
+        for r, start, end in zip(promoter_set.regions, start, end)
     ]
 
     return (unsorted_distance_matrix, *list(zip(*gene_meta)))
