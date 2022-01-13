@@ -642,7 +642,6 @@ class GeneModel:
         state = torch.load(self.get_savename(prefix))
         self._load_save_data(state)
 
-
     def get_normalized_params(self):
         d = {
             k[len(self.prefix) + 1:] : v.detach().cpu().numpy()
