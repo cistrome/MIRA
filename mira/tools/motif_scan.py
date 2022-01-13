@@ -228,23 +228,26 @@ def get_motif_hits_in_peaks(peaks, pvalue_threshold = 0.0001,*, genome_fasta):
 
     Notes
     -----
-    * To retrieve the metadata for motifs, one may use the method 
-    `mira.utils.fetch_factor_meta(adata)`.
+    * To retrieve the metadata for motifs, one may use the method `mira.utils.fetch_factor_meta(adata)`.
     * Currently, MIRA ships with the 2021 JASPAR core vertebrates collection. In the
     future, this will be expanded to include options for updated JASPAR collections
     and user-provided PFMs.
 
     Examples
     --------
-    >>> atac_data.var
+
+    .. code-block:: python
+
+        >>> atac_data.var
                          chr   start     end
-    chr1:9778-10670     chr1    9778   10670
-    chr1:180631-181281  chr1  180631  181281
-    chr1:183970-184795  chr1  183970  184795
-    chr1:190991-191935  chr1  190991  191935
-    >>> mira.tl.get_motif_hits_in_peaks(atac_data, 
-        chrom = "chr", start = "start", end = "end",
-        genome_file = "~/genomes/hg38/hg38.fa")
+            chr1:9778-10670     chr1    9778   10670
+            chr1:180631-181281  chr1  180631  181281
+            chr1:183970-184795  chr1  183970  184795
+            chr1:190991-191935  chr1  190991  191935
+        >>> mira.tl.get_motif_hits_in_peaks(atac_data, 
+            chrom = "chr", start = "start", end = "end",
+            genome_file = "~/genomes/hg38/hg38.fa")
+
     '''
 
     peaks = validate_peaks(peaks)

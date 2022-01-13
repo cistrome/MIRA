@@ -73,7 +73,8 @@ def _plot_chromatin_differential_panel(
     add_outline = True,
     outline_width = (0, 10),
     outline_color = 'lightgrey',
-    add_legend = True, *,
+    add_legend = True, 
+    first_plot = False,*,
     gene_name,
     umap,
     chromatin_differential, 
@@ -82,23 +83,32 @@ def _plot_chromatin_differential_panel(
     nite_prediction
 ):
 
-    plot_umap(umap, chromatin_differential, ax = ax[2], palette = differential_palette, add_legend = add_legend,
-    size = size, vmin = -differential_range, vmax = differential_range, title = gene_name + ' Chromatin Differential')
+    ax[0].text(0.5, 0.5, gene_name,
+        horizontalalignment='center',
+        verticalalignment='center',
+        transform=ax[0].transAxes, fontsize='x-large')
+    ax[0].axis('off')
 
-    plot_umap(umap, expression, palette = expr_pallete, ax = ax[0], add_legend = add_legend,
-        size = size, title = gene_name + ' Expression', 
+    if first_plot:
+        ax[0].set(title = 'Gene')
+
+    plot_umap(umap, chromatin_differential, ax = ax[3], palette = differential_palette, add_legend = add_legend,
+    size = size, vmin = -differential_range, vmax = differential_range, title = 'Chromatin Differential' if first_plot else '')
+
+    plot_umap(umap, expression, palette = expr_pallete, ax = ax[1], add_legend = add_legend,
+        size = size, title = 'Expression' if first_plot else '', 
         add_outline = add_outline, outline_width = outline_width, outline_color = outline_color)
 
 
     lite_std = np.nanstd(lite_prediction)
     lite_mean = np.nanmean(lite_prediction)
 
-    plot_umap(umap, lite_prediction, palette = lite_prediction_palette, ax = ax[1], 
+    plot_umap(umap, lite_prediction, palette = lite_prediction_palette, ax = ax[2], 
         vmin = None, vmax = min(lite_mean + trim_lite_prediction*lite_std, lite_prediction.max()),
-        size = size, title = gene_name + ' Local Prediction', add_legend = add_legend)
+        size = size, title = 'Local Prediction' if first_plot else '', add_legend = add_legend)
 
-    _plot_chromatin_differential_scatter(ax[3], 
-            title = gene_name + ' LITE vs. NITE Predictions',
+    _plot_chromatin_differential_scatter(ax[4], 
+            title = 'LITE vs. NITE Predictions' if first_plot else '',
             hue = expression,
             palette = expr_pallete,
             nite_prediction = nite_prediction,
@@ -131,7 +141,8 @@ def plot_chromatin_differential(
 ):
 
     num_rows = len(gene_names)
-    fig, ax = plt.subplots(num_rows, 4, figsize = ( aspect * height * 4, num_rows * height) )
+    fig, ax = plt.subplots(num_rows, 5, figsize = ( aspect * height * 4.25, num_rows * height) ,
+        gridspec_kw={'width_ratios' : [0.5,2,2,2,2]})
 
     if num_rows == 1:
         ax = ax[np.newaxis , :]
@@ -151,7 +162,7 @@ def plot_chromatin_differential(
 
         _plot_chromatin_differential_panel(ax = ax[i,:], umap = umap, expr_pallete = expr_pallete, lite_prediction_palette = lite_prediction_palette,
             size = size, differential_palette = differential_palette, add_legend = add_legend, trim_lite_prediction = trim_lite_prediction,
-            differential_range = differential_range, 
+            differential_range = differential_range, first_plot = i == 0,
             **kwargs)
 
     return ax

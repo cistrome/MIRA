@@ -96,3 +96,9 @@ adata = adata[adata.obs.mira_pseudotime > 6]
 '''
 
 autoclass_content = "both"
+
+autosummary_generate_overwrite = True
+
+autodoc_default_options = {
+    'member-order': 'bysource',
+}

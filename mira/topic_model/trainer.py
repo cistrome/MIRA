@@ -100,7 +100,7 @@ class TopicModelTuner:
     Depending on the size of your dataset, you may change the pruning and cross validation
     schemes to reduce training time. 
 
-    The tuner returns an ``study`` object from the package [Optuna](https://optuna.org/).
+    The tuner returns an ``study`` object from the package `Optuna <https://optuna.readthedocs.io/en/stable/reference/generated/optuna.study.Study.html#optuna.study.Study>`_.
     The study may be reloaded to resume optimization later, or printed to review results.
 
     After tuning, the best models compete to minimize loss on a held-out set of cells.
@@ -108,18 +108,34 @@ class TopicModelTuner:
 
     Examples
     --------
-    >>> tuner = mira.topics.TopicModelTuner(
-                topic_model,
-                save_name = 'study.pkl',
-            )
-    >>> tuner.train_test_split(data)
-    >>> tuner.tune(data)
-    >>> tuner.select_best_model(data)
+
+    .. code-block:: python
+
+        >>> tuner = mira.topics.TopicModelTuner(
+                    topic_model,
+                    save_name = 'study.pkl',
+                )
+        >>> tuner.train_test_split(data)
+        >>> tuner.tune(data)
+        >>> tuner.select_best_model(data)
 
     '''
 
     @classmethod
     def load_study(cls, filename):
+        '''
+        Load study from file.
+
+        Parameters
+        ----------
+        filename : str
+            Path to optuna.study.Study saved to disk.
+
+        Returns
+        -------
+        study : optuna.study.Study
+
+        '''
         return joblib.load(filename)
 
     def __init__(self,
@@ -136,7 +152,6 @@ class TopicModelTuner:
         pruner = 'halving',
     ):
         '''
-        Initialize a new tuner.
 
         Parameters
         ----------
@@ -164,7 +179,7 @@ class TopicModelTuner:
             If provided sklearn CV object, this will be used instead of K-fold cross validation.
         iters : int > 1, default = 64
             Number of trials to run.
-        study : None or `optuna.Study`
+        study : None or `optuna.study.Study`
             If None, begin a new hyperparameter optimization routine. If given a study, 
             resume that study. If study is provided, `save_name` need not be set.
         seed : int > 0, default = 2556
@@ -175,7 +190,7 @@ class TopicModelTuner:
 
         Returns
         -------
-        study : optuna.study
+        study : optuna.study.Study
 
         Raises
         ------
@@ -185,16 +200,20 @@ class TopicModelTuner:
         --------
         Using default parameters:
 
-        >>> tuner = mira.topics.TopicModelTuner(
-                topic_model,
-                save_name = 'study.pkl',
-            )
+        .. code-block::
+
+            >>> tuner = mira.topics.TopicModelTuner(
+                    topic_model,
+                    save_name = 'study.pkl',
+                )
 
         For large datasets, it may be useful to skip cross validation since the
         variance of the estimate of model performance should be lower. It may also
         be appropriate to limit the model to larger batch sizes.
 
-        >>> tuner = mira.topics.TopicModelTuner(
+        .. code-block::
+        
+            >>> tuner = mira.topics.TopicModelTuner(
                 topic_model,
                 save_name = 'study.pkl',
                 cv = sklearn.model_selection.ShuffleSplit(n_splits = 1, train_size = 0.8),
@@ -242,6 +261,7 @@ class TopicModelTuner:
         adata : anndata.AnnData
             `.obs['test_set']` : np.ndarray[boolean] of shape (n_cells,)
                 Boolean variable, whether cell is in test set.
+
         '''
 
         assert(isinstance(train_size, float) and train_size > 0 and train_size < 1)
@@ -251,7 +271,7 @@ class TopicModelTuner:
         return self.test_column, np.random.rand(num_samples) > train_size
 
     @staticmethod
-    def trial(
+    def _trial(
             trial,
             prune_penalty = 0.01,*,
             model, data, cv, batch_sizes,
@@ -323,9 +343,13 @@ class TopicModelTuner:
         self._save_study(self.study, None)
 
     def print(self):
+        '''
+        Print study results from tuning to screen. Useful to see results of 
+        tuning when reloading study.
+        '''
         _print_study(self.study, None)
 
-    def get_pruner(self):
+    def _get_pruner(self):
         if self.pruner == 'halving':
             return optuna.pruners.SuccessiveHalvingPruner(
                         min_resource=1.0, 
@@ -355,8 +379,9 @@ class TopicModelTuner:
         
         Returns
         -------
-        study : optuna.Study
+        study : optuna.study.Study
             Study object summarizing results of tuning iterations.
+
         '''
         
         '''error_file = logging.FileHandler(self.logfile, mode="a")
@@ -367,7 +392,7 @@ class TopicModelTuner:
         if self.study is None:
             self.study = optuna.create_study(
                 direction = 'minimize',
-                pruner = self.get_pruner(),
+                pruner = self._get_pruner(),
                 study_name = self.save_name,
             )
 
@@ -375,7 +400,7 @@ class TopicModelTuner:
             self.cv = KFold(self.cv, random_state = self.seed, shuffle= True)
         
         trial_func = partial(
-            self.trial, 
+            self._trial, 
             model = self.model, data = train_data,
             cv = self.cv, batch_sizes = self.batch_sizes,
             min_dropout = self.min_dropout, max_dropout = self.max_dropout,

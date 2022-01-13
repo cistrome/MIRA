@@ -60,10 +60,14 @@ def get_NITE_score_genes(median_nonzero_expression = None,*, genes, gene_expr, l
 
     Examples
     --------
-    >>> rp_args = dict(expr_adata = atac_data, expr_adata = rna_data)
-    >>> litemodel.get_logp(**rp_args)
-    >>> nitemodel.get_logp(**rp_args)
-    >>> mira.tl.get_NITE_score_genes(rna_data)
+
+    .. code-block:: python
+
+        >>> rp_args = dict(expr_adata = atac_data, expr_adata = rna_data)
+        >>> litemodel.get_logp(**rp_args)
+        >>> nitemodel.get_logp(**rp_args)
+        >>> mira.tl.get_NITE_score_genes(rna_data)
+        
     '''
 
     return (genes, *_get_NITE_score(gene_expr, lite_logp, nite_logp, 

@@ -94,34 +94,6 @@ class AccessibilityTopicModel(BaseModel):
 
     encoder_model = DANEncoder
 
-    @classmethod
-    def _load_old_model(cls, filename, varnames):
-
-        old_model = torch.load(filename)
-
-        params = old_model['params'].copy()
-        params['num_topics'] = params.pop('num_modules')
-
-        if params['highly_variable'] is None:
-            params['highly_variable'] = np.ones(len(varnames)).astype(bool)
-        
-        fit_params = {}
-        fit_params['num_exog_features'] = len(params['features'])
-        fit_params['num_endog_features'] = params['highly_variable'].sum()
-        fit_params['highly_variable'] = params.pop('highly_variable')
-        fit_params['features'] = varnames
-        params.pop('features')
-        
-        model = cls(**params)
-        model._set_weights(fit_params, old_model['model']['weights'])
-
-        if 'pi' in old_model['model']:
-            model.residual_pi = old_model['model']['pi']
-        
-        model.enrichments = {}
-        
-        return model
-
     @property
     def peaks(self):
         return self.features
@@ -253,8 +225,12 @@ class AccessibilityTopicModel(BaseModel):
         
         Examples
         --------
-        >>> mira.tl.get_motif_hits_in_peaks(atac_data, genome_fasta = '~/genome.fa')
-        >>> atac_model.get_enriched_TFs(atac_data, topic_num = 10)
+
+        .. code-block:: python
+
+            >>> mira.tl.get_motif_hits_in_peaks(atac_data, genome_fasta = '~/genome.fa')
+            >>> atac_model.get_enriched_TFs(atac_data, topic_num = 10)
+
         '''
 
         assert(isinstance(top_quantile, float) and top_quantile > 0 and top_quantile < 1)
@@ -287,6 +263,9 @@ class AccessibilityTopicModel(BaseModel):
     @adi.wraps_modelfunc(ri.fetch_factor_hits_and_latent_comps, ri.make_motif_score_adata,
         ['metadata','hits_matrix','topic_compositions'])
     def get_motif_scores(self, batch_size=512,*, metadata, hits_matrix, topic_compositions):
+        '''
+        Yeah
+        '''
 
         hits_matrix = self._validate_hits_matrix(hits_matrix)
     
@@ -303,6 +282,9 @@ class AccessibilityTopicModel(BaseModel):
 
 
     def get_enrichments(self, topic_num, factor_type = 'motifs'):
+        '''
+        Yurp
+        '''
         try:
             return self.enrichments[(factor_type, topic_num)]
         except KeyError:
@@ -315,6 +297,9 @@ class AccessibilityTopicModel(BaseModel):
         ax = None, figsize = (8,8), legend_label = '', show_legend = True, fontsize = 13, 
         pval_threshold = (1e-50, 1e-50), na_color = 'lightgrey',
         color = 'grey', label_closeness = 3, max_label_repeats = 3, show_factor_ids = False):
+        '''
+        Yuip
+        '''
 
         m1 = self.get_enrichments(topic_1, factor_type)
         m2 = self.get_enrichments(topic_2, factor_type)        

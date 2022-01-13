@@ -26,6 +26,7 @@ def post_genelist(genelist):
     -------
     list_id : str
         ID for genelist. Used to retrieve enrichment results.
+
     '''
     assert(isinstance(genelist, Iterable)), 'Genelist must be an iterable object'
 
@@ -71,6 +72,7 @@ def fetch_ontology(list_id, ontology = 'WikiPathways_2019_Human'):
                     ]
                 }
             }   
+
     '''
 
     url = ENRICHR_URL + GET_ENDPOINT.format(
@@ -117,6 +119,7 @@ def fetch_ontologies(list_id, ontologies = LEGACY_ONTOLOGIES):
                     ]
                 }
             }   
+            
     '''
 
     results = {}

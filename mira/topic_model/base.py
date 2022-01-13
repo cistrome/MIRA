@@ -764,7 +764,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             >>> model.trim_learning_rate_bounds(5,1) # adjust the bounds
             >>> model.plot_learning_rate_bounds()
 
-        .. image:: _static/mira.topics.plot_learning_rate_bounds.svg
+        .. image:: /_static/mira.topics.plot_learning_rate_bounds.svg
             :width: 400
 
         *If the LRRT line appears to vary cyclically*, that means your 
@@ -998,9 +998,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             INFO:mira.adata_interface.topic_model:Added key to obsm: X_topic_compositions
             INFO:mira.adata_interface.topic_model:Added cols: topic_1, topic_2, topic_3, 
             topic_4, topic_5
+            >>> scanpy.pp.neighbors(adata, metric = "manhattan", use_rep = "X_umap_features")
+            >>> scanpy.tl.umap(adata, min_dist 0.1)
             >>> scanpy.pl.umap(adata, color = model.topic_cols, **mira.pref.topic_umap(ncols = 3))
 
-        .. image:: _static/mira.topics.predict.png
+        .. image:: /_static/mira.topics.predict.png
             :width: 1200
 
         '''
@@ -1161,6 +1163,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     def _get_elbo_loss(self, batch_size = 512, *,endog_features, exog_features):
 
+        try:
+            self.svi
+        except AttributeError:
+            raise AttributeError('This function only works after training, not before training or after loading from disk.')
+
         self.eval()
         running_loss = 0
         #self.eps.device(self.device)
@@ -1199,6 +1206,17 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
             >>> rna_model.score(rna_data)
             0.11564
+
+        Notes
+        -----
+        The `score` method is only available after training a topic model. After
+        saving and writing to disk, this function will no longer work.
+
+        Raises
+        ------
+        AttributeError
+            If attempting to run after loading from disk or before training.
+
         '''
         self.eval()
         return self._get_elbo_loss(

@@ -463,20 +463,22 @@ class ExpressionTopicModel(BaseModel):
         -------
         enrichments : dict
             Dictionary with schema:
-            {
-                <ontology> : {
-                    [
-                        {'rank' : <rank>,
-                        'term' : <term>,
-                        'pvalue' : <pval>,
-                        'zscore': <zscore>,
-                        'combined_score': <combined_score>,
-                        'genes': [<gene1>, ..., <geneN>],
-                        'adj_pvalue': <adj_pval>},
-                        ...,
-                    ]
-                }
-            }   
+
+                {
+                    <ontology> : {
+                        [
+                            {'rank' : <rank>,
+                            'term' : <term>,
+                            'pvalue' : <pval>,
+                            'zscore': <zscore>,
+                            'combined_score': <combined_score>,
+                            'genes': [<gene1>, ..., <geneN>],
+                            'adj_pvalue': <adj_pval>},
+                            ...,
+                        ]
+                    }
+                }   
+                
         '''
         
         try:
@@ -541,7 +543,7 @@ class ExpressionTopicModel(BaseModel):
             >>> rna_model.plot_enrichments(13, height=4, show_top=6, max_genes=10, 
             ... aspect=2.5, plots_per_row=1)
 
-        .. image:: _static/mira.topics.ExpressionTopicModel.plot_enrichments.svg
+        .. image:: /_static/mira.topics.ExpressionTopicModel.plot_enrichments.svg
             :width: 1200
 
         '''
