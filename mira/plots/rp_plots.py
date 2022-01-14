@@ -46,6 +46,7 @@ def _plot_rp_models(ax, color = 'lightgrey', linecolor = 'black',
             if gene_strand == '-':
                 left, right, start_pos = downstream, upstream, gene_end
 
+            
             gene_bounds = Region(gene_chrom, start_pos - 10*left - 1500, start_pos + 10*right + 1500)
             
             if gene_bounds.overlaps(interval):

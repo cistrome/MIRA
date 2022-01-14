@@ -38,8 +38,8 @@ def add_peak_gene_distances(adata, output):
     adata.uns['distance_to_TSS_genes'] = list(gene)
 
     adata.uns['TSS_metadata'] = {
-        'gene' : gene, 'chromosome' : chrom, 'txStart' : start,
-        'txEnd' : end, 'strand' : strand,
+        'gene' : list(gene), 'chromosome' : list(chrom), 'txStart' : list(start),
+        'txEnd' : list(end), 'strand' : list(strand),
     }
 
     logger.info('Added key to var: distance_to_TSS')
