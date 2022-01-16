@@ -379,6 +379,7 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
     
     Parameters
     ----------
+
     data : list[str] or str
         Which data features of dataframe to plot. If str, plots one feature.
         If list, plots each feature. The feature may be the name of a gene or
@@ -420,7 +421,8 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
         conducted lineage inference on the data, only that you have some
         sort of time assigned to each cell.
 
-    *Plot Aesthetics*
+    Plot Aesthetics
+
     max_bar_height : float (0, 1), default = 0.6
         The amount of space occupied by the stream/scatter/line/swarm at its maximum
         magnitude. A `max_bar_height` of 1 will fill all available space with no 
@@ -446,7 +448,8 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
     pseudotime_triange : boolean, default = True
         Whether to plot the triange marking the pseudotime axis at bottom of plot.
 
-    *Pseudotime Options*
+    Pseudotime Options
+
     pseudotime_key : str, default = 'mira_pseudotime',
         Which key in `.obs` to use for the pseudotime for each cell (x-axis of plot). 
         Sometimes, the pseudotime calculated by the `mira.time` API may be inconvenient for
@@ -462,7 +465,8 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
         pseudotime than the value provided. If a certain segment of the lineage 
         tree is too short to be visualized, it may be increased.
 
-    *Coloring*
+    Coloring
+
     palette : str or None, default = None
         Palette of plot. Default of None will set `palette` to the style-specific default.
     color : str, default = "black"

@@ -244,7 +244,7 @@ def fetch_trace_args(self, adata,
 
         assert(isinstance(start_cells, (list, np.ndarray))), 'If provided, "start_cells" must be a list or np.ndarray of barcodes, cell idx, or a boolean mask of cells.'
         if isinstance(start_cells, list):
-            start_cells = np.ndarray(start_cells)
+            start_cells = np.array(start_cells)
 
         if len(start_cells) == len(adata):
 
@@ -254,12 +254,16 @@ def fetch_trace_args(self, adata,
         else:
             if start_cells.dtype.kind == 'U':
                 
-                excluded_barcodes = np.setdiff1d(start_cells, adata.obs_names.value)
+                excluded_barcodes = np.setdiff1d(start_cells, adata.obs_names.values)
                 assert(len(excluded_barcodes) == 0), 'Barcodes {} are not in adata.obs_names.'.format(
                     ', '.join(excluded_barcodes)
                 )
 
                 start_cells = np.argwhere(np.isin(adata.obs_names.values, start_cells))[:,0]
+
+                arr = np.zeros(len(adata))
+                arr[start_cells] = 1
+                start_cells = arr.astype(bool)
 
             elif start_cells.dtype.kind == 'i':
 

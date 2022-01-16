@@ -6,6 +6,7 @@ API
 
 Topic Modeling
 ~~~~~~~~~~~~~~
+
 .. autosummary::
    :toctree: topicmodeling
    :template: topic_model.rst
@@ -23,6 +24,20 @@ Topic Modeling
 
    mira.topics.TopicModelTuner
 
+
+Pseudotime
+~~~~~~~~~~
+
+.. autosummary::
+   :toctree: time
+
+   mira.time.normalize_diffmap
+   mira.time.get_connected_components
+   mira.time.get_transport_map
+   mira.time.find_terminal_cells
+   mira.time.get_branch_probabilities
+   mira.time.get_tree_structure
+   mira.time.trace_differentiation
 
 Plotting
 ~~~~~~~~

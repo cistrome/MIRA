@@ -74,6 +74,20 @@ def trace_differentiation(
     basis, start_cells, distance_matrix, pseudotime, save_name,
     **plot_args,
 ):
+    '''
+    
+    Starting from a group of initial cells, trace the diffusion
+    over time through the markov chain model of differentiation.
+
+    In "forward" mode, traces the cells along paths from less
+    to more differentiated states and elucides paths to different
+    terminal states.
+
+    I "backward" mode, start from a terminal state and find ancestor
+    populations of cells.
+
+    
+    '''
 
     logger.info('Creating transport map ...')
 

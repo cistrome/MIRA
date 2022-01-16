@@ -1,8 +1,4 @@
 '''
-
-About
-~~~~~
-
 Infer pseudotime and lineage tree from nearest neighbors graph of multiome data.
 Uses an adaptation of the Palantir algorithm to calculate diffusion
 pseudotime and terminal state probabilities for each cell. Then, applies
@@ -12,29 +8,6 @@ structure of differentation data.
 Notably, these algorithms exclusively utilize the nearest-neighbor of cells,
 which eliminates biases, distortions, and compression of complex 
 topologies replete in UMAP-based pseudotime trajectory inference algorithms.
-
-Workflow
-~~~~~~~~
-
-This section gives a brief overview of the workflow for pseudotime
-trajectory inference using MIRA. Please refer to the :doc:`mira.time <tutorials/time.rst>`
-tutorial for more details.
-
-#. Calculate a diffusion map using the joint KNN graph using `sc.tl.diffmap`.
-#. Normalize the diffusion map using :ref:`mira.time.normalize_diffmap`.
-#. Plot the Eigengap of the diffusion map and choose the best number of
-diffusion components to represent the data using :ref:`mira.pl.plot_eigengap`.
-#. Create a new nearest-neighbors representation using the diffusion map,
-which gives a smoothed version of the joint-KNN graph. 
-#. Choose a start cell (could be the minimum or maximum cell of the first 
-diffusion component), and run :ref:`mira.time.get_transport_map` to assign pseudotime
-and create a forward stochastic matrix model of the differentiation.
-#. Propose terminal states using :ref:`mira.time.find_terminal_cells`.
-#. Given terminal states, calculate probabilities of reaching 
-# terminal states from each cell using :ref:`mira.time.get_branch_probabilities`.
-#. Finally, compute the bifurcating lineage tree structure of the data
-using :ref:`mira.time.get_tree_structure`.
-
 '''
 
 from networkx.algorithms import components
@@ -603,6 +576,7 @@ def get_lineage_prob_fc(*, branch_probs, start_cell):
     ])
 
     return lineage_prob_fc
+    
 
 def get_lineage_branch_time(lineage1, lineage2, pseudotime, prob_fc, threshold = 0.5):
 
@@ -653,10 +627,12 @@ def get_tree_structure(threshold = 0.1,*, lineage_names, branch_probs, pseudotim
                 Digraph of relationships between `tree_states`. For instance,
                 an edge would be drawn from "A, B" to "A" and to "B".
 
-                                     "A"
-                                    /   
-                              "A, B"
-                                    \__"B"
+                .. code-block:: text
+                
+                            "A"
+                        /   
+                    "A, B"
+                        \__"B"
 
             `.uns["tree_state_names"] : np.ndarray[str] of shape (2*num_lineages - 1,)
                 Tree state labels for columns and rows of `connectivities_tree`
