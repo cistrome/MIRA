@@ -32,10 +32,15 @@ def get_peak_and_tss_data(self, adata, tss_data = None, peak_chrom = 'chr', peak
 
 def add_peak_gene_distances(adata, output):
 
-    distances, genes = output
+    distances, gene, chrom, start, end, strand = output
 
     adata.varm['distance_to_TSS'] = distances.tocsc()
-    adata.uns['distance_to_TSS_genes'] = list(genes)
+    adata.uns['distance_to_TSS_genes'] = list(gene)
+
+    adata.uns['TSS_metadata'] = {
+        'gene' : list(gene), 'chromosome' : list(chrom), 'txStart' : list(start),
+        'txEnd' : list(end), 'strand' : list(strand),
+    }
 
     logger.info('Added key to var: distance_to_TSS')
     logger.info('Added key to uns: distance_to_TSS_genes')
@@ -68,6 +73,10 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
         @wraps(func)
         def get_RP_model_features(self,*, expr_adata, atac_adata, atac_topic_comps_key = 'X_topic_compositions', 
             factor_type = 'motifs', checkpoint = None, **kwargs):
+
+            unannotated_genes = np.setdiff1d(self.genes, atac_adata.uns['distance_to_TSS_genes'])
+            if len(unannotated_genes) > 0:
+                raise ValueError('The following genes for RP modeling were not found in the TSS annotation: ' + ', '.join(unannotated_genes))
 
             if not 'model_read_scale' in expr_adata.obs.columns:
                 self.expr_model._get_read_depth(expr_adata)
@@ -113,7 +122,11 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
                     raise IndexError('Gene {} does not appear in peak annotation'.format(gene_name))
 
                 try:
-                    gene_expr = expr_adata.obs_vector(gene_name, layer = self.counts_layer).astype(int)
+                    gene_expr = expr_adata.obs_vector(gene_name, layer = self.counts_layer)
+
+                    assert(np.isclose(gene_expr.astype(np.int64), gene_expr, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
+                    gene_expr = gene_expr.astype(int)
+                    
                 except KeyError:
                     raise KeyError('Gene {} is not found in expression data var_names'.format(gene_name))
 
