@@ -5,7 +5,6 @@ import os
 
 configpath = os.path.join(os.path.dirname(__file__), 'mira', 'config.ini')
 
-print(configpath)
 config = configparser.ConfigParser()
 config.read(configpath)
 
