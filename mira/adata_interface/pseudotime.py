@@ -1,5 +1,6 @@
 from itertools import combinations_with_replacement
 import logging
+from tracemalloc import start
 import mira.adata_interface.core as adi
 import numpy as np
 
@@ -216,3 +217,71 @@ def fetch_eigengap(self, adata, basis = 'X_umap'):
         eigen_gap = eigen_gap,
         eigvals = eigvals
     )
+
+def fetch_trace_args(self, adata, 
+    basis = 'X_umap', 
+    pseudotime_key = 'mira_pseudotime',
+    diffmap_distances_key = 'X_diffmap_distances', 
+    diffmap_coordinates_key = 'X_diffmap',
+    start_cells = None, start_lineage = None,
+    num_start_cells = 50):
+
+    out = {}
+    try:
+        out['basis'] = adata.obsm[basis]
+    except KeyError:
+        raise KeyError('Basis {} has not been calculated'.format(str(basis)))
+
+    out.update(
+        fetch_diffmap_distances(self, adata, diffmap_coordinates_key=diffmap_coordinates_key,
+            diffmap_distances_key=diffmap_distances_key)
+    )
+
+    if start_cells is None and start_lineage is None:
+        raise ValueError('One of either "start_cells" or "start_lineage" must be given.')
+
+    if not start_cells is None:
+
+        assert(isinstance(start_cells, (list, np.ndarray))), 'If provided, "start_cells" must be a list or np.ndarray of barcodes, cell idx, or a boolean mask of cells.'
+        if isinstance(start_cells, list):
+            start_cells = np.ndarray(start_cells)
+
+        if len(start_cells) == len(adata):
+
+            assert(start_cells.dtype in [bool, int]), 'If providing a mask over all cells as start cells, mask must be of type bool or int.'
+            start_cells = start_cells.astype(bool)
+
+        else:
+            if start_cells.dtype.kind == 'U':
+                
+                excluded_barcodes = np.setdiff1d(start_cells, adata.obs_names.value)
+                assert(len(excluded_barcodes) == 0), 'Barcodes {} are not in adata.obs_names.'.format(
+                    ', '.join(excluded_barcodes)
+                )
+
+                start_cells = np.argwhere(np.isin(adata.obs_names.values, start_cells))[:,0]
+
+            elif start_cells.dtype.kind == 'i':
+
+                arr = np.zeros(len(adata))
+                arr[start_cells] = 1
+                start_cells = arr.astype(bool)
+
+            else:
+                raise ValueError('Providing an array/list of type {} for "start_cells" is not supported.'.format(start_cells.dtype))
+
+    else: 
+
+        lineage_names, branch_probs = adata.uns['lineage_names'], adata.obsm['branch_probs']
+
+        branch_probs = dict(zip(lineage_names, branch_probs.T))
+        assert(start_lineage in lineage_names)
+        assert(isinstance(num_start_cells, int) and num_start_cells < len(adata))
+
+        start_cells = (-branch_probs[start_lineage]).argsort().argsort() < num_start_cells
+
+    out.update({'start_cells' : start_cells, 'pseudotime' : adata.obs_vector(pseudotime_key)})
+    
+    del out['diffmap']
+    return out
+    

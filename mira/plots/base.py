@@ -112,6 +112,7 @@ def map_colors(ax, c, palette, add_legend = True, hue_order = None, na_color = '
 def plot_umap(X, hue, palette = 'viridis', projection = '2d', ax = None, figsize= (10,5),
         add_legend = True, hue_order = None, size = 2, title = None, vmin = None, vmax = None, 
         add_outline = False, outline_color = 'lightgrey', outline_width = (0, 0.5),
+        na_color = 'white', animate = False,
         **plot_kwargs):
     
     plot_order = hue.argsort()
@@ -123,6 +124,7 @@ def plot_umap(X, hue, palette = 'viridis', projection = '2d', ax = None, figsize
         size = size[plot_order]
 
     colors = map_colors(ax, hue[plot_order], palette, add_legend=add_legend, hue_order = hue_order, vmin = vmin, vmax = vmax,
+            na_color= na_color,
             cbar_kwargs = dict(orientation = 'vertical', pad = 0.01, shrink = 0.5, aspect = 15, anchor = (1.05, 0.5)),
             legend_kwargs = dict(loc="center left", markerscale = 4, frameon = False, title_fontsize='x-large', fontsize='large',
                         bbox_to_anchor=(1.05, 0.5)))
@@ -138,10 +140,13 @@ def plot_umap(X, hue, palette = 'viridis', projection = '2d', ax = None, figsize
         ax.scatter(X[plot_order,0], X[plot_order,1], color = outline_color, s= second_ring_size, **plot_kwargs)
         ax.scatter(X[plot_order,0], X[plot_order,1], color = 'white', s= first_ring_size, **plot_kwargs)
 
-    ax.scatter(X[plot_order,0], X[plot_order,1], c = colors, s= size, **plot_kwargs)
+    scatter = ax.scatter(X[plot_order,0], X[plot_order,1], c = colors, s= size, **plot_kwargs)
     ax.axis('off')
 
     if not title is None:
         ax.set_title(str(title), fontdict= dict(fontsize = 'large'))
 
-    return ax
+    if animate:
+        return ax, scatter, plot_order
+    else:
+        return ax
