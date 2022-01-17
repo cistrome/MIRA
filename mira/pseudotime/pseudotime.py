@@ -5,20 +5,9 @@ pseudotime and terminal state probabilities for each cell. Then, applies
 MIRA's lineage tree inference algorithm to reconstruct bicurcating tree
 structure of differentation data.
 
-Examples
---------
->>> sc.tl.diffmap(adata)
->>> mira.pl.plot_eigengap(adata)
->>> sc.pp.neighbors(adata, use_rep = 'X_diffmap', key_added = 'X_diffmap', n_neighbors = 30, n_pcs = 3)
->>> mira.time.normalize_diffmap(adata)
->>> mira.get_connected_components(adata)
->>> mira.time.get_transport_map(adata, start_cell = 0)
->>> mira.time.find_terminal_cells(adata)
-[10,20,30]
->>> mira.time.get_branch_probabilities(adata, terminal_cells = {
-    "lineage1" : 10, "lineage2" : 20, "lineage3" : 3
-})
->>> mira.time.get_tree_structure(adata, treshold = 0.5)
+Notably, these algorithms exclusively utilize the nearest-neighbor of cells,
+which eliminates biases, distortions, and compression of complex 
+topologies replete in UMAP-based pseudotime trajectory inference algorithms.
 '''
 
 from networkx.algorithms import components
@@ -108,7 +97,7 @@ def normalize_diffmap(rescale = True,*,diffmap, eig_vals):
     components with larger eigenvalues. 
 
     Rescaling eigenvectors produces a smoother pseudotime representation,
-    but may over-smooth the nearest neighbor space and may distort branch
+    but may over-smooth the nearest neighbor space and distort branch
     points and lineage paths. If branch points appear poorly-defined, try
     setting `rescale` to False.
 
@@ -439,6 +428,28 @@ def find_terminal_cells(iterations = 1, max_termini = 15, threshold = 1e-3, *, t
     -------
     terminal_cells : list[str]
         List of terminal cell names
+
+    Examples
+    --------
+
+    First, use `find_terminal_cells` to create a list of possible terminal states
+    taken from the transport map.
+
+    .. code-block:: python
+        
+        >>> terminal_cells = mira.time.find_terminal_cells(data, threshold = 1e-2)
+
+    To elimnate spurious terminal states or to subset to *apriori* known 
+    termini, plot them like so:
+
+    .. code-block:: python
+
+        >>> fig, ax = plt.subplots(1,1, figsize=(5,3))
+        >>> sc.pl.umap(data, color = 'mira_pseudotime', frameon = False, 
+        ... show = False, ax = ax)
+        >>> sc.pl.umap(data[terminal_cells], na_color = 'Red', frameon = False,
+        ... show = False, ax = ax, size = 25)
+
     '''
 
     assert(transport_map.shape[0] == transport_map.shape[1])
@@ -495,11 +506,17 @@ def get_branch_probabilities(*, transport_map, terminal_cells):
 
     Examples
     --------
-    >>> mira.time.get_branch_probabilities(adata, terminal_cells = {
-        "A" : "AACACATGTGTAC", "B" : "GTGTGCGAGCGAATT"
-    })
-    >>> sc.pl.umap(adata, color = ["A_prob", "B_prob"])
-    >>> sc.pl.umap(adata, color = 'differentiation_entropy")
+
+    The user must provide a dictionary with keys as terminal state names and
+    values as the representative terminal cell. The cell may be indicated by
+    barcode/obs_name or index number.
+
+    .. code-block:: python
+
+        >>> mira.time.get_branch_probabilities(adata, terminal_cells = {
+            "A" : "TATGCGCATCGCGCGC", "B" : "GCGTGGCATCGCGCGC"
+        })
+    
     '''
 
     logger.info('Simulating random walks ...')
@@ -559,6 +576,7 @@ def get_lineage_prob_fc(*, branch_probs, start_cell):
     ])
 
     return lineage_prob_fc
+    
 
 def get_lineage_branch_time(lineage1, lineage2, pseudotime, prob_fc, threshold = 0.5):
 
@@ -604,22 +622,20 @@ def get_tree_structure(threshold = 0.1,*, lineage_names, branch_probs, pseudotim
                 into terminal lineages A and B, all cells before the branch point
                 would be labeled "A, B", while cells after the branch point would be
                 labeled "B" if they followed the path to the "B" terminal state. 
-            `.uns["connectivities_tree"] : np.ndarray[boolean] of shape (2*num_lineages - 1, 2*num_lineages - 1)
+            `.uns["connectivities_tree"] : np.ndarray[boolean] of shape 
+                (2*num_lineages - 1, 2*num_lineages - 1).
                 Digraph of relationships between `tree_states`. For instance,
                 an edge would be drawn from "A, B" to "A" and to "B".
 
-                                     "A"
-                                    /   
-                              "A, B"
-                                    \__"B"
+                .. code-block:: text
+                
+                            "A"
+                        /   
+                    "A, B"
+                        \__"B"
 
             `.uns["tree_state_names"] : np.ndarray[str] of shape (2*num_lineages - 1,)
                 Tree state labels for columns and rows of `connectivities_tree`
-
-    Examples
-    --------
-    >>> mira.time.get_tree_structure(adata, threshold = 0.5)
-    >>> sc.pl.umap(adata, color= "tree_states")
 
     '''
     def get_all_leaves_from_node(edge):
