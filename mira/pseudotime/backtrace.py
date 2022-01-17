@@ -70,7 +70,7 @@ def trace_differentiation(
     size = 1, figsize = (10,7), fps = 24, steps_per_frame = 1,
     num_steps = 4000, ka = 5, vmax_quantile = 0.99, 
     direction = 'forward', num_preview_frames = 4, 
-    log_prob = False, log_time = False, *,
+    log_prob = False, sqrt_time = False, *,
     basis, start_cells, distance_matrix, pseudotime, save_name,
     **plot_args,
 ):
@@ -83,10 +83,69 @@ def trace_differentiation(
     to more differentiated states and elucides paths to different
     terminal states.
 
-    I "backward" mode, start from a terminal state and find ancestor
+    In "backward" mode, start from a terminal state and find ancestor
     populations of cells.
 
-    
+    Parameters
+    ----------
+
+    adata : anndata.AnnData
+        Anndata with pseudotime defined.
+    save_name : str
+        Filepath to write .gif file of trace.
+    direction : {"forward","backward"}, default = "forward"
+        Which direction to run the diffusion process. Forward simulates the 
+        differentiation process and traces descendent cell populations. Backwards
+        finds ancestral cell populations.
+    palette : str or None, default = "BuPu"
+        Palette of plot. Default of None will set `palette` to the style-specific default.
+    fps : int > 0, default = 24
+        Frames-per-second of movie. 
+    setps_per_frame : int > 0, default = 1
+        Number of steps to take on the transport map for each frame. Larger values will
+        give a more "jumpy" trace, but will reduce the amount of frames to plot.
+    num_steps : int > 0, default = 40000
+        Number of steps to take through transport map. This must be set high
+        enough to show the desired diffusion process, but may be trimmed to
+        the appropriate length for your data.
+    ka : int > 0, default = 5
+        The ka-th neighbor defines the neighborhood size when creating the transport
+        map. A larger neighborhood size creates a transport map that is more tolerant
+        of backwards steps.
+    basis : str, default = "X_umap"
+        
+
+    Other Parameters
+    ----------------
+
+    figsize : tuple(int, int), default = (10,7)
+        Size of plot
+    add_outline : bool, default = True
+        Add outline around embedding plots of cells. Shows boundaries of cells with
+        low color values more clearly.
+    outline_width : tuple(int, int), default = (0,12)
+        Width of the outline, if `add_outline` is True. The first value in the tuple
+        is the additional size around the data point of a white outline. The second
+        value is the additional size around the data point of a colored outline.
+    outline_color : str, default = "lightgrey"
+        Color of the outline, if `add_outline` is True.
+    size : int, default = 1
+        Size of datapoints on embedding plot.
+    num_preview_frames : int > 0, default = 4
+        Number of frames to preview.
+    vmax_quantile : float > 0, < 1, default = 0.99
+        At each frame, the color scale is capped at this quantile of probabilities
+        in the data. Adjusting this down will show lower-probability cells in each
+        frame.
+    sqrt_time : bool, default = False
+        Take frames at steps linearly increasing in sqrt space. This makes
+        smaller jumps at lower step counts than at higher stepcounts. If your
+        are tracing a process that evolves more quaickly at the onset, set this
+        to True.
+    log_prob : bool, default = False
+        Plot log-probabilities instead of probabilities. If frames are dominated by
+        high-probability cells, this may reveal other populations.
+
     '''
 
     logger.info('Creating transport map ...')
@@ -109,7 +168,7 @@ def trace_differentiation(
         backtrace = np.log(backtrace + 1e-4)
 
     # select the frames to use
-    if not log_time:
+    if not sqrt_time:
         frame_slices = np.arange(0, num_steps, steps_per_frame)
     else:
         frame_slices = np.square(
