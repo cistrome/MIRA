@@ -2,6 +2,7 @@ Tutorials
 =========
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
 
    notebooks/tutorial_mira.time.ipynb
+   tutorials/enrichr.rst

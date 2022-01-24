@@ -921,19 +921,19 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self : object
             Fitted topic model
 
-        Notes
-        -----
-        Fitting a topic model usually takes a 2-5 minutes for the expression model
-        and 5-10 minutes for the accessibility model for a typical experiment
-        (5K to 40K cells).
+        .. note::
 
-        Optimizing the topic model hyperparameters, however, can take much longer.
-        We recommend running topic model tuners overnight, which is usually sufficient
-        training time. Finding the best number of topics significantly increases
-        the interpretability of the model and its faithfullness to the underlying
-        biology and is well worth the wait.
+            Fitting a topic model usually takes a 2-5 minutes for the expression model
+            and 5-10 minutes for the accessibility model for a typical experiment
+            (5K to 40K cells).
 
-        To learn about topic model tuning, see `mira.topics.TopicModelTuner`.
+            Optimizing the topic model hyperparameters, however, can take much longer.
+            We recommend running topic model tuners overnight, which is usually sufficient
+            training time. Finding the best number of topics significantly increases
+            the interpretability of the model and its faithfullness to the underlying
+            biology and is well worth the wait.
+
+            To learn about topic model tuning, see :ref:`mira.topics.TopicModelTuner`.
         '''
         for _ in self._fit(reinit = reinit, features = features, highly_variable = highly_variable, 
             endog_features = endog_features, exog_features = exog_features):
@@ -1019,7 +1019,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         else:
 
             assert(isinstance(a, float) and a > 0 and a < 1)
-            x = (x**a)/(x**a).mean(-1, keepdims = True)
+            x = (x**a)/((x**a).mean(-1, keepdims = True))
             return ( x - 1 )/a
 
 

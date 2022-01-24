@@ -1,7 +1,7 @@
-﻿mira.time.find_terminal_cells
-=============================
+﻿mira.pl.plot_eigengap
+=====================
 
-.. autofunction:: mira.time.find_terminal_cells
+.. autofunction:: mira.pl.plot_eigengap
 
 
     .. note::

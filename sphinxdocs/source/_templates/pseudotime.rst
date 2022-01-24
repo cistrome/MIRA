@@ -1,7 +1,7 @@
-﻿mira.time.find_terminal_cells
-=============================
+{{ fullname }}
+{{ underline }}
 
-.. autofunction:: mira.time.find_terminal_cells
+.. autofunction:: {{ fullname }}
 
 
     .. note::

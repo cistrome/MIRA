@@ -368,13 +368,15 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
     Modifying the parameters produces variations of the streamgraph for making different
     sorts of comparisons. The available modes are:
         
-        * stream - 3 to 20 continous features
-        * swarm - one discrete feature
-        * line and scatter - comparing modalities for one feature
-        * heatmap - 20 or more continous features, no lineage tree
+    * stream - 3 to 20 continous features
+    * swarm - one discrete feature
+    * line and scatter - comparing modalities for one feature
+    * heatmap - 20 or more continous features, no lineage tree
 
-    *To plot a stream graph, you must first perform lineage inference on the
-    data using the `mira.time` API.*
+    .. note::
+
+        To plot a stream graph, you must first perform lineage inference on the
+        data using the :ref:`mira.time </api.rst#Pseudotime>` API.
 
     
     Parameters
@@ -481,7 +483,8 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
         hue_order in seaborn. User must provide list of features corresponding to 
         the order of hue assignment. 
 
-    *Plot Specifications*
+    Plot Specifications
+    
     title : str or None, default = None
         Title of figure
     show_legend : boolean, default = True
@@ -538,7 +541,7 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
         >>> topics = [6,9,10,5,4,22,7]
         >>> mira.pl.plot_stream(adata, data = ["topic_" + str(i) for i in topics], style = "stream",
         ...    hide_feature_threshold = 0.03, window_size = 301, max_bar_height = 0.8, 
-        ...    palette = "Set3", legend_cols = 4) # doctest: +SKIP
+        ...    palette = "Set3", legend_cols = 4, log_pseudotime = False) # doctest: +SKIP
         >>> plt.show()
 
     **Comparing expression and accessibility.** We provide the gene "LEF1" to
@@ -554,7 +557,7 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
         >>> mira.pl.plot_stream(adata, data = ["LEF1","LEF1"], style = "line",
         ...    layers = ["expression","accessibility"], window_size = 301, max_bar_height = 0.8,
         ...    palette = ["red","black"], order = None, scale_features = True, figsize=(5,3),
-        ...    clip = 3)
+        ...    clip = 3, log_pseudotime = False)
         >>> plt.show()
 
     **Plotting cluster membership using swarm mode.** Swarm mode is useful
@@ -566,7 +569,7 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
 
         >>> adata.obs.true_cell = adata.obs.true_cell.astype(str)
         >>> mira.pl.plot_stream(adata, data = "true_cell", style = "swarm", palette = "Set2",
-        ...     max_swarm_density = 2000, max_bar_height = 0.8, size = 5)
+        ...     max_swarm_density = 2000, max_bar_height = 0.8, size = 5, log_pseudotime = False)
         >>> plt.show()
 
     **Visualizing marker genes.** Each gene is plotted on its own stream.
@@ -576,7 +579,8 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
         :include-source: True
 
         >>> mira.pl.plot_stream(adata, data = ["LEF1","WNT3","CTSC"], style = "stream", 
-        ...     color = "black", split = True, layers = "smoothed", clip = 2, scale_features=True)
+        ...     color = "black", split = True, layers = "smoothed", clip = 2, 
+        ...     scale_features=True, log_pseudotime = False)
         >>> plt.show()
 
     
@@ -593,8 +597,9 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
         :include-source: True
 
         >>> mira.pl.plot_stream(adata[adata.obs.tree_states.str.contains("Cortex")], 
-        ...    layers = "smoothed", data = ["LGR5","EDAR","LEF1","WNT3"], style = "heatmap",
-        ...     window_size = 101, scale_features=True, tree_structure = False, figsize=(7,3))
+        ...     layers = "smoothed", data = ["LGR5","EDAR","LEF1","WNT3"], style = "heatmap",
+        ...     window_size = 101, scale_features=True, tree_structure = False, figsize=(7,3),
+        ...     log_pseudotime = False)
         >>> plt.show()
 
     You can subset cells using more complicated filters. For example, all cells which
@@ -609,6 +614,21 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
         ...     data = ["DSG4","SOAT1","LEF1"], style = "stream", window_size = 301,
         ...     scale_features = True, palette='Set2', linewidth=0.5, clip = 3)
         >>> plt.show()
+
+    Finally, you can create plots without lineage structure by setting *tree_structure*
+    to *False*. This creates a more traditional 2-dimensional plot, showing, for example,
+    the levels of *Lgr5* and *Lef1* along the path from **ORS** to **Cortex** cells:
+
+    .. plot::
+        :context: close-figs
+        :include-source: True
+
+        >>> mira.pl.plot_stream(adata[adata.obs.tree_states.str.contains('Cortex')], 
+        ...     data = ['LEF1','LGR5'], layers = 'smoothed', log_pseudotime=False,
+        ...     style = 'scatter', window_size = 301, tree_structure=False,
+        ...     palette=['black','red'], max_bar_height=0.99, size = 3)
+        >>> plt.show()
+
     '''
 
     assert(isinstance(max_bar_height, float) and max_bar_height > 0 and max_bar_height <= 1)

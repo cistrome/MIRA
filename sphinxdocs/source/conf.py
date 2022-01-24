@@ -93,7 +93,6 @@ import mira
 import anndata
 import matplotlib.pyplot as plt
 adata = anndata.read_h5ad('/Users/alynch/projects/multiomics/mira/mira/data/shareseq/hf_minimal.h5ad')
-adata = adata[adata.obs.mira_pseudotime > 6]
 '''
 
 autoclass_content = "both"

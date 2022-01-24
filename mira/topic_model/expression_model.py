@@ -464,6 +464,8 @@ class ExpressionTopicModel(BaseModel):
         enrichments : dict
             Dictionary with schema:
 
+            .. code-block::
+                
                 {
                     <ontology> : {
                         [

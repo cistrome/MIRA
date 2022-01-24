@@ -36,13 +36,13 @@ def get_ChIP_hits_in_peaks(species = 'mm10', *,peaks):
             in expression data), and whether expression data exists for that factor. The
             columns are labeled id, name, parsed_name, and in_expr_data, respectively. 
 
-    Notes
-    -----
-    * To retrieve the metadata for ChIP, one may use the method 
-    `mira.utils.fetch_factor_meta(adata, factor_type = "chip")`.
-    * Methods that interact with binding site data always have a `factor_type` parameter.
-    This parameter defaults to "motifs", so when using ChIP data, specify
-    `factory_type` = "chip".
+    .. note::
+
+        To retrieve the metadata for ChIP, one may use the method 
+        `mira.utils.fetch_factor_meta(adata, factor_type = "chip")`.
+        Methods that interact with binding site data always have a `factor_type` parameter.
+        This parameter defaults to "motifs", so when using ChIP data, specify
+        `factory_type` = "chip".
 
     Examples
     --------

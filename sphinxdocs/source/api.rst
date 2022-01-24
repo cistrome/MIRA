@@ -30,8 +30,10 @@ Pseudotime
 
 .. autosummary::
    :toctree: time
+   :template: pseudotime.rst
 
    mira.time.normalize_diffmap
+   mira.pl.plot_eigengap
    mira.time.get_connected_components
    mira.time.get_transport_map
    mira.time.find_terminal_cells

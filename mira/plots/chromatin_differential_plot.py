@@ -130,7 +130,7 @@ def plot_chromatin_differential(
     aspect = 1.5, 
     differential_range = 3,
     trim_lite_prediction = 5,
-    add_legend = True,
+    show_legend = True,
     size = 1, *,
     gene_names,
     umap,
@@ -139,6 +139,17 @@ def plot_chromatin_differential(
     lite_prediction,
     nite_prediction
 ):
+    '''
+    Plot the expression, local accessibility prediction, chromatin differential, 
+    and LITE vs. NITE predictions for a given gene. This is the main tool with
+    which one can visually investigate gene regulatory dynamics. These plots
+    are most informative when looking at NITE-regulated genes.
+
+    Parameters
+    ----------
+    
+
+    '''
 
     num_rows = len(gene_names)
     fig, ax = plt.subplots(num_rows, 5, figsize = ( aspect * height * 4.25, num_rows * height) ,
@@ -161,7 +172,7 @@ def plot_chromatin_differential(
         ))
 
         _plot_chromatin_differential_panel(ax = ax[i,:], umap = umap, expr_pallete = expr_pallete, lite_prediction_palette = lite_prediction_palette,
-            size = size, differential_palette = differential_palette, add_legend = add_legend, trim_lite_prediction = trim_lite_prediction,
+            size = size, differential_palette = differential_palette, add_legend = show_legend, trim_lite_prediction = trim_lite_prediction,
             differential_range = differential_range, first_plot = i == 0,
             **kwargs)
 

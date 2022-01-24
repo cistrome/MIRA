@@ -62,6 +62,46 @@ def _plot_enrichment(ax, ontology, results,
 def plot_enrichments(enrichment_results, show_genes = True, show_top = 10, barcolor = 'lightgrey', label_genes = [],
         text_color = 'black', return_fig = False, enrichments_per_row = 2, height = 4, aspect = 2.5, max_genes = 15,
         pval_threshold = 1e-5, color_by_adj = True, palette = 'Reds', gene_fontsize = 10):
+    '''
+    Make plot of geneset enrichments results.
+
+    Parameters
+    ----------
+    show_genes : boolean, default = True
+        Whether to show gene names on enrichment barplot bars
+    show_top : int > 0, default = 10
+        Plot this many top terms for each ontology
+    barcolor : str or tuple[int] (r,g,b,a) or tuple[int] (r,g,b)
+        Color of barplot bars
+    label_genes : list[str] or np.ndarray[str]
+        Add an asterisc by the gene name of genes in this list. Useful for
+        finding transcription factors or signaling factors of interest in
+        enrichment results.
+    text_color : str or tuple[int] (r,g,b,a) or tuple[int] (r,g,b)
+        Color of text on plot
+    plots_per_row : int > 0, default = 2
+        Number of onotology plots per row in figure
+    height : float > 0, default = 4
+        Height of each ontology plot
+    aspect : float > 0, default = 2.5
+        Aspect ratio of ontology plot
+    max_genes : int > 0, default = 15
+        Maximum number of genes to plot on each term bar
+    pval_threshold : float (0, 1), default = 1e-5
+        Upper bound on color map for adjusted p-value coloring of bar
+        outlines.
+    color_by_adj : boolean, default = True
+        Whether to outline term bars with adjusted p-value
+    palette : str
+        Color palette for adjusted p-value
+    gene_fontsize : float > 0, default = 10
+        Fontsize of gene names on term bars
+
+    Returns
+    -------
+    ax : matplotlib.pyplot.axes
+    
+    '''
 
     func = partial(_plot_enrichment, text_color = text_color, label_genes = label_genes, pval_threshold = pval_threshold,
             show_top = show_top, barcolor = barcolor, show_genes = show_genes, max_genes = max_genes,

@@ -146,6 +146,25 @@ def trace_differentiation(
         Plot log-probabilities instead of probabilities. If frames are dominated by
         high-probability cells, this may reveal other populations.
 
+    Returns
+    -------
+
+    None, but saves a gif of the diffusion process to *save_name*.
+
+
+    Examples
+    --------
+
+    .. code-block:: python
+    
+        >>> mira.time.trace_differentiation(data, start_lineage='IRS', num_steps=1500,
+        ...          save_name='data/hf_diff.gif', direction='backward', sqrt_time=True,
+        ...          log_prob=True, steps_per_frame=15, figsize=(7,4))
+
+
+    .. image:: /_static/pseudotime/mira.time.trace_differentiation.gif
+        :width: 600
+
     '''
 
     logger.info('Creating transport map ...')
