@@ -4,7 +4,8 @@ import numpy as np
 import logging
 from scipy.sparse import isspmatrix
 from scipy import sparse
-from mira.adata_interface.core import fetch_layer, add_obs_col, add_obsm
+from mira.adata_interface.core import fetch_layer, add_obs_col, \
+        add_obsm, project_matrix, add_varm
 
 logger = logging.getLogger(__name__)
 
@@ -65,16 +66,40 @@ def fetch_topic_comps(self, adata, key = 'X_topic_compositions'):
     return dict(topic_compositions = adata.obsm[key])
 
 
-def add_topic_comps(adata, output, add_key = 'X_topic_compositions', add_cols = True, col_prefix = 'topic_'):
+def fetch_topic_comps_and_linkage_matrix(self, adata, key = 'X_topic_compositions', 
+    dendogram_key = 'topic_dendogram'):
+    
+    logger.info('Fetching key {} from obsm'.format(key))
+    logger.info('Fetching key {} from uns'.format(dendogram_key))
 
-    logger.info('Added key to obsm: ' + add_key)
-    adata.obsm[add_key] = output
+    return dict(
+        topic_compositions = adata.obsm[key],
+        linkage_matrix = adata.uns[dendogram_key],
+    )
+
+
+def add_topic_comps(adata, output, add_key = 'X_topic_compositions', 
+        add_cols = True, col_prefix = 'topic_'):
+
+    cell_topic_dists = output['cell_topic_dists']
+    add_obsm(adata, cell_topic_dists, add_key = add_key)
 
     if add_cols:
-        K = output.shape[-1]
+        K = cell_topic_dists.shape[-1]
         cols = [col_prefix + str(i) for i in range(K)]
         logger.info('Added cols: ' + ', '.join(cols))
-        adata.obs[cols] = output
+        adata.obs[cols] = cell_topic_dists
+
+    add_varm(adata, project_matrix(adata.var_names, 
+            output['feature_names'], output['topic_feature_dists']).T,
+            add_key = 'topic_feature_compositions')
+    
+    add_varm(adata, project_matrix(adata.var_names, 
+            output['feature_names'], output['topic_feature_activations']).T,
+            add_key='topic_feature_activations')
+
+    logger.info('Added key to uns: topic_dendogram')
+    adata.uns['topic_dendogram'] = output['topic_dendogram']
 
 
 def add_umap_features(adata, output, add_key = 'X_umap_features'):

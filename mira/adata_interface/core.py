@@ -237,3 +237,8 @@ def add_obsm(adata, output,*,add_key):
 
     logger.info('Added key to obsm: ' + str(add_key))
     adata.obsm[add_key] = output
+
+def add_varm(adata, output,*,add_key):
+
+    logger.info('Added key to varm: ' + str(add_key))
+    adata.varm[add_key] = output

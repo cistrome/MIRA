@@ -21,7 +21,8 @@ import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 import gc
 import matplotlib.pyplot as plt
-from scipy.cluster.hierarchy import linkage, to_tree
+from scipy.cluster.hierarchy import linkage
+import mira.topic_model.ilr_tools as ilr
 import typing as tp
 logger = logging.getLogger(__name__)
 
@@ -927,6 +928,21 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         return results
 
 
+    def get_topic_feature_distribution(self):
+
+        topics = np.abs(self._get_gamma())[np.newaxis, :] * self._score_features() + self._get_bias()[np.newaxis, :]
+        topics = np.sqrt(np.exp(topics)/np.exp(topics).sum(-1, keepdims = True)) #softmax
+
+        return topics
+
+    def cluster_topics(self):
+
+        linkage_matrix = linkage(self.get_topic_feature_distribution(), 
+            method='ward', metric='euclidean')
+
+        return linkage_matrix
+
+
     @adi.wraps_modelfunc(tmi.fetch_features, tmi.add_topic_comps,
         fill_kwargs=['endog_features','exog_features'])
     def predict(self, batch_size = 512, *,endog_features, exog_features):
@@ -950,41 +966,21 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             `.obs['topic_1'] ... .obs['topic_N']` : np.ndarray[float] of shape (n_cells,)
                 Columns for the activation of each topic.            
         '''
-        return self._run_encoder_fn(self.encoder.topic_comps, batch_size = batch_size, 
-            endog_features = endog_features, exog_features = exog_features)
+
+        return dict(
+            cell_topic_dists = self._run_encoder_fn(self.encoder.topic_comps, batch_size = batch_size, 
+                endog_features = endog_features, exog_features = exog_features),
+            topic_feature_dists = self.get_topic_feature_distribution(),
+            topic_feature_activations = self._score_features(),
+            feature_names = self.features,
+            topic_dendogram = self.cluster_topics(),
+        )
 
 
-    @staticmethod
-    def centered_boxcox_transform(x, a = 'log'):
-
-        if a == 'log' or a == 0:
-            return np.log(x) - np.log(x).mean(-1, keepdims = True)
-
-        else:
-
-            assert(isinstance(a, float) and a > 0 and a < 1)
-            x = (x**a)/(x**a).mean(-1, keepdims = True)
-            return ( x - 1 )/a
-
-
-    @staticmethod
-    def _gram_schmidt_basis(n):
-        basis = np.zeros((n, n-1))
-        for j in range(n-1):
-            i = j + 1
-            e = np.array([(1/i)]*i + [-1] +
-                        [0]*(n-i-1))*np.sqrt(i/(i+1))
-            basis[:, j] = e
-        return basis
-
-    def _project_to_orthospace(self, compositions, a = 'log'):
-
-        basis = self._gram_schmidt_basis(compositions.shape[-1])
-        return self.centered_boxcox_transform(compositions, a = a).dot(basis)
-
-    @adi.wraps_modelfunc(tmi.fetch_topic_comps, tmi.add_phylo,
-        fill_kwargs=['topic_compositions'])
-    def get_hierarchical_umap_features(self, box_cox = 0.5,*, topic_compositions):
+    @adi.wraps_modelfunc(tmi.fetch_topic_comps_and_linkage_matrix, partial(adi.add_obsm, add_key = 'X_umap_features'),
+        fill_kwargs=['topic_compositions','linkage_matrix'])
+    def get_hierarchical_umap_features(self, box_cox = 0.5,*, 
+        topic_compositions, linkage_matrix):
         '''
         Leverage the hiearchical relationship between topic-feature distributions
         to prduce a balance matrix for isometric logratio transformation. The 
@@ -1009,42 +1005,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 Hierarchy calculated by hellinger distance and ward linkage.
         '''
 
-        topics = np.abs(self._get_gamma())[np.newaxis, :] * self._score_features()[:self.num_topics, :] + self._get_bias()[np.newaxis, :]
-        topics = np.sqrt(np.exp(topics)/np.exp(topics).sum(-1, keepdims = True))
-        linkage_matrix = linkage(topics, method='ward', metric='euclidean')
-        
-        root, nodes = to_tree(linkage_matrix, rd = True)
+        g_matrix = ilr.get_hierarchical_gram_schmidt_basis(
+            topic_compositions.shape[-1], linkage_matrix)
+        umap_features = ilr.centered_boxcox_transform(topic_compositions, a = box_cox).dot(g_matrix)
 
-        def children(x):
-
-            if x is None:
-                return []
-
-            if x.left is None and x.right is None:
-                return [x.id]
-
-            return children(x.left) + children(x.right)
-        
-        balance_matrix = np.zeros((self.num_topics -1, self.num_topics))
-        
-        n_plus, n_minus = [],[]
-        for i, node in enumerate(nodes[self.num_topics:]):
-            balance_matrix[i, children(node.left)] = 1
-            balance_matrix[i, children(node.right)] = -1
-            n_plus.append(len(children(node.left)))
-            n_minus.append(len(children(node.right)))
-
-        n_plus, n_minus = np.array(n_plus), np.array(n_minus)
-
-        plus_sites = 1/n_plus * np.sqrt((n_plus*n_minus)/(n_plus + n_minus))
-        minus_sites = -1/n_minus * np.sqrt((n_plus*n_minus)/(n_plus + n_minus))
-
-        g_matrix = np.zeros_like(balance_matrix) + (balance_matrix == 1).astype(int) * plus_sites[:,np.newaxis] +\
-            (balance_matrix == -1).astype(int) * minus_sites[:,np.newaxis]
-
-        umap_features = self.centered_boxcox_transform(topic_compositions, a = box_cox).dot(g_matrix.T)
-
-        return umap_features, linkage_matrix
+        return umap_features
 
     
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_obsm, add_key = 'X_umap_features'),
@@ -1070,7 +1035,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         '''
         
         #compositions = self._run_encoder_fn(self.encoder.topic_comps, endog_features = endog_features, exog_features = exog_features, batch_size=batch_size)
-        return self._project_to_orthospace(topic_compositions, a = box_cox)
+        basis = ilr.gram_schmidt_basis(topic_compositions.shape[-1])
+        return ilr.centered_boxcox_transform(topic_compositions, a = box_cox).dot(basis)
 
 
     def _get_elbo_loss(self, batch_size = 512, *,endog_features, exog_features):
