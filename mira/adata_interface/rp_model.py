@@ -5,7 +5,7 @@ import numpy as np
 from scipy.sparse import isspmatrix
 from mira.adata_interface.core import fetch_layer,project_matrix
 from mira.adata_interface.regulators import fetch_peaks, fetch_factor_hits
-import tqdm
+from tqdm.notebook import tqdm
 from scipy import sparse
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
                 kwargs['checkpoint'] = checkpoint
 
             results = []
-            for model in tqdm.tqdm(self.models, desc = bar_desc):
+            for model in tqdm(self.models, desc = bar_desc):
 
                 gene_name = model.gene
                 try:

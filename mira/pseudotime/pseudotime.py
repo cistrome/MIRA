@@ -24,8 +24,7 @@ from scipy.stats import entropy, pearsonr, norm
 from copy import deepcopy
 from scipy.sparse.linalg import eigs
 import logging
-import tqdm
-from tqdm.std import trange
+from tqdm.notebook import tqdm, trange
 import mira.adata_interface.core as adi
 import mira.adata_interface.pseudotime as pti
 from functools import partial
