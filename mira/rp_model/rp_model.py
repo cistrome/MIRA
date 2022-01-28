@@ -279,8 +279,8 @@ class BaseModel:
 
         return self
 
-    def subset_fit_models(self, was_fit):
-        self.models = [model for fit, model in zip(was_fit, self.models) if fit]
+    def subset_fit_models(self, models):
+        self.models = [model for model in models if model.was_fit]
         return self
 
     @wraps_rp_func(lambda self, expr_adata, atac_data, output, **kwargs : self.subset_fit_models(output), bar_desc = 'Fitting models')
@@ -294,7 +294,7 @@ class BaseModel:
         if not callback is None:
             callback(model)
 
-        return model.was_fit
+        return model
 
     @wraps_rp_func(lambda self, expr_adata, atac_data, output, **kwargs: np.array(output).sum(), bar_desc = 'Scoring')
     def score(self, model, features):
@@ -583,7 +583,7 @@ class GeneModel:
         return self
 
 
-    def get_posterior_sample(self, features, site):
+    def get_posterior_sample(self, features):
 
         features = {k : self._t(v) for k, v in features.items()}
         self.bn.eval()
@@ -594,7 +594,8 @@ class GeneModel:
         model_trace = poutine.trace(poutine.replay(self.model, guide_trace))\
             .get_trace(**features)
 
-        return model_trace.nodes[self.prefix + '/' + site]['value']
+        return model_trace
+
 
     @property
     def prefix(self):
@@ -602,22 +603,38 @@ class GeneModel:
 
 
     def predict(self, features):
-        return self.to_numpy(self.get_posterior_sample(features, 'prediction'))[:, np.newaxis]
+
+        trace = self.get_posterior_sample(features)
+        
+        expression_prediction = self.to_numpy(
+            trace.nodes[self.prefix + '/prediction'])[:, np.newaxis]
+
+        logp_data = self._get_logp(features['gene_expr'], trace)
+
+        return expression_prediction, logp_data
 
 
     def score(self, features):
-        return self.get_logp(features).sum()
+
+        trace = self.get_posterior_sample(features)
+
+        return self._get_logp(features['gene_expr'], trace).sum()
+
+
+    def _get_logp(self, gene_expr, trace):
+
+        p = trace.nodes[self.prefix + '/prob_success']
+        theta = self.posterior_map[self.prefix + '/theta']
+
+        logp = dist.NegativeBinomial(total_count = theta, probs = p).log_prob(gene_expr)
+        logp_data = self.to_numpy(logp)[:, np.newaxis]
+
+        return logp_data
 
 
     def get_logp(self, features):
-
-        features = {k : self._t(v) for k, v in features.items()}
-
-        p = self.get_posterior_sample(features, 'prob_success')
-        theta = self.posterior_map[self.prefix + '/theta']
-
-        logp = dist.NegativeBinomial(total_count = theta, probs = p).log_prob(features['gene_expr'])
-        return self.to_numpy(logp)[:, np.newaxis]
+        raise DeprecationWarning('As of MIRA 0.2.0, "get_logp" is deprecated and no longer necessary.The "predict" method now returns logp(data) information')
+        
 
     @staticmethod
     def to_numpy(X):
