@@ -3,12 +3,25 @@ import inspect
 from functools import partial, wraps
 import numpy as np
 from scipy.sparse import isspmatrix
-from mira.adata_interface.core import fetch_layer,project_matrix
+from mira.adata_interface.core import fetch_layer,project_matrix, add_layer
 from mira.adata_interface.regulators import fetch_peaks, fetch_factor_hits
 from tqdm.notebook import tqdm
 from scipy import sparse
 from joblib import Parallel, delayed
 logger = logging.getLogger(__name__)
+
+def add_predictions(adata, output, model_type = 'LITE', sparse = True):
+
+    features, predictions = output
+    expr_predictions, logp_data = list(zip(*predictions))
+    
+    #(adata, output, add_layer = 'imputed', sparse = False):
+    add_layer(adata, (features, np.hstack(expr_predictions)), 
+        add_layer = model_type + '_prediction', sparse = True)
+
+    add_layer(adata, (features, np.hstack(logp_data)), 
+        add_layer = model_type + '_logp', sparse = True)
+
 
 def get_peak_and_tss_data(self, adata, tss_data = None, peak_chrom = 'chr', peak_start = 'start', peak_end = 'end', 
         gene_id = 'geneSymbol', gene_chrom = 'chrom', gene_start = 'txStart', gene_end = 'txEnd', gene_strand = 'strand'):
@@ -45,6 +58,29 @@ def add_peak_gene_distances(adata, output):
 
     logger.info('Added key to var: distance_to_TSS')
     logger.info('Added key to uns: distance_to_TSS_genes')
+
+
+def fetch_TSS_from_adata(self, adata):
+    
+    try:
+        tss_metadata = adata.uns['TSS_metadata']
+    except KeyError:
+        raise KeyError('Adata does not have .uns["TSS_metadata"], user must run mira.tl.get_distance_to_TSS first.')
+
+    tss_metadata = {
+        gene : {
+            'gene_chrom' : chrom, 'gene_start' : start, 'gene_end' : end, 'gene_strand' : strand
+        }
+        for gene, chrom, start, end, strand in list(zip(
+            tss_metadata['gene'], tss_metadata['chromosome'], 
+            tss_metadata['txStart'], tss_metadata['txEnd'], tss_metadata['strand']
+        ))
+    }
+
+    try:
+        return tss_metadata[self.gene]
+    except KeyError:
+        raise KeyError('Gene {} not in TSS annotation.'.format(self.gene))
 
 
 def set_up_model(gene_name, atac_adata, expr_adata, 

@@ -1,37 +1,28 @@
 from functools import partial
-from itertools import count
-from operator import ge, mod
-from scipy.stats.stats import mode
 import torch
 import pyro
 import pyro.distributions as dist
 from pyro.infer.autoguide import AutoDelta
-from pyro.infer import SVI, TraceMeanField_ELBO, Trace_ELBO, Predictive
-from pyro.infer.autoguide.initialization import init_to_mean, init_to_value
+from pyro.infer import SVI, TraceMeanField_ELBO
+from pyro.infer.autoguide.initialization import init_to_mean, init_to_value, init_to_sample
 from pyro import poutine
 import numpy as np
-import torch.distributions.constraints as constraints
 import logging
-from math import ceil
-import time
 from pyro.contrib.autoname import scope
-from sklearn.base import BaseEstimator
 from mira.topic_model.base import EarlyStopping
-#from kladiv2.core.adata_interface import *
 import warnings
 from mira.rp_model.optim import LBFGS as stochastic_LBFGS
-import torch.nn.functional as F
-import gc
-import argparse
 from scipy.stats import nbinom
 from scipy.sparse import isspmatrix
-from mira.adata_interface.rp_model import wraps_rp_func, add_isd_results
-from mira.adata_interface.core import add_layer
+from mira.adata_interface.rp_model import wraps_rp_func, add_isd_results, add_predictions, fetch_TSS_from_adata
+from mira.adata_interface.core import add_layer, wraps_modelfunc
+import mira.adata_interface.core as adi
 from collections.abc import Sequence
 import h5py as h5
 import tqdm
 import os
 import glob
+import pyBigWig
 
 logger = logging.getLogger(__name__)
 
@@ -127,12 +118,16 @@ class BaseModel:
         genes,
         learning_rate = 1,
         counts_layer = None,
+        search_reps = 1,
         initialization_model = None):
 
         self.expr_model = expr_model
         self.accessibility_model = accessibility_model
         self.learning_rate = learning_rate
         self.counts_layer = counts_layer
+
+        assert(isinstance(search_reps, int) and search_reps > 0)
+        self.search_reps = search_reps
 
         self.models = []
         for gene in genes:
@@ -148,7 +143,8 @@ class BaseModel:
                     gene = gene, 
                     learning_rate = learning_rate, 
                     use_NITE_features = self.use_NITE_features,
-                    init_params= init_params
+                    init_params= init_params,
+                    search_reps = search_reps,
                 )
             )
 
@@ -280,7 +276,14 @@ class BaseModel:
         return self
 
     def subset_fit_models(self, models):
-        self.models = [model for model in models if model.was_fit]
+
+        self.models = []
+        for model in models:
+            if not model.was_fit:
+                logger.warn('{} model failed to fit.'.format(model.gene))
+            else:
+                self.models.append(model)
+
         return self
 
     @wraps_rp_func(lambda self, expr_adata, atac_data, output, **kwargs : self.subset_fit_models(output), bar_desc = 'Fitting models')
@@ -288,7 +291,6 @@ class BaseModel:
         try:
             model.fit(features)
         except ValueError:
-            logger.warn('{} model failed to fit.'.format(model.gene))
             pass
 
         if not callback is None:
@@ -301,7 +303,7 @@ class BaseModel:
         return model.score(features)
 
     @wraps_rp_func(lambda self, expr_adata, atac_data, output, **kwargs: \
-        add_layer(expr_adata, (self.features, np.hstack(output)), add_layer = self.model_type + '_prediction', sparse = True),
+        add_predictions(expr_adata, (self.features, output), model_type = self.model_type, sparse = True),
         bar_desc = 'Predicting expression')
     def predict(self, model, features):
         return model.predict(features)
@@ -369,7 +371,7 @@ class LITE_Model(BaseModel):
     old_prefix = 'cis_'
 
     def __init__(self,*, expr_model, accessibility_model, genes, learning_rate = 1, 
-        counts_layer = None, initialization_model = None):
+        counts_layer = None, initialization_model = None, search_reps = 1):
         super().__init__(
             expr_model = expr_model, 
             accessibility_model = accessibility_model, 
@@ -377,6 +379,7 @@ class LITE_Model(BaseModel):
             learning_rate = learning_rate,
             initialization_model = initialization_model,
             counts_layer=counts_layer,
+            search_reps = search_reps,
         )
 
 class NITE_Model(BaseModel):
@@ -386,7 +389,7 @@ class NITE_Model(BaseModel):
     old_prefix = 'trans_'
 
     def __init__(self,*, expr_model, accessibility_model, genes, learning_rate = 1, 
-        counts_layer = None, initialization_model = None):
+        counts_layer = None, initialization_model = None, search_reps = 1):
         super().__init__(
             expr_model = expr_model, 
             accessibility_model = accessibility_model, 
@@ -394,6 +397,7 @@ class NITE_Model(BaseModel):
             learning_rate = learning_rate,
             initialization_model = initialization_model,
             counts_layer=counts_layer,
+            search_reps = search_reps,
         )
         
 
@@ -404,15 +408,21 @@ class GeneModel:
         gene, 
         learning_rate = 1.,
         use_NITE_features = False,
-        init_params = None
+        init_params = None,
+        search_reps = 1,
     ):
         self.gene = gene
         self.learning_rate = learning_rate
         self.use_NITE_features = use_NITE_features
         self.was_fit = False
+        self.search_reps= search_reps
         self.init_params = init_params
 
-    def _get_weights(self, loading = False):
+    def _get_weights(self, loading = False, seed = None):
+
+        if not seed is None:
+            pyro.set_rng_seed(seed)
+
         pyro.clear_param_store()
         self.bn = torch.nn.BatchNorm1d(1, momentum = 1.0, affine = False)
 
@@ -421,10 +431,14 @@ class GeneModel:
                 logger.warn('\nTraining NITE regulation model for {} without providing pre-trained LITE models may cause divergence in statistical testing.'\
                     .format(self.gene))
 
-            self.guide = AutoDelta(self.model, init_loc_fn = init_to_mean)
+            if seed is None:
+                self.guide = AutoDelta(self.model, init_loc_fn = init_to_mean)
+            else:
+                self.guide = AutoDelta(self.model, init_loc_fn = init_to_sample)
         else:
             self.seed_params = {self.prefix + '/' + k.split('/')[-1] : v.detach().clone() for k,v in self.init_params.items()}
             self.guide = AutoDelta(self.model, init_loc_fn = mean_default_init_to_value(values = self.seed_params))
+
 
     def get_prefix(self):
         return ('NITE' if self.use_NITE_features else 'LITE') + '_' + self.gene
@@ -481,6 +495,7 @@ class GeneModel:
                 pyro.deterministic('prediction', rate)
                 mu = read_depth.exp() * rate
 
+                pyro.deterministic('mu', mu)
                 p = mu / (mu + theta)
 
                 pyro.deterministic('prob_success', p)
@@ -543,11 +558,25 @@ class GeneModel:
 
         features = {k : self._t(v) for k, v in features.items()}
 
-        self._get_weights()
-        N = len(features['upstream_weights'])
-
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
+
+            def find_init_point(seed):
+                
+                self._get_weights(seed = seed)
+
+                with poutine.trace(param_only=True) as param_capture:
+                    loss = self.get_loss_fn()(self.model, self.guide, **features)
+
+                return seed, loss
+
+            best_seed = None
+            if self.search_reps > 1:
+                best_seed = sorted(map(find_init_point, [None, *range(self.search_reps - 1)]), key = lambda x : x[1])[0][0]
+
+            self._get_weights(seed = best_seed)
+
+            N = len(features['upstream_weights'])
 
             with poutine.trace(param_only=True) as param_capture:
                 loss = self.get_loss_fn()(self.model, self.guide, **features)
@@ -602,12 +631,16 @@ class GeneModel:
         return self.get_prefix()
 
 
+    def __getitem__(self, gene):
+         return self.get_model(gene)
+
+
     def predict(self, features):
 
         trace = self.get_posterior_sample(features)
         
         expression_prediction = self.to_numpy(
-            trace.nodes[self.prefix + '/prediction'])[:, np.newaxis]
+            trace.nodes[self.prefix + '/prediction']['value'])[:, np.newaxis]
 
         logp_data = self._get_logp(features['gene_expr'], trace)
 
@@ -623,10 +656,11 @@ class GeneModel:
 
     def _get_logp(self, gene_expr, trace):
 
-        p = trace.nodes[self.prefix + '/prob_success']
+        p = trace.nodes[self.prefix + '/prob_success']['value']
         theta = self.posterior_map[self.prefix + '/theta']
 
-        logp = dist.NegativeBinomial(total_count = theta, probs = p).log_prob(gene_expr)
+        logp = dist.NegativeBinomial(total_count = theta, probs = p)\
+                .log_prob(self._t(gene_expr))
         logp_data = self.to_numpy(logp)[:, np.newaxis]
 
         return logp_data
@@ -803,3 +837,57 @@ class GeneModel:
             params = self.get_normalized_params(), 
             bn_eps= self.bn.eps
         ), samples_mask
+
+
+    def _get_RP_model_coordinates(self, scale_height = True, bin_size = 50,
+        decay_periods = 20, promoter_width = 3000, *,
+        gene_chrom, gene_start, gene_end, gene_strand):
+
+        assert(isinstance(promoter_width, int) and promoter_width > 0)
+        assert(isinstance(decay_periods, int) and decay_periods > 0)
+        assert(isinstance(bin_size, int) and bin_size > 0)
+        assert(scale_height in [True, False])
+
+        rp_params = self.get_normalized_params()
+            
+        upstream, downstream = 1e3 * rp_params['distance']
+
+        left_decay, right_decay, start_pos = upstream, downstream, gene_start
+        left_a, promoter_a, right_a = rp_params['a']
+
+        if gene_strand == '-':
+            left_decay, right_decay, start_pos = downstream, upstream, gene_end
+            right_a, promoter_a, left_a = rp_params['a']
+        
+        left_extent = int(decay_periods*left_decay)
+        left_x = np.linspace(0, left_extent, left_extent//bin_size).astype(int)
+        left_y = 0.5**(left_x / left_decay) * (left_a if scale_height else 1.)
+
+
+        right_extent = int(decay_periods*right_decay)
+        right_x = np.linspace(0, right_extent, right_extent//bin_size).astype(int)
+        right_y = 0.5**(right_x / right_decay) * (right_a if scale_height else 1.)
+
+        left_x = -left_x[::-1][:-1] - promoter_width//2 + start_pos
+        right_x = right_x + promoter_width//2 + start_pos
+        promoter_x = [-promoter_width//2 + start_pos]
+        promoter_y = [promoter_a if scale_height else 1.]
+
+        x = np.concatenate([left_x, promoter_x, right_x])
+        y = np.concatenate([left_y[::-1], promoter_y, right_y])
+
+        return x, y
+
+    @adi.wraps_modelfunc(fetch_TSS_from_adata, 
+        fill_kwargs = ['gene_chrom','gene_start','gene_end','gene_strand'])
+    def write_bedgraph(self, scale_height = True, bin_size = 50,
+        decay_periods = 20, promoter_width = 3000,*, save_name,
+        gene_chrom, gene_start, gene_end, gene_strand):
+
+        coord, value = self._get_RP_model_coordinates(scale_height = scale_height, bin_size = bin_size,
+            decay_periods = decay_periods, promoter_width = promoter_width,
+            gene_chrom = gene_chrom, gene_start = gene_start, gene_end = gene_end, gene_strand = gene_strand)
+
+        with open(save_name, 'w') as f:
+            for start, end, val in zip(coord[:-1], coord[1:], value):
+                print(gene_chrom, start, end, val, sep = '\t', end = '\n', file = f)
