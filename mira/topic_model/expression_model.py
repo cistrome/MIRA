@@ -237,7 +237,7 @@ class ExpressionTopicModel(BaseModel):
 
         Genes are ranked from least to most activated. To get the top genes:
 
-        .. code-block :: python
+        .. code-block:: python
 
             >>> rna_model.rank_genes(0)[-10:]
             array(['ESRRG', 'APIP', 'RPGRIP1L', 'TM4SF4', 'DSCAM', 'NRAD1', 'ST3GAL1',
