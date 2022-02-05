@@ -42,7 +42,8 @@ class ZeroPaddedBinaryMultinomial(pyro.distributions.Multinomial):
 
 class DANEncoder(nn.Module):
 
-    def __init__(self, embedding_size = None, *,num_endog_features, num_topics, hidden, dropout, num_layers):
+    def __init__(self, embedding_size = None, *,num_endog_features, num_topics, num_batches,
+        hidden, dropout, num_layers):
         super().__init__()
 
         if embedding_size is None:
@@ -54,11 +55,11 @@ class DANEncoder(nn.Module):
         self.num_topics = num_topics
         self.calc_readdepth = True
         self.fc_layers = get_fc_stack(
-            layer_dims = [embedding_size + 1, *[hidden]*(num_layers-2), 2*num_topics],
+            layer_dims = [embedding_size + 1 + num_batches, *[hidden]*(num_layers-2), 2*num_topics],
             dropout = dropout, skip_nonlin = True
         )
 
-    def forward(self, idx, read_depth):
+    def forward(self, idx, read_depth, batch):
        
         if self.training:
             corrupted_idx = torch.multiply(
@@ -74,7 +75,7 @@ class DANEncoder(nn.Module):
         embeddings = self.embedding(corrupted_idx) # N, T, D
         ave_embeddings = embeddings.sum(1)/read_depth
 
-        X = torch.cat([ave_embeddings, read_depth.log()], dim = 1) #inject read depth into model
+        X = torch.hstack([ave_embeddings, read_depth.log(), batch]) #inject read depth into model
 
         X = self.fc_layers(X)
 
@@ -83,8 +84,8 @@ class DANEncoder(nn.Module):
 
         return theta_loc, theta_scale
 
-    def topic_comps(self, idx, read_depth):
-        theta = self.forward(idx, read_depth)[0]
+    def topic_comps(self, idx, read_depth, batch):
+        theta = self.forward(idx, read_depth, batch)[0]
         theta = theta.exp()/theta.exp().sum(-1, keepdim = True)
        
         return theta.detach().cpu().numpy()
@@ -127,7 +128,8 @@ class AccessibilityTopicModel(BaseModel):
         return self.features
             
     @scope(prefix='atac')
-    def model(self,*, endog_features, exog_features, read_depth, anneal_factor = 1.):
+    def model(self,*, endog_features, exog_features, 
+        read_depth, batch, anneal_factor = 1.):
         theta_loc, theta_scale = super().model()
         
         with pyro.plate("cells", endog_features.shape[0]):
@@ -138,6 +140,7 @@ class AccessibilityTopicModel(BaseModel):
                 )
 
             theta = theta/theta.sum(-1, keepdim = True)
+            theta = torch.hstack([theta, batch/self.num_topics])
             
             peak_probs = self.decoder(theta)
             
@@ -146,12 +149,12 @@ class AccessibilityTopicModel(BaseModel):
             )
 
     @scope(prefix = 'atac')
-    def guide(self, *, endog_features, exog_features, read_depth, anneal_factor = 1.):
+    def guide(self, *, endog_features, exog_features, read_depth, batch, anneal_factor = 1.):
         super().guide()
 
         with pyro.plate("cells", endog_features.shape[0]):
             
-            theta_loc, theta_scale = self.encoder(endog_features, read_depth)
+            theta_loc, theta_scale = self.encoder(endog_features, read_depth, batch)
 
             with poutine.scale(None, anneal_factor):
                     
@@ -193,7 +196,9 @@ class AccessibilityTopicModel(BaseModel):
         return dense_matrix.astype(np.int64)
 
     
-    def _preprocess_endog(self, X, read_depth):
+    def _preprocess_endog(self, X, read_depth, start, end):
+
+        X, read_depth = X[start:end], read_depth[start:end]
         
         return torch.tensor(
             self._get_padded_idx_matrix(self._binarize_matrix(X, self.num_endog_features)), 
@@ -201,8 +206,9 @@ class AccessibilityTopicModel(BaseModel):
         ).to(self.device)
 
 
-    def _preprocess_exog(self, X):
+    def _preprocess_exog(self, X, start, end):
         
+        X = X[start:end]
         return torch.tensor(
             self._get_padded_idx_matrix(self._binarize_matrix(X, self.num_exog_features)), 
             requires_grad = False
@@ -216,6 +222,7 @@ class AccessibilityTopicModel(BaseModel):
 
     def rank_peaks(self, topic_num):
         return self.peaks[self._argsort_peaks(topic_num)]
+
 
     def _validate_hits_matrix(self, hits_matrix):
         assert(isspmatrix(hits_matrix))

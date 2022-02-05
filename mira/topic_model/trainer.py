@@ -70,7 +70,6 @@ def _print_study(study, trial):
             print('\n{:>7} | '.format(str(current_num_modules)), end = '')
 
         print(str(trial_result[1]), end = ' ')
-        #print(trial_result[1], ('*' trial_result[2] == study.best_trial.number else ''), end = '')
     
     print('', end = '\n\n')
     print('Trial Information:')
@@ -78,6 +77,7 @@ def _print_study(study, trial):
         print(get_trial_desc(trial))
 
     print('\n')
+    
 
 def print_study(study):
     _print_study(study, None)
@@ -125,7 +125,7 @@ class TopicModelTuner:
     def __init__(self,
         topic_model,
         save_name = None,
-        test_column = None,
+        test_column = 'test_set',
         min_topics = 5, max_topics = 55,
         min_epochs = 20, max_epochs = 40,
         min_dropout = 0.01, max_dropout = 0.15,
@@ -203,7 +203,7 @@ class TopicModelTuner:
 
         '''
         self.model = topic_model
-        self.test_column = test_column or 'test_set'
+        self.test_column = test_column
         self.min_topics, self.max_topics = min_topics, max_topics
         self.min_epochs, self.max_epochs = min_epochs, max_epochs
         self.min_dropout, self.max_dropout = min_dropout, max_dropout

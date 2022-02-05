@@ -45,21 +45,39 @@ def fit_adata(self, adata):
 
     features = adata.var_names.values
 
+    assert(isinstance(self.covariates_key, list) or self.covariates_key is None)
+    if self.covariates_key is None:
+        covariates = None
+    else:
+        covariates = np.hstack([
+            adata.obs_vector(covar).astype(np.float32)[:, np.newaxis] for covar in self.covariates_key
+        ])
+
     return dict(
         features = features,
         highly_variable = highly_variable,
         endog_features = fetch_layer(self, adata[:, highly_variable], self.counts_layer),
-        exog_features = fetch_layer(self, adata, self.counts_layer)
+        exog_features = fetch_layer(self, adata, self.counts_layer),
+        covariates = covariates
     )
 
 def fetch_features(self, adata):
 
     adata = adata[:, self.features]
 
+    if self.covariates_key is None:
+        covariates = None
+    else:
+        covariates = np.hstack([
+            adata.obs_vector(covar).astype(np.float32)[:, np.newaxis] for covar in self.covariates_key
+        ])
+
     return dict(
         endog_features = fetch_layer(self, adata[:, self.highly_variable], self.counts_layer),
         exog_features = fetch_layer(self, adata, self.counts_layer),
+        covariates = covariates
     )
+
 
 def fetch_topic_comps(self, adata, key = 'X_topic_compositions'):
     logger.info('Fetching key {} from obsm'.format(key))

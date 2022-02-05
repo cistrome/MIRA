@@ -1,11 +1,10 @@
 
 import torch
-from torch._C import Value
 import torch.distributions.constraints as constraints
 import torch.nn.functional as F
 from pyro.nn import PyroParam
 import pyro.distributions as dist
-from mira.topic_model.base import BaseModel, get_fc_stack
+from mira.topic_model.base import BaseModel, get_fc_stack, encoder_layer
 from pyro.contrib.autoname import scope
 import pyro
 import numpy as np
@@ -19,6 +18,8 @@ import mira.tools.enrichr_enrichments as enrichr
 from mira.plots.enrichment_plot import plot_enrichments as mira_plot_enrichments
 from torch.distributions.utils import broadcast_all
 from pyro.distributions.torch_distribution import ExpandedDistribution
+from pyro.distributions.torch_distribution import TorchDistribution
+from torch import nn
 import logging
 logger = logging.getLogger(__name__)
 
@@ -45,46 +46,69 @@ logger = logging.getLogger(__name__)
     def expand(self, batch_shape, _instance=None):
         return ExpandedDistribution(self, batch_shape)'''
 
+class NullScoreDistribution(dist.Distribution):
+
+    def __init__(self, shape):
+        super().__init__()
+        self.__shape = shape
+
+
+    def sample(self):                                 
+        return torch.zeros(self.__shape)
+
+    def log_prob(self, x):
+        return x.new_zeros(x.shape[0])
+
 
 class ExpressionEncoder(torch.nn.Module):
 
 
-    def __init__(self,embedding_size=None,*,num_endog_features, num_topics, hidden, dropout, num_layers):
+    def __init__(self,embedding_size=None, covar_channels = 10, *,num_endog_features, num_covariates, 
+        num_topics, hidden, dropout, num_layers, num_exog_features):
         super().__init__()
 
         if embedding_size is None:
             embedding_size = hidden
 
-        output_batchnorm_size = 2*num_topics + 2
+        output_batchnorm_size = 2*num_topics + 2 + covar_channels
         self.num_topics = num_topics
         self.fc_layers = get_fc_stack(
-            layer_dims = [num_endog_features + 1, embedding_size, *[hidden]*(num_layers-2), output_batchnorm_size],
+            layer_dims = [num_endog_features + 1 + num_covariates, 
+            embedding_size, *[hidden]*(num_layers-2), output_batchnorm_size],
             dropout = dropout, skip_nonlin = True
         )
+        self.batch_effect_layer = nn.Sequential(
+            nn.ReLU(), nn.Dropout(dropout),
+            nn.Linear(covar_channels, num_exog_features), 
+            nn.BatchNorm1d(num_exog_features)
+        )
         
-    def forward(self, X, read_depth):
+    def forward(self, X, read_depth, covariates):
 
-        X = torch.hstack([X, torch.log(read_depth)])
+        X = torch.hstack([X, torch.log(read_depth), covariates])
 
         X = self.fc_layers(X)
 
         theta_loc = X[:, :self.num_topics]
         theta_scale = F.softplus(X[:, self.num_topics:(2*self.num_topics)])# + 1e-5
 
-        rd_loc = X[:,-2].reshape((-1,1))
-        rd_scale = F.softplus(X[:,-1]).reshape((-1,1))# + 1e-5
+        rd_loc = X[:,(2*self.num_topics)].reshape((-1,1))
+        rd_scale = F.softplus(X[:, (2*self.num_topics) + 1]).reshape((-1,1))# + 1e-5
 
-        return theta_loc, theta_scale, rd_loc, rd_scale
+        covar_channels = X[:, (2*self.num_topics + 2) : ]
+        batch_effect = self.batch_effect_layer(covar_channels)
 
-    def topic_comps(self, X, read_depth):
+        return theta_loc, theta_scale, batch_effect, rd_loc, rd_scale
 
-        theta = self.forward(X, read_depth)[0]
+    def topic_comps(self, X, read_depth, covariates):
+
+        theta = self.forward(X, read_depth, covariates)[0]
         theta = theta.exp()/theta.exp().sum(-1, keepdim = True)
         
         return theta.detach().cpu().numpy()
 
-    def read_depth(self, X, read_depth):
-        return self.forward(X, read_depth)[2].detach().cpu().numpy()
+    def read_depth(self, X, read_depth, covariates):
+        return self.forward(X, read_depth, covariates)[2].detach().cpu().numpy()
 
 
 class ExpressionTopicModel(BaseModel):
@@ -127,7 +151,7 @@ class ExpressionTopicModel(BaseModel):
         return weights
 
     @scope(prefix= 'rna')
-    def model(self,*,endog_features, exog_features, read_depth, anneal_factor = 1.):
+    def model(self,*,endog_features, exog_features, covariates, read_depth, anneal_factor = 1.):
         theta_loc, theta_scale = super().model()
         pyro.module("decoder", self.decoder)
 
@@ -135,13 +159,17 @@ class ExpressionTopicModel(BaseModel):
         dispersion = dispersion.to(self.device)
 
         with pyro.plate("cells", endog_features.shape[0]):
+
+            batch_effect = pyro.sample('batch_effect', NullScoreDistribution(exog_features.shape))\
+                    .to(self.device)
+
             with poutine.scale(None, anneal_factor):
                 theta = pyro.sample(
-                    "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1))
+                    "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
+                )
                 theta = theta/theta.sum(-1, keepdim = True)
-                
-                expr_rate = self.decoder(theta)
 
+                expr_rate = self.decoder(theta, batch_effect)
                 read_scale = pyro.sample('read_depth', dist.LogNormal(torch.log(read_depth), 1.).to_event(1))
             
             if not self.nb_parameterize_logspace:
@@ -154,12 +182,14 @@ class ExpressionTopicModel(BaseModel):
 
 
     @scope(prefix= 'rna')
-    def guide(self,*,endog_features, exog_features, read_depth, anneal_factor = 1.):
+    def guide(self,*,endog_features, exog_features, covariates, read_depth, anneal_factor = 1.):
         super().guide()
 
+        theta_loc, theta_scale, batch_effect, rd_loc, rd_scale = self.encoder(endog_features, read_depth, covariates)
+        
         with pyro.plate("cells", endog_features.shape[0]):
-            
-            theta_loc, theta_scale, rd_loc, rd_scale = self.encoder(endog_features, read_depth)
+
+            pyro.sample('batch_effect', dist.Delta(batch_effect).to_event(1))
 
             with poutine.scale(None, anneal_factor):
                 theta = pyro.sample(
@@ -170,8 +200,9 @@ class ExpressionTopicModel(BaseModel):
                     "read_depth", dist.LogNormal(rd_loc.reshape((-1,1)), rd_scale.reshape((-1,1))).to_event(1)
                 )
 
-    def _get_dataset_statistics(self, endog_features, exog_features):
-        super()._get_dataset_statistics(endog_features, exog_features)
+
+    def _get_dataset_statistics(self, endog_features, exog_features, covariates):
+        super()._get_dataset_statistics(endog_features, exog_features, covariates)
 
         self.residual_pi = np.array(endog_features.sum(axis = 0)).reshape(-1)/endog_features.sum()
 
@@ -184,10 +215,11 @@ class ExpressionTopicModel(BaseModel):
             batch_size =batch_size, bar = False, desc = 'Calculating reads scale')
         
 
-    def _preprocess_endog(self, X, read_depth):
+    def _preprocess_endog(self, X, read_depth, start, end):
         
         assert(isinstance(X, np.ndarray) or isspmatrix(X))
         
+        X = X[start:end]
         if isspmatrix(X):
             X = X.toarray()
 
@@ -201,10 +233,11 @@ class ExpressionTopicModel(BaseModel):
         return torch.tensor(X, requires_grad = False).to(self.device)
 
 
-    def _preprocess_exog(self, X):
+    def _preprocess_exog(self, X, start, end):
         
         assert(isinstance(X, np.ndarray) or isspmatrix(X))
         
+        X = X[start:end]
         if isspmatrix(X):
             X = X.toarray()
 
