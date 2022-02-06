@@ -49,7 +49,7 @@ def fit_adata(self, adata):
     if self.covariates_key is None:
         covariates = None
     else:
-        covariates = np.vstack([
+        covariates = np.hstack([
             adata.obs_vector(covar).astype(np.float32)[:, np.newaxis] for covar in self.covariates_key
         ])
 
@@ -68,7 +68,7 @@ def fetch_features(self, adata):
     if self.covariates_key is None:
         covariates = None
     else:
-        covariates = np.vstack([
+        covariates = np.hstack([
             adata.obs_vector(covar).astype(np.float32)[:, np.newaxis] for covar in self.covariates_key
         ])
 

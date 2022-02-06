@@ -57,29 +57,48 @@ class EarlyStopping:
 
         return False
 
+def encoder_layer(input_dim, output_dim, nonlin = True, dropout = 0.2):
+    layers = [nn.Linear(input_dim, output_dim), nn.BatchNorm1d(output_dim)]
+    if nonlin:
+        layers.append(nn.ReLU())
+        layers.append(nn.Dropout(dropout))
+    return nn.Sequential(*layers)
+
+
+def get_fc_stack(layer_dims = [256, 128, 128, 128], dropout = 0.2, skip_nonlin = True):
+    return nn.Sequential(*[
+        encoder_layer(input_dim, output_dim, nonlin= not ((i >= (len(layer_dims) - 2)) and skip_nonlin), dropout = dropout)
+        for i, (input_dim, output_dim) in enumerate(zip(layer_dims[:-1], layer_dims[1:]))
+    ])
+
 
 class Decoder(torch.nn.Module):
     
-    def __init__(self,*,num_exog_features, num_topics, num_covariates, dropout):
+    def __init__(self, covar_channels = 32,*,num_exog_features, num_topics, num_covariates, dropout):
         super().__init__()
         self.beta = nn.Linear(num_topics, num_exog_features, bias = False)
         self.bn = nn.BatchNorm1d(num_exog_features)
         self.drop = nn.Dropout(dropout)
-        self.drop2 = nn.Dropout(dropout)
         self.dropout_rate = dropout
         self.num_topics = num_topics
         self.num_covariates = num_covariates
+        self.batch_effect_model = get_fc_stack(
+            [num_topics + num_covariates, covar_channels, num_exog_features],
+            dropout=dropout, skip_nonlin=True,
+        )
 
-    def forward(self, theta, batch_effect):
+
+    def forward(self, theta, covariates):
+
+        X = self.drop(theta)
 
         if self.num_covariates == 0:
             batch_effect = theta.new_zeros(1)
         else:
-            batch_effect = self.drop2(batch_effect)
-
-        X = self.drop(theta)
+            batch_effect = self.batch_effect_model(torch.hstack([theta, covariates]))
 
         return F.softmax(self.bn(self.beta(X) + batch_effect), dim=1)
+        
 
     def get_softmax_denom(self, X, batch_effect):
 
@@ -94,21 +113,6 @@ class OneCycleLR_Wrapper(torch.optim.lr_scheduler.OneCycleLR):
     def __init__(self, optimizer, **kwargs):
         max_lr = kwargs.pop('max_lr')
         super().__init__(optimizer, max_lr, **kwargs)
-
-
-def encoder_layer(input_dim, output_dim, nonlin = True, dropout = 0.2):
-    layers = [nn.Linear(input_dim, output_dim), nn.BatchNorm1d(output_dim)]
-    if nonlin:
-        layers.append(nn.ReLU())
-        layers.append(nn.Dropout(dropout))
-    return nn.Sequential(*layers)
-
-
-def get_fc_stack(layer_dims = [256, 128, 128, 128], dropout = 0.2, skip_nonlin = True):
-    return nn.Sequential(*[
-        encoder_layer(input_dim, output_dim, nonlin= not ((i >= (len(layer_dims) - 2)) and skip_nonlin), dropout = dropout)
-        for i, (input_dim, output_dim) in enumerate(zip(layer_dims[:-1], layer_dims[1:]))
-    ])
 
 
 class BaseModel(torch.nn.Module, BaseEstimator):
