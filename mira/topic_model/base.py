@@ -470,7 +470,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         if X is None or self.num_covariates == 0:
             return torch.tensor([], requires_grad = False, dtype = torch.float).to(self.device)
         else:
-            X = X[start:end].astype(np.float32).reshape((-1,1))
+            X = X[start:end].astype(np.float32)
             return torch.tensor(X, 
                 requires_grad = False).to(self.device)
 
@@ -935,7 +935,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             Fitted topic model
         '''
         for _ in self._fit(reinit = reinit, features = features, highly_variable = highly_variable, 
-            endog_features = endog_features, exog_features = exog_features, batccovariatesh = covariates):
+            endog_features = endog_features, exog_features = exog_features, covariates = covariates):
             pass
 
         return self
@@ -1194,7 +1194,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 highly_variable = self.highly_variable,
                 features = self.features,
                 enrichments = self.enrichments,
-                batch_encoder = self.batch_encoder,
             )
         )
 
