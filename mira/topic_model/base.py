@@ -58,7 +58,7 @@ class EarlyStopping:
         return False
 
 def encoder_layer(input_dim, output_dim, nonlin = True, dropout = 0.2):
-    layers = [nn.Linear(input_dim, output_dim), nn.BatchNorm1d(output_dim)]
+    layers = [nn.Linear(input_dim, output_dim, bias = False), nn.BatchNorm1d(output_dim)]
     if nonlin:
         layers.append(nn.ReLU())
         layers.append(nn.Dropout(dropout))
@@ -83,9 +83,14 @@ class Decoder(torch.nn.Module):
         self.num_topics = num_topics
         self.num_covariates = num_covariates
         self.drop2 = nn.Dropout(dropout)
-        self.batch_effect_model = get_fc_stack(
-            [num_topics + num_covariates, covar_channels, num_exog_features],
-            dropout=dropout, skip_nonlin=True,
+        self.batch_effect_model = nn.Sequential(
+            encoder_layer(num_topics + num_covariates, covar_channels, 
+                dropout=dropout, nonlin=True),
+            nn.Linear(covar_channels, num_exog_features),
+            nn.BatchNorm1d(num_exog_features, affine = False)
+        )
+        self.batch_effect_gamma = nn.Parameter(
+            torch.ones(num_exog_features)
         )
 
 
@@ -96,9 +101,9 @@ class Decoder(torch.nn.Module):
         if self.num_covariates == 0:
             batch_effect = theta.new_zeros(1)
         else:
-            batch_effect = self.drop2(
-                self.batch_effect_model(torch.hstack([theta, covariates]))
-            )
+            batch_effect = self.batch_effect_gamma * self.batch_effect_model(
+                    torch.hstack([theta, covariates])
+                )
 
         return F.softmax(self.bn(self.beta(X) + batch_effect), dim=1)
 
@@ -666,8 +671,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                         except StopIteration:
                             break
 
-        except ValueError:
-            logger.error('\nGradient overflow from too high learning rate, stopping test early.')
+        except ValueError as err:
+            logger.error(str(err) + '\nProbably gradient overflow from too high learning rate, stopping test early.')
 
         self.gradient_lr = np.array(learning_rates[:len(learning_rate_losses)])
         self.gradient_loss = np.array(learning_rate_losses)
