@@ -82,6 +82,7 @@ class Decoder(torch.nn.Module):
         self.dropout_rate = dropout
         self.num_topics = num_topics
         self.num_covariates = num_covariates
+        self.drop2 = nn.Dropout(dropout)
         self.batch_effect_model = get_fc_stack(
             [num_topics + num_covariates, covar_channels, num_exog_features],
             dropout=dropout, skip_nonlin=True,
@@ -95,10 +96,12 @@ class Decoder(torch.nn.Module):
         if self.num_covariates == 0:
             batch_effect = theta.new_zeros(1)
         else:
-            batch_effect = self.batch_effect_model(torch.hstack([theta, covariates]))
+            batch_effect = self.drop2(
+                self.batch_effect_model(torch.hstack([theta, covariates]))
+            )
 
         return F.softmax(self.bn(self.beta(X) + batch_effect), dim=1)
-        
+
 
     def get_softmax_denom(self, X, batch_effect):
 
