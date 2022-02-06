@@ -43,7 +43,7 @@ class ZeroPaddedBinaryMultinomial(pyro.distributions.Multinomial):
 class DANEncoder(nn.Module):
 
     def __init__(self, embedding_size = None, *,num_endog_features, num_topics, num_batches,
-        hidden, dropout, num_layers):
+        hidden, dropout, num_layers, num_exog_features, num_covariates):
         super().__init__()
 
         if embedding_size is None:
@@ -51,7 +51,7 @@ class DANEncoder(nn.Module):
 
         self.dropout_rate = dropout
         self.drop = nn.Dropout(dropout)
-        self.embedding = nn.Embedding(num_endog_features + 1, embedding_size, padding_idx=0)
+        self.embedding = nn.Embedding(num_endog_features + 1 + num_covariates, embedding_size, padding_idx=0)
         self.num_topics = num_topics
         self.calc_readdepth = True
         self.fc_layers = get_fc_stack(
@@ -59,7 +59,7 @@ class DANEncoder(nn.Module):
             dropout = dropout, skip_nonlin = True
         )
 
-    def forward(self, idx, read_depth, batch):
+    def forward(self, idx, read_depth, covariates):
        
         if self.training:
             corrupted_idx = torch.multiply(
@@ -75,7 +75,7 @@ class DANEncoder(nn.Module):
         embeddings = self.embedding(corrupted_idx) # N, T, D
         ave_embeddings = embeddings.sum(1)/read_depth
 
-        X = torch.hstack([ave_embeddings, read_depth.log(), batch]) #inject read depth into model
+        X = torch.hstack([ave_embeddings, read_depth.log(), covariates]) #inject read depth into model
 
         X = self.fc_layers(X)
 
@@ -84,8 +84,8 @@ class DANEncoder(nn.Module):
 
         return theta_loc, theta_scale
 
-    def topic_comps(self, idx, read_depth, batch):
-        theta = self.forward(idx, read_depth, batch)[0]
+    def topic_comps(self, idx, read_depth, covariates):
+        theta = self.forward(idx, read_depth, covariates)[0]
         theta = theta.exp()/theta.exp().sum(-1, keepdim = True)
        
         return theta.detach().cpu().numpy()
@@ -129,7 +129,7 @@ class AccessibilityTopicModel(BaseModel):
             
     @scope(prefix='atac')
     def model(self,*, endog_features, exog_features, 
-        read_depth, batch, anneal_factor = 1.):
+        read_depth, covariates, anneal_factor = 1.):
         theta_loc, theta_scale = super().model()
         
         with pyro.plate("cells", endog_features.shape[0]):
@@ -139,22 +139,20 @@ class AccessibilityTopicModel(BaseModel):
                     "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
                 )
 
-            theta = theta/theta.sum(-1, keepdim = True)
-            theta = torch.hstack([theta, batch/self.num_topics])
-            
-            peak_probs = self.decoder(theta)
+            theta = theta/theta.sum(-1, keepdim = True)            
+            peak_probs = self.decoder(theta, covariates)
             
             pyro.sample(
                 'obs', ZeroPaddedBinaryMultinomial(total_count = 1, probs = peak_probs), obs = exog_features,
             )
 
     @scope(prefix = 'atac')
-    def guide(self, *, endog_features, exog_features, read_depth, batch, anneal_factor = 1.):
+    def guide(self, *, endog_features, exog_features, read_depth, covariates, anneal_factor = 1.):
         super().guide()
 
         with pyro.plate("cells", endog_features.shape[0]):
             
-            theta_loc, theta_scale = self.encoder(endog_features, read_depth, batch)
+            theta_loc, theta_scale = self.encoder(endog_features, read_depth, covariates)
 
             with poutine.scale(None, anneal_factor):
                     
