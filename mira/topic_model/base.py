@@ -633,34 +633,34 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         batches_complete, steps_complete, step_loss, samples_seen = 0,0,0,0
         learning_rate_losses = []
         
-        #try:
-        t = trange(eval_steps-2, desc = 'Learning rate range test', leave = True)
-        _t = iter(t)
+        try:
+            t = trange(eval_steps-2, desc = 'Learning rate range test', leave = True)
+            _t = iter(t)
 
-        for epoch in range(num_epochs + 1):
+            for epoch in range(num_epochs + 1):
 
-            #train step
-            self.train()
-            for minibatch in self._iterate_batches(endog_features = endog_features, 
-                    exog_features = exog_features, covariates = covariates,
-                    batch_size = self.batch_size, bar = False):
+                #train step
+                self.train()
+                for minibatch in self._iterate_batches(endog_features = endog_features, 
+                        exog_features = exog_features, covariates = covariates,
+                        batch_size = self.batch_size, bar = False):
 
-                step_loss += float(self.svi.step(**minibatch, anneal_factor = 1.))
-                batches_complete+=1
-                samples_seen += minibatch['endog_features'].shape[0]
-                
-                if batches_complete % eval_every == 0 and batches_complete > 0:
-                    steps_complete+=1
-                    scheduler.step()
-                    learning_rate_losses.append(step_loss/(samples_seen * self.num_exog_features))
-                    step_loss, samples_seen = 0.0, 0
-                    try:
-                        next(_t)
-                    except StopIteration:
-                        break
+                    step_loss += float(self.svi.step(**minibatch, anneal_factor = 1.))
+                    batches_complete+=1
+                    samples_seen += minibatch['endog_features'].shape[0]
+                    
+                    if batches_complete % eval_every == 0 and batches_complete > 0:
+                        steps_complete+=1
+                        scheduler.step()
+                        learning_rate_losses.append(step_loss/(samples_seen * self.num_exog_features))
+                        step_loss, samples_seen = 0.0, 0
+                        try:
+                            next(_t)
+                        except StopIteration:
+                            break
 
-        #except ValueError:
-        #    logger.error('\nGradient overflow from too high learning rate, stopping test early.')
+        except ValueError:
+            logger.error('\nGradient overflow from too high learning rate, stopping test early.')
 
         self.gradient_lr = np.array(learning_rates[:len(learning_rate_losses)])
         self.gradient_loss = np.array(learning_rate_losses)
