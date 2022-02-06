@@ -63,7 +63,8 @@ class NullScoreDistribution(dist.Distribution):
 class ExpressionEncoder(torch.nn.Module):
 
 
-    def __init__(self,embedding_size=None, covar_channels = 10, *,num_endog_features, num_covariates, 
+    def __init__(self,embedding_size=None, covar_channels = 10, covar_dropout= 0.2,*,
+        num_endog_features, num_covariates, 
         num_topics, hidden, dropout, num_layers, num_exog_features):
         super().__init__()
 
@@ -82,10 +83,12 @@ class ExpressionEncoder(torch.nn.Module):
             nn.Linear(covar_channels, num_exog_features), 
             nn.BatchNorm1d(num_exog_features)
         )
+        adjusted_dropout = 1 - (1 - covar_dropout)/(1 - dropout)
+        self.covar_dropout = nn.Dropout(adjusted_dropout)
         
     def forward(self, X, read_depth, covariates):
 
-        X = torch.hstack([X, torch.log(read_depth), covariates])
+        X = torch.hstack([X, torch.log(read_depth), self.covar_dropout(covariates)])
 
         X = self.fc_layers(X)
 
