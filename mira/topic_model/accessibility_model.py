@@ -42,7 +42,7 @@ class ZeroPaddedBinaryMultinomial(pyro.distributions.Multinomial):
 
 class DANEncoder(nn.Module):
 
-    def __init__(self, embedding_size = None, *,num_endog_features, num_topics, num_batches,
+    def __init__(self, embedding_size = None, *,num_endog_features, num_topics,
         hidden, dropout, num_layers, num_exog_features, num_covariates):
         super().__init__()
 
@@ -51,11 +51,11 @@ class DANEncoder(nn.Module):
 
         self.dropout_rate = dropout
         self.drop = nn.Dropout(dropout)
-        self.embedding = nn.Embedding(num_endog_features + 1 + num_covariates, embedding_size, padding_idx=0)
+        self.embedding = nn.Embedding(num_endog_features + 1, embedding_size, padding_idx=0)
         self.num_topics = num_topics
         self.calc_readdepth = True
         self.fc_layers = get_fc_stack(
-            layer_dims = [embedding_size + 1 + num_batches, *[hidden]*(num_layers-2), 2*num_topics],
+            layer_dims = [embedding_size + 1 + num_covariates, *[hidden]*(num_layers-2), 2*num_topics],
             dropout = dropout, skip_nonlin = True
         )
 
