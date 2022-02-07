@@ -1086,13 +1086,13 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         return ilr.centered_boxcox_transform(topic_compositions, a = box_cox).dot(basis)
 
 
-    def _get_elbo_loss(self, batch_size = 512, *,endog_features, exog_features, batch):
+    def _get_elbo_loss(self, batch_size = 512, *,endog_features, exog_features, covariates):
 
         self.eval()
         running_loss = 0
         #self.eps.device(self.device)
         for minibatch in self._iterate_batches(endog_features = endog_features, 
-                        exog_features = exog_features, batch = batch,
+                        exog_features = exog_features, covariates = covariates,
                         batch_size = batch_size, bar = False):
                     
             running_loss += float(self.svi.evaluate_loss(**minibatch, anneal_factor = 1.0))
@@ -1100,8 +1100,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         return running_loss
     
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
-        fill_kwargs=['endog_features','exog_features'])
-    def score(self, batch_size = 512, *,endog_features, exog_features, batch):
+        fill_kwargs=['endog_features','exog_features', 'covariates'])
+    def score(self, batch_size = 512, *,endog_features, exog_features, covariates):
         '''
         Get normalized ELBO loss for data. This method is only available on
         topic models that have not been loaded from disk.
