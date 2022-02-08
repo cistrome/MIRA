@@ -81,7 +81,17 @@ def fetch_features(self, adata):
 
 def fetch_topic_comps(self, adata, key = 'X_topic_compositions'):
     logger.info('Fetching key {} from obsm'.format(key))
-    return dict(topic_compositions = adata.obsm[key])
+
+    assert(isinstance(self.covariates_key, list) or self.covariates_key is None)
+    if self.covariates_key is None:
+        covariates = None
+    else:
+        covariates = np.hstack([
+            adata.obs_vector(covar).astype(np.float32)[:, np.newaxis] for covar in self.covariates_key
+        ])
+
+    return dict(topic_compositions = adata.obsm[key],
+                covariates = covariates)
 
 
 def fetch_topic_comps_and_linkage_matrix(self, adata, key = 'X_topic_compositions', 

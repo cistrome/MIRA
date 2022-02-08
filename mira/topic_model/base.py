@@ -24,6 +24,7 @@ import matplotlib.pyplot as plt
 from scipy.cluster.hierarchy import linkage
 import mira.topic_model.ilr_tools as ilr
 import typing as tp
+from pyro.nn import PyroSample, PyroModule
 logger = logging.getLogger(__name__)
 
 class EarlyStopping:
@@ -72,7 +73,7 @@ def get_fc_stack(layer_dims = [256, 128, 128, 128], dropout = 0.2, skip_nonlin =
     ])
 
 
-class Decoder(torch.nn.Module):
+class Decoder(PyroModule):
     
     def __init__(self, covar_channels = 32,*,num_exog_features, num_topics, num_covariates, dropout):
         super().__init__()
@@ -82,7 +83,6 @@ class Decoder(torch.nn.Module):
         self.dropout_rate = dropout
         self.num_topics = num_topics
         self.num_covariates = num_covariates
-        self.drop2 = nn.Dropout(dropout)
         self.batch_effect_model = nn.Sequential(
             encoder_layer(num_topics + num_covariates, covar_channels, 
                 dropout=dropout, nonlin=True),
@@ -90,15 +90,18 @@ class Decoder(torch.nn.Module):
             nn.BatchNorm1d(num_exog_features, affine = False)
         )
         self.batch_effect_gamma = nn.Parameter(
-            torch.ones(num_exog_features)
-        )
+                torch.zeros(num_exog_features)
+            )
+        #PyroSample(
+        #    dist.Normal(torch.zeros(num_exog_features), torch.ones(num_exog_features)).to_event(1)
+        #)
 
 
-    def forward(self, theta, covariates):
+    def forward(self, theta, covariates, nullify_covariates = False):
 
         X = self.drop(theta)
 
-        if self.num_covariates == 0:
+        if self.num_covariates == 0 or nullify_covariates:
             batch_effect = theta.new_zeros(1)
         else:
             batch_effect = self.batch_effect_gamma * self.batch_effect_model(
@@ -106,6 +109,18 @@ class Decoder(torch.nn.Module):
                 )
 
         return F.softmax(self.bn(self.beta(X) + batch_effect), dim=1)
+
+    def get_batch_effect(self, theta, covariates):
+        
+        X = self.drop(theta)
+        if self.num_covariates == 0:
+            batch_effect = theta.new_zeros(1)
+        else:
+            batch_effect = self.batch_effect_gamma * self.batch_effect_model(
+                    torch.hstack([theta, covariates])
+                )
+
+        return batch_effect
 
 
     def get_softmax_denom(self, X, batch_effect):
@@ -396,7 +411,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     #,*, endog_features, exog_features, read_depth, anneal_factor = 1.
     def model(self):
         
-        pyro.module("decoder", self.decoder)
+        #pyro.module("decoder", self.decoder)
 
         _alpha, _beta = self._get_gamma_parameters(self.initial_pseudocounts, self.num_topics)
         with pyro.plate("topics", self.num_topics):
@@ -425,6 +440,12 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         with pyro.plate("topics", self.num_topics) as k:
             initial_counts = pyro.sample("a", dist.LogNormal(pseudocount_mu, pseudocount_std))
+
+        batch_effect_mu = pyro.param('batch_effect_mu', torch.randn(self.num_exog_features, device = self.device))
+        batch_effect_std = pyro.param('batch_effect_var', torch.ones(self.num_exog_features, device = self.device))
+
+        return batch_effect_mu, batch_effect_std
+
 
 
     @staticmethod
@@ -1024,7 +1045,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         )
 
 
-    @adi.wraps_modelfunc(tmi.fetch_topic_comps_and_linkage_matrix, partial(adi.add_obsm, add_key = 'X_umap_features'),
+    @adi.wraps_modelfunc(tmi.fetch_topic_comps_and_linkage_matrix, 
+        partial(adi.add_obsm, add_key = 'X_umap_features'),
         fill_kwargs=['topic_compositions','linkage_matrix'])
     def get_hierarchical_umap_features(self, box_cox = 0.5,*, 
         topic_compositions, linkage_matrix):
@@ -1060,8 +1082,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_obsm, add_key = 'X_umap_features'),
-        fill_kwargs=['topic_compositions'])
-    def get_umap_features(self, box_cox = 0.5, *, topic_compositions):
+        fill_kwargs=['topic_compositions', 'covariates'])
+    def get_umap_features(self, box_cox = 0.5, *, topic_compositions, covariates):
         '''
         Predict transformed topic compositions for each cell to derive nearest-
         neighbors graph. Projects topic compositions to orthonormal space using
@@ -1131,7 +1153,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             /(endog_features.shape[0] * self.num_exog_features)
 
     
-    def _run_decoder_fn(self, fn, latent_composition, batch_size = 512, bar = True, desc = 'Imputing features'):
+    def _run_decoder_fn(self, fn, latent_composition, covariates,
+        batch_size = 512, bar = True, desc = 'Imputing features'):
 
         assert(isinstance(batch_size, int) and batch_size > 0)
         
@@ -1140,19 +1163,23 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         for start, end in self._iterate_batch_idx(latent_composition.shape[0], batch_size = batch_size, bar = bar, desc = desc):
             yield fn(
-                    torch.tensor(latent_composition[start : end], requires_grad = False).to(self.device)
+                    torch.tensor(latent_composition[start : end], requires_grad = False).to(self.device),
+                    torch.tensor(covariates[start : end], requires_grad = False).to(self.device)
                 ).detach().cpu().numpy()
 
 
-    def _batched_impute(self, latent_composition, batch_size = 512, bar = True):
+    def _batched_impute(self, latent_composition, covariates, 
+        batch_size = 512, bar = True):
 
-        return self._run_decoder_fn(self.decoder, latent_composition, 
-                    batch_size= batch_size, bar = bar)
+        return self._run_decoder_fn(partial(self.decoder, nullify_covariates = True), 
+                    latent_composition, covariates,
+                     batch_size= batch_size, bar = bar)
         
 
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, adi.add_layer,
-        fill_kwargs=['topic_compositions'])
-    def impute(self, batch_size = 512, bar = True, *, topic_compositions):
+        fill_kwargs=['topic_compositions','covariates'])
+    def impute(self, batch_size = 512, bar = True, *, topic_compositions,
+        covariates):
         '''
         Impute the relative frequencies of features given the cells' topic
         compositions. The value given is *rho* (see manscript for details).
@@ -1180,16 +1207,39 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             layers: 'imputed'
         '''
         return self.features, np.vstack([
-            x for x  in self._batched_impute(topic_compositions, batch_size = batch_size, bar = bar)
+            x for x  in self._batched_impute(topic_compositions, covariates,
+                batch_size = batch_size, bar = bar)
+        ])
+
+    def batched_batch_effect(self, latent_composition, covariates, 
+        batch_size = 512, bar = True):
+
+        self._run_decoder_fn(self.decoder.get_batch_effect, 
+                    latent_composition, covariates,
+                     batch_size= batch_size, bar = bar)
+
+
+    @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_layer, add_layer = 'batch_effect'),
+        fill_kwargs=['topic_compositions','covariates'])
+    def get_batch_effect(self, batch_size = 512, bar = True, *, topic_compositions,
+        covariates):
+
+        if self.num_covariates == 0:
+            raise ValueError('Cannot compute batch effect with no covariates.')
+
+        return self.features, np.vstack([
+            x for x  in self._batched_impute(topic_compositions, covariates,
+                batch_size = batch_size, bar = bar)
         ])
 
 
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_obs_col, colname = 'softmax_denom'), 
-        fill_kwargs = ['topic_compositions'])
-    def _get_softmax_denom(self, topic_compositions, batch_size = 512, bar = True):
+        fill_kwargs = ['topic_compositions','covariates'])
+    def _get_softmax_denom(self, topic_compositions, covariates, batch_size = 512, bar = True):
         return np.concatenate([
-            x for x in self._run_decoder_fn(self.decoder.get_softmax_denom, topic_compositions, 
-                        batch_size = batch_size, bar = bar, desc = 'Calculating softmax summary data')
+            x for x in self._run_decoder_fn(
+                self.decoder.get_softmax_denom, topic_compositions, covariates,
+                batch_size = batch_size, bar = bar, desc = 'Calculating softmax summary data')
         ])
 
     def _to_tensor(self, val):
