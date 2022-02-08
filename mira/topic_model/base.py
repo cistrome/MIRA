@@ -80,6 +80,7 @@ class Decoder(PyroModule):
         self.beta = nn.Linear(num_topics, num_exog_features, bias = False)
         self.bn = nn.BatchNorm1d(num_exog_features)
         self.drop = nn.Dropout(dropout)
+        self.drop2 = nn.Dropout(dropout**(2/3))
         self.dropout_rate = dropout
         self.num_topics = num_topics
         self.num_covariates = num_covariates
@@ -87,14 +88,11 @@ class Decoder(PyroModule):
             encoder_layer(num_topics + num_covariates, covar_channels, 
                 dropout=dropout, nonlin=True),
             nn.Linear(covar_channels, num_exog_features),
-            nn.BatchNorm1d(num_exog_features, affine = False)
+            nn.BatchNorm1d(num_exog_features, affine = False),
         )
         self.batch_effect_gamma = nn.Parameter(
-                torch.zeros(num_exog_features)
+                torch.ones(num_exog_features)
             )
-        #PyroSample(
-        #    dist.Normal(torch.zeros(num_exog_features), torch.ones(num_exog_features)).to_event(1)
-        #)
 
 
     def forward(self, theta, covariates, nullify_covariates = False):
@@ -105,19 +103,18 @@ class Decoder(PyroModule):
             batch_effect = theta.new_zeros(1)
         else:
             batch_effect = self.batch_effect_gamma * self.batch_effect_model(
-                    torch.hstack([theta, covariates])
+                    torch.hstack([self.drop2(theta), covariates])
                 )
 
         return F.softmax(self.bn(self.beta(X) + batch_effect), dim=1)
 
     def get_batch_effect(self, theta, covariates):
         
-        X = self.drop(theta)
         if self.num_covariates == 0:
             batch_effect = theta.new_zeros(1)
         else:
             batch_effect = self.batch_effect_gamma * self.batch_effect_model(
-                    torch.hstack([theta, covariates])
+                    torch.hstack([self.drop2(theta), covariates])
                 )
 
         return batch_effect
@@ -440,11 +437,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         with pyro.plate("topics", self.num_topics) as k:
             initial_counts = pyro.sample("a", dist.LogNormal(pseudocount_mu, pseudocount_std))
-
-        batch_effect_mu = pyro.param('batch_effect_mu', torch.randn(self.num_exog_features, device = self.device))
-        batch_effect_std = pyro.param('batch_effect_var', torch.ones(self.num_exog_features, device = self.device))
-
-        return batch_effect_mu, batch_effect_std
 
 
 
@@ -1214,7 +1206,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def batched_batch_effect(self, latent_composition, covariates, 
         batch_size = 512, bar = True):
 
-        self._run_decoder_fn(self.decoder.get_batch_effect, 
+        return self._run_decoder_fn(self.decoder.get_batch_effect, 
                     latent_composition, covariates,
                      batch_size= batch_size, bar = bar)
 
@@ -1228,7 +1220,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             raise ValueError('Cannot compute batch effect with no covariates.')
 
         return self.features, np.vstack([
-            x for x  in self._batched_impute(topic_compositions, covariates,
+            x for x  in self.batched_batch_effect(topic_compositions, covariates,
                 batch_size = batch_size, bar = bar)
         ])
 

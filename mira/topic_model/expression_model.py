@@ -175,7 +175,7 @@ class ExpressionTopicModel(BaseModel):
 
     @scope(prefix= 'rna')
     def guide(self,*,endog_features, exog_features, covariates, read_depth, anneal_factor = 1.):
-        batch_effect_mu, batch_effect_std = super().guide()
+        super().guide()
 
         theta_loc, theta_scale, rd_loc, rd_scale = self.encoder(endog_features, read_depth, covariates)
         
@@ -185,9 +185,6 @@ class ExpressionTopicModel(BaseModel):
                 theta = pyro.sample(
                     "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
                 )
-
-                #pyro.sample('batch_effect_gamma', dist.Normal(batch_effect_mu, 
-                #                                    batch_effect_std).to_event(1))
 
                 read_depth = pyro.sample(
                     "read_depth", dist.LogNormal(rd_loc.reshape((-1,1)), rd_scale.reshape((-1,1))).to_event(1)
