@@ -80,8 +80,7 @@ class Decoder(PyroModule):
         self.beta = nn.Linear(num_topics, num_exog_features, bias = False)
         self.bn = nn.BatchNorm1d(num_exog_features)
         self.drop = nn.Dropout(dropout)
-        self.drop2 = nn.Dropout(dropout**(2/3))
-        self.dropout_rate = dropout
+        self.drop2 = nn.Dropout(dropout**2)
         self.num_topics = num_topics
         self.num_covariates = num_covariates
         self.batch_effect_model = nn.Sequential(
@@ -91,7 +90,7 @@ class Decoder(PyroModule):
             nn.BatchNorm1d(num_exog_features, affine = False),
         )
         self.batch_effect_gamma = nn.Parameter(
-                torch.ones(num_exog_features)
+                torch.zeros(num_exog_features)
             )
 
 
@@ -102,9 +101,11 @@ class Decoder(PyroModule):
         if self.num_covariates == 0 or nullify_covariates:
             batch_effect = theta.new_zeros(1)
         else:
-            batch_effect = self.batch_effect_gamma * self.batch_effect_model(
-                    torch.hstack([self.drop2(theta), covariates])
+            batch_effect = self.drop2(
+                self.batch_effect_gamma * self.batch_effect_model(
+                    torch.hstack([X, covariates])
                 )
+            )
 
         return F.softmax(self.bn(self.beta(X) + batch_effect), dim=1)
 
@@ -114,7 +115,7 @@ class Decoder(PyroModule):
             batch_effect = theta.new_zeros(1)
         else:
             batch_effect = self.batch_effect_gamma * self.batch_effect_model(
-                    torch.hstack([self.drop2(theta), covariates])
+                    torch.hstack([theta, covariates])
                 )
 
         return batch_effect
