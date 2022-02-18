@@ -26,6 +26,16 @@ def fetch_split_train_test(self, adata):
         test_data = adata[adata.obs_vector(self.test_column)]
     )
 
+def fetch_columns(self, adata, cols):
+
+    assert(isinstance(cols, list) or cols is None)
+    if cols is None:
+        return None
+    else:
+       return np.hstack([
+            adata.obs_vector(col).astype(np.float32)[:, np.newaxis] for col in cols
+        ])
+
 
 def fit_adata(self, adata):
 
@@ -45,53 +55,42 @@ def fit_adata(self, adata):
 
     features = adata.var_names.values
 
-    assert(isinstance(self.covariates_key, list) or self.covariates_key is None)
-    if self.covariates_key is None:
-        covariates = None
-    else:
-        covariates = np.hstack([
-            adata.obs_vector(covar).astype(np.float32)[:, np.newaxis] for covar in self.covariates_key
-        ])
+    covariates = fetch_columns(self, adata, self.covariates_key)
+
+    extra_features = fetch_columns(self, adata, self.features)
 
     return dict(
         features = features,
         highly_variable = highly_variable,
         endog_features = fetch_layer(self, adata[:, highly_variable], self.counts_layer),
         exog_features = fetch_layer(self, adata, self.counts_layer),
-        covariates = covariates
+        covariates = covariates,
+        features = features
     )
 
 def fetch_features(self, adata):
 
     adata = adata[:, self.features]
 
-    if self.covariates_key is None:
-        covariates = None
-    else:
-        covariates = np.hstack([
-            adata.obs_vector(covar).astype(np.float32)[:, np.newaxis] for covar in self.covariates_key
-        ])
+    covariates = fetch_columns(self, adata, self.covariates_key)
+    extra_features = fetch_columns(self, adata, self.features)
 
     return dict(
         endog_features = fetch_layer(self, adata[:, self.highly_variable], self.counts_layer),
         exog_features = fetch_layer(self, adata, self.counts_layer),
-        covariates = covariates
+        covariates = covariates,
+        extra_features = extra_features
     )
 
 
 def fetch_topic_comps(self, adata, key = 'X_topic_compositions'):
     logger.info('Fetching key {} from obsm'.format(key))
 
-    assert(isinstance(self.covariates_key, list) or self.covariates_key is None)
-    if self.covariates_key is None:
-        covariates = None
-    else:
-        covariates = np.hstack([
-            adata.obs_vector(covar).astype(np.float32)[:, np.newaxis] for covar in self.covariates_key
-        ])
+    covariates = fetch_columns(self, adata, self.covariates_key)
+    extra_features = fetch_columns(self, adata, self.features)
 
     return dict(topic_compositions = adata.obsm[key],
-                covariates = covariates)
+                covariates = covariates, extra_features = extra_features)
 
 
 def fetch_topic_comps_and_linkage_matrix(self, adata, key = 'X_topic_compositions', 
