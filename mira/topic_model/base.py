@@ -91,7 +91,8 @@ class Decoder(PyroModule):
             nn.Linear(covar_channels, num_exog_features),
             nn.BatchNorm1d(num_exog_features, affine = False),
         )
-        self.batch_effect_gamma = nn.Parameter(
+        if num_covariates > 0:
+            self.batch_effect_gamma = nn.Parameter(
                 torch.zeros(num_exog_features)
             )
 
@@ -703,6 +704,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                             break
 
         except ValueError as err:
+            print(repr(err))
             logger.error(str(err) + '\nProbably gradient overflow from too high learning rate, stopping test early.')
 
         self.gradient_lr = np.array(learning_rates[:len(learning_rate_losses)])

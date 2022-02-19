@@ -57,7 +57,7 @@ def fit_adata(self, adata):
 
     covariates = fetch_columns(self, adata, self.covariates_key)
 
-    extra_features = fetch_columns(self, adata, self.features)
+    extra_features = fetch_columns(self, adata, self.extra_features_key)
 
     return dict(
         features = features,
@@ -65,7 +65,7 @@ def fit_adata(self, adata):
         endog_features = fetch_layer(self, adata[:, highly_variable], self.counts_layer),
         exog_features = fetch_layer(self, adata, self.counts_layer),
         covariates = covariates,
-        features = features
+        extra_features = extra_features
     )
 
 def fetch_features(self, adata):
@@ -73,7 +73,7 @@ def fetch_features(self, adata):
     adata = adata[:, self.features]
 
     covariates = fetch_columns(self, adata, self.covariates_key)
-    extra_features = fetch_columns(self, adata, self.features)
+    extra_features = fetch_columns(self, adata, self.extra_features_key)
 
     return dict(
         endog_features = fetch_layer(self, adata[:, self.highly_variable], self.counts_layer),
@@ -87,7 +87,7 @@ def fetch_topic_comps(self, adata, key = 'X_topic_compositions'):
     logger.info('Fetching key {} from obsm'.format(key))
 
     covariates = fetch_columns(self, adata, self.covariates_key)
-    extra_features = fetch_columns(self, adata, self.features)
+    extra_features = fetch_columns(self, adata, self.extra_features_key)
 
     return dict(topic_compositions = adata.obsm[key],
                 covariates = covariates, extra_features = extra_features)
