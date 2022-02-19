@@ -889,10 +889,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             self._instantiate_model(
                 features = features, highly_variable = highly_variable, 
                 endog_features = endog_features, exog_features = exog_features,
-                covariates = covariates,
+                covariates = covariates, extra_features = extra_features,
             )
 
-        self._get_dataset_statistics(endog_features, exog_features, covariates)
+        self._get_dataset_statistics(endog_features, exog_features, 
+            covariates, extra_features)
 
         n_observations = endog_features.shape[0]
         n_batches = self.get_num_batches(n_observations, self.batch_size)
@@ -1007,7 +1008,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         results = []
         for batch in self._iterate_batches(**features,
                 batch_size = batch_size, bar = bar,  desc = desc):
-            results.append(fn(batch['endog_features'], batch['read_depth'], batch['covariates']))
+            results.append(fn(batch['endog_features'], batch['read_depth'], batch['covariates'], batch['extra_features']))
 
         results = np.vstack(results)
         return results
