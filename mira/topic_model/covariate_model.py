@@ -31,7 +31,7 @@ class CovariateModel(BaseModel):
 
         if self.covariate_compensation:
             self.mine_network = Mine(get_statistics_network(
-                2*self.num_exog_features, self.mine_hidden))
+                2*self.num_exog_features, self.mine_hidden)).to(self.device)
 
     def get_loss_fn(self):
         return TraceMeanField_ELBO().differentiable_loss
@@ -258,3 +258,7 @@ class CovariateModel(BaseModel):
         self.set_device('cpu')
         self.eval()
         return self
+
+    def set_device(self, device):
+        super().set_device(device)
+        self.mine_network = self.mine_network.to(device)
