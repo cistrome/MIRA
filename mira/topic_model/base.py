@@ -81,8 +81,8 @@ class Decoder(PyroModule):
         self.beta = nn.Linear(num_topics, num_exog_features, bias = False)
         self.bn = nn.BatchNorm1d(num_exog_features)
         droprate = -np.sqrt(1-dropout) + 1
-        self.drop = nn.Dropout(droprate)
-        self.drop2 = nn.Dropout(droprate)
+        self.drop = nn.Dropout(dropout)
+        #self.drop2 = nn.Dropout(droprate)
         self.num_topics = num_topics
         self.num_covariates = num_covariates
         self.batch_effect_model = nn.Sequential(
@@ -103,7 +103,7 @@ class Decoder(PyroModule):
         self.covariate_signal = self.get_batch_effect(X, covariates, 
             nullify_covariates = nullify_covariates)
 
-        self.biological_signal = self.get_biological_effect(self.drop2(X))
+        self.biological_signal = self.get_biological_effect(X)
         
         return F.softmax(self.bn(self.biological_signal + self.covariate_signal), dim=1)
 
@@ -1201,9 +1201,9 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         
 
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, adi.add_layer,
-        fill_kwargs=['topic_compositions','covariates'])
+        fill_kwargs=['topic_compositions','covariates','extra_features'])
     def impute(self, batch_size = 512, bar = True, *, topic_compositions,
-        covariates):
+        covariates, extra_features):
         '''
         Impute the relative frequencies of features given the cells' topic
         compositions. The value given is *rho* (see manscript for details).
@@ -1244,9 +1244,9 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_layer, add_layer = 'batch_effect'),
-        fill_kwargs=['topic_compositions','covariates'])
+        fill_kwargs=['topic_compositions','covariates','extra_features'])
     def get_batch_effect(self, batch_size = 512, bar = True, *, topic_compositions,
-        covariates):
+        covariates, extra_features):
 
         if self.num_covariates == 0:
             raise ValueError('Cannot compute batch effect with no covariates.')

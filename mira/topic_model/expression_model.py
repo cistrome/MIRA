@@ -64,7 +64,7 @@ class ExpressionEncoder(torch.nn.Module):
 
 
     def __init__(self,embedding_size=None,*,
-        num_endog_features, num_covariates, 
+        num_endog_features, num_covariates, num_extra_features,
         num_topics, hidden, dropout, num_layers, num_exog_features):
         super().__init__()
 
@@ -74,15 +74,15 @@ class ExpressionEncoder(torch.nn.Module):
         output_batchnorm_size = 2*num_topics + 2
         self.num_topics = num_topics
         self.fc_layers = get_fc_stack(
-            layer_dims = [num_endog_features + 1 + num_covariates, 
+            layer_dims = [num_endog_features + 1 + num_covariates + num_extra_features, 
             embedding_size, *[hidden]*(num_layers-2), output_batchnorm_size],
             dropout = dropout, skip_nonlin = True
         )
 
         
-    def forward(self, X, read_depth, covariates):
+    def forward(self, X, read_depth, covariates, extra_features):
 
-        X = torch.hstack([X, torch.log(read_depth), covariates])
+        X = torch.hstack([X, torch.log(read_depth), covariates, extra_features])
 
         X = self.fc_layers(X)
 
@@ -95,15 +95,15 @@ class ExpressionEncoder(torch.nn.Module):
         return theta_loc, theta_scale, rd_loc, rd_scale
 
 
-    def topic_comps(self, X, read_depth, covariates):
+    def topic_comps(self, X, read_depth, covariates, extra_features):
 
-        theta = self.forward(X, read_depth, covariates)[0]
+        theta = self.forward(X, read_depth, covariates, extra_features)[0]
         theta = theta.exp()/theta.exp().sum(-1, keepdim = True)
         
         return theta.detach().cpu().numpy()
 
-    def read_depth(self, X, read_depth, covariates):
-        return self.forward(X, read_depth, covariates)[2].detach().cpu().numpy()
+    def read_depth(self, X, read_depth, covariates, extra_features):
+        return self.forward(X, read_depth, covariates, extra_features)[2].detach().cpu().numpy()
 
 
 class ExpressionTopicModel(BaseModel):
@@ -146,7 +146,7 @@ class ExpressionTopicModel(BaseModel):
         return weights
 
     @scope(prefix= 'rna')
-    def model(self,*,endog_features, exog_features, covariates, read_depth, anneal_factor = 1.):
+    def model(self,*,endog_features, exog_features, covariates, read_depth, extra_features, anneal_factor = 1.):
         theta_loc, theta_scale = super().model()
         pyro.module("decoder", self.decoder)
 
@@ -174,10 +174,10 @@ class ExpressionTopicModel(BaseModel):
 
 
     @scope(prefix= 'rna')
-    def guide(self,*,endog_features, exog_features, covariates, read_depth, anneal_factor = 1.):
+    def guide(self,*,endog_features, exog_features, covariates, read_depth, extra_features, anneal_factor = 1.):
         super().guide()
 
-        theta_loc, theta_scale, rd_loc, rd_scale = self.encoder(endog_features, read_depth, covariates)
+        theta_loc, theta_scale, rd_loc, rd_scale = self.encoder(endog_features, read_depth, covariates, extra_features)
         
         with pyro.plate("cells", endog_features.shape[0]):
 
@@ -191,8 +191,8 @@ class ExpressionTopicModel(BaseModel):
                 )
 
 
-    def _get_dataset_statistics(self, endog_features, exog_features, covariates):
-        super()._get_dataset_statistics(endog_features, exog_features, covariates)
+    def _get_dataset_statistics(self, endog_features, exog_features, covariates, extra_features):
+        super()._get_dataset_statistics(endog_features, exog_features, covariates, extra_features)
 
         self.residual_pi = np.array(endog_features.sum(axis = 0)).reshape(-1)/endog_features.sum()
 

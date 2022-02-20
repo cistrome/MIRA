@@ -77,7 +77,6 @@ class DANEncoder(nn.Module):
         ave_embeddings = embeddings.sum(1)/read_depth
 
         X = torch.hstack([ave_embeddings, read_depth.log(), covariates, extra_features]) #inject read depth into model
-        print(X.shape, extra_features.shape)
         X = self.fc_layers(X)
 
         theta_loc = X[:, :self.num_topics]
