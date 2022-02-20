@@ -91,7 +91,8 @@ class Decoder(PyroModule):
             nn.Linear(covar_channels, num_exog_features),
             nn.BatchNorm1d(num_exog_features, affine = False),
         )
-        self.batch_effect_gamma = nn.Parameter(
+        if num_covariates > 0:
+            self.batch_effect_gamma = nn.Parameter(
                 torch.zeros(num_exog_features)
             )
 
@@ -706,6 +707,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                             break
 
         except ValueError as err:
+            print(repr(err))
             logger.error(str(err) + '\nProbably gradient overflow from too high learning rate, stopping test early.')
 
         self.gradient_lr = np.array(learning_rates[:len(learning_rate_losses)])
@@ -890,10 +892,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             self._instantiate_model(
                 features = features, highly_variable = highly_variable, 
                 endog_features = endog_features, exog_features = exog_features,
-                covariates = covariates,
+                covariates = covariates, extra_features = extra_features,
             )
 
-        self._get_dataset_statistics(endog_features, exog_features, covariates)
+        self._get_dataset_statistics(endog_features, exog_features, 
+            covariates, extra_features)
 
         n_observations = endog_features.shape[0]
         n_batches = self.get_num_batches(n_observations, self.batch_size)
@@ -1008,7 +1011,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         results = []
         for batch in self._iterate_batches(**features,
                 batch_size = batch_size, bar = bar,  desc = desc):
-            results.append(fn(batch['endog_features'], batch['read_depth'], batch['covariates']))
+            results.append(fn(batch['endog_features'], batch['read_depth'], batch['covariates'], batch['extra_features']))
 
         results = np.vstack(results)
         return results
