@@ -65,7 +65,7 @@ def fit_adata(self, adata):
         endog_features = fetch_layer(self, adata[:, highly_variable], self.counts_layer),
         exog_features = fetch_layer(self, adata, self.counts_layer),
         covariates = covariates,
-        features = features
+        extra_features = extra_features
     )
 
 def fetch_features(self, adata):

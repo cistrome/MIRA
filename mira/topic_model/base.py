@@ -95,24 +95,26 @@ class Decoder(PyroModule):
                 torch.zeros(num_exog_features)
             )
 
-
     def forward(self, theta, covariates, nullify_covariates = False):
 
         X = self.drop(theta)
 
-        if self.num_covariates == 0 or nullify_covariates:
-            batch_effect = theta.new_zeros(1)
-        else:
-            batch_effect = self.batch_effect_gamma * self.batch_effect_model(
-                    torch.hstack([X, covariates])
-                )
+        self.covariate_signal = self.get_batch_effect(X, covariates, 
+            nullify_covariates = nullify_covariates)
 
-        return F.softmax(self.bn(self.beta(self.drop2(X)) + batch_effect), dim=1)
-
-    def get_batch_effect(self, theta, covariates):
+        self.biological_signal = self.get_biological_effect(self.drop2(X))
         
-        if self.num_covariates == 0:
+        return F.softmax(self.bn(self.biological_signal + self.covariate_signal), dim=1)
+
+
+    def get_biological_effect(self, theta):
+        return self.beta(theta)
+
+    def get_batch_effect(self, theta, covariates, nullify_covariates = False):
+        
+        if self.num_covariates == 0 or nullify_covariates: 
             batch_effect = theta.new_zeros(1)
+            batch_effect.requires_grad = False
         else:
             batch_effect = self.batch_effect_gamma * self.batch_effect_model(
                     torch.hstack([theta, covariates])
@@ -599,7 +601,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.highly_variable = highly_variable
         self.num_covariates = 0 if covariates is None else covariates.shape[-1]
         self.num_extra_features = 0 if extra_features is None else extra_features.shape[-1]
-        
+        self.covariate_compensation = self.num_covariates > 0
+
         self._get_weights()
 
     @adi.wraps_modelfunc(fetch = tmi.fit_adata, 
