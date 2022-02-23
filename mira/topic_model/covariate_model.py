@@ -1,4 +1,4 @@
-from mira.topic_model.base import BaseModel, EarlyStopping
+from mira.topic_model.base import BaseModel, EarlyStopping, ModelParamError
 import pyro
 import pyro.distributions as dist
 import torch
@@ -18,12 +18,16 @@ from pyro import poutine
 from functools import partial
 
 
-class CovariateModel(BaseModel):
+class CovariateModelMixin(BaseModel):
 
-    mine_lr = 1e-4
-    mine_alpha = 0.01
-    mine_hidden = 100
-    MI_beta = 1000
+    def __init__(self, *args, mine_lr = 1e-4, mine_alpha = 0.1, 
+        mine_hidden = 64, MI_beta = 5000, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.mine_lr = mine_lr
+        self.mine_alpha = self.mine_alpha
+        self.mine_hidden = self.mine_hidden
+        self.MI_beta = MI_beta
 
 
     def _get_weights(self, on_gpu = True, inference_mode = False):
@@ -36,22 +40,31 @@ class CovariateModel(BaseModel):
     def get_loss_fn(self):
         return TraceMeanField_ELBO().differentiable_loss
 
-    def model_step(self, opt, anneal_factor = 1, *args, **kwargs):
+    def model_step(self, opt, parameters, anneal_factor = 1, *args, **kwargs):
 
         opt.zero_grad()
 
         bioloss = self.get_loss_fn()(self.model, self.guide, *args, **kwargs)
-        
+
         causal_MI = -self.mine_network(
             self.decoder.biological_signal,
             self.decoder.covariate_signal,
         )
 
-        loss = bioloss + torch.tensor(anneal_factor, requires_grad = False) * self.MI_beta * causal_MI
+        loss = bioloss + torch.tensor(anneal_factor, requires_grad = False) * self.MI_beta * causal_MI        
         loss.backward()
+        
+        nn.utils.clip_grad_norm_(parameters, 1e5)
+        
+        total_norm = 0
+        for p in parameters:
+            param_norm = p.grad.detach().data.norm(2)
+            total_norm += param_norm.item() ** 2
+        total_norm = total_norm ** 0.5
+
         opt.step()
 
-        return loss.item()
+        return loss.item(), total_norm
 
     def mine_step(self, opt):
 
@@ -61,9 +74,17 @@ class CovariateModel(BaseModel):
             self.decoder.covariate_signal.detach(),
         )
         loss.backward()
+        
+        nn.utils.clip_grad_norm_(self.mine_network.parameters(), 100)
+        total_norm = 0
+        for p in self.mine_network.parameters():
+            param_norm = p.grad.detach().data.norm(2)
+            total_norm += param_norm.item() ** 2
+        total_norm = total_norm ** 0.5
+
         opt.step()
 
-        return -loss.item()
+        return -loss.item(), total_norm
     
     def _get_1cycle_scheduler(self, optimizer, n_batches_per_epoch):
 
@@ -134,8 +155,8 @@ class CovariateModel(BaseModel):
                                 self.mine_network.parameters(), lr = self.mine_lr,
                             )
 
-                    step_loss += self.model_step(model_optimizer, **minibatch, anneal_factor = 1.)
-                    self.mine_losses.append(float(self.mine_step(mine_optimizer)))
+                    step_loss += self.model_step(model_optimizer, params, **minibatch, anneal_factor = 1.)[0]
+                    self.mine_losses.append(float(self.mine_step(mine_optimizer)[0]))
 
                     batches_complete+=1
                     samples_seen += minibatch['endog_features'].shape[0]
@@ -188,6 +209,7 @@ class CovariateModel(BaseModel):
 
         step_count = 0
         self.anneal_factors, self.mine_losses = [],[]
+        self.mine_norms, self.model_norms = [],[]
         try:
 
             t = trange(self.num_epochs, desc = 'Epoch 0', leave = True) if training_bar else range(self.num_epochs)
@@ -220,9 +242,13 @@ class CovariateModel(BaseModel):
                                     self.mine_network.parameters(), lr = self.mine_lr,
                                 )
 
-                        running_loss += self.model_step(model_optimizer, **minibatch, anneal_factor = anneal_factor)
-                        self.mine_losses.append(float(self.mine_step(mine_optimizer)))
+                        step_loss, step_norm = self.model_step(model_optimizer, params, **minibatch, anneal_factor = anneal_factor)
+                        running_loss+=float(step_loss)
+                        self.model_norms.append(step_norm)
 
+                        mine_loss, mine_norm = self.mine_step(mine_optimizer)
+                        self.mine_losses.append(float(mine_loss))
+                        self.mine_norms.append(mine_norm)
                         step_count+=1
                     except ValueError:
                         raise ModelParamError('Gradient overflow caused parameter values that were too large to evaluate. Try setting a lower learning rate.')
