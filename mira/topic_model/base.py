@@ -80,7 +80,7 @@ class Decoder(PyroModule):
         super().__init__()
         self.beta = nn.Linear(num_topics, num_exog_features, bias = False)
         self.bn = nn.BatchNorm1d(num_exog_features)
-        droprate = -np.sqrt(1-dropout) + 1
+        #droprate = -np.sqrt(1-dropout) + 1
         self.drop = nn.Dropout(dropout)
         #self.drop2 = nn.Dropout(droprate)
         self.num_topics = num_topics
