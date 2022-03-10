@@ -402,7 +402,8 @@ def get_transport_map(ka = 5, n_jobs = 1,*, start_cell = None, distance_matrix, 
 
 
 @adi.wraps_functional(pti.fetch_transport_map, pti.get_cell_ids, ['transport_map'])
-def find_terminal_cells(iterations = 1, max_termini = 15, threshold = 1e-3, *, transport_map):
+def find_terminal_cells(iterations = 1, max_termini = 15, threshold = 1e-3, 
+        seed = None, *, transport_map):
     '''
     Uses transport map to identify terminal cells where differentiation progress
     reaches a steady state. Results are stochastic based on SVD initialization.
@@ -451,12 +452,15 @@ def find_terminal_cells(iterations = 1, max_termini = 15, threshold = 1e-3, *, t
 
     '''
 
+    np.random.seed(seed)
+
     assert(transport_map.shape[0] == transport_map.shape[1])
     assert(len(transport_map.shape) == 2)
 
     def _get_stationary_points():
 
-        vals, vectors = eigs(transport_map.T, k = max_termini)
+        v0 = np.random.randn((transport_map.shape[0]))
+        vals, vectors = eigs(transport_map.T, k = max_termini, v0 = v0)
 
         stationary_vecs = np.isclose(np.real(vals), 1., threshold)
 
