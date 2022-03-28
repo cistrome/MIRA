@@ -330,7 +330,7 @@ def _build_tree(cell_colors = None, size = None, shape = None, max_bar_height = 
     return plot_bottom
 
 
-def _normalize_numerical_features(features,*, clip, scale_features, max_bar_height, style, split):
+def _normalize_numerical_features(features, enforce_max = None, *, clip, scale_features, max_bar_height, style, split):
 
     if not clip is None:
         means, stds = features.mean(0, keepdims = True), features.std(0, keepdims = True)
@@ -338,7 +338,7 @@ def _normalize_numerical_features(features,*, clip, scale_features, max_bar_heig
         features = np.clip(features, clip_min, clip_max)
 
     features_min, features_max = features.min(0, keepdims = True), features.max(0, keepdims = True)
-    
+
     if scale_features:
         features = (features - features_min)/(features_max - features_min) #scale relative heights of features
     else:
@@ -353,6 +353,9 @@ def _normalize_numerical_features(features,*, clip, scale_features, max_bar_heig
 
     features = features/height_normalizer * max_bar_height
 
+    if not enforce_max is None:
+        features*=(features_max - features_min)/enforce_max
+
     return features
     
 
@@ -364,7 +367,7 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
     palette = None, color = 'black', linecolor = 'black', linewidth = None, hue_order = None, pseudotime_triangle = True,
     scaffold_linecolor = 'lightgrey', scaffold_linewidth = 1, min_pseudotime = -1, orientation = 'h',
     figsize = (10,5), ax = None, plots_per_row = 4, height = 4, aspect = 1.3, tree_structure = True,
-    center_baseline = True, window_size = 101, clip = 10, alpha = 1., vertical = False,
+    center_baseline = True, window_size = 101, clip = 10, alpha = 1., vertical = False, enforce_max = None,
     feature_labels = None, group_names = None, tree_graph = None,*, features, pseudotime, group):
     '''
 
@@ -589,7 +592,7 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
     num_features = features.shape[-1]
     
     if np.issubdtype(features.dtype, np.number):
-        features = _normalize_numerical_features(features, clip = clip, split = split,
+        features = _normalize_numerical_features(features, clip = clip, split = split, enforce_max=enforce_max,
             scale_features = scale_features, max_bar_height = max_bar_height, style = style)
     
     if group_names is None:
