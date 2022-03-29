@@ -1,4 +1,0 @@
-Building DAG of jobs...
-MissingInputException in line 47 of /Users/alynch/projects/multiomics/mira/mira/mira/preprocessing/Snakefile:
-Missing input files for rule aggregate_peakcounts:
-hg38

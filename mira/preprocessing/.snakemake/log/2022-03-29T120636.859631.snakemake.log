@@ -1,6 +1,0 @@
-Building DAG of jobs...
-InputFunctionException in line 39 of /Users/alynch/projects/multiomics/mira/mira/mira/preprocessing/Snakefile:
-AttributeError: 'Namedlist' object has no attribute 'format'
-Wildcards:
-prefix=blah
-name=merged

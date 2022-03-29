@@ -1,3 +1,0 @@
-KeyError in line 78 of /Users/alynch/projects/multiomics/mira/mira/mira/preprocessing/Snakefile:
-'prefix'
-  File "/Users/alynch/projects/multiomics/mira/mira/mira/preprocessing/Snakefile", line 78, in <module>

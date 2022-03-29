@@ -1,3 +1,0 @@
-KeyError in line 56 of /Users/alynch/projects/multiomics/mira/mira/mira/preprocessing/Snakefile:
-'leiden_resolution'
-  File "/Users/alynch/projects/multiomics/mira/mira/mira/preprocessing/Snakefile", line 56, in <module>
