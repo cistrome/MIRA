@@ -25,9 +25,9 @@ def callpeaks(
 def add_arguments(parser):
 
     parser.add_argument('--input-fragments','-i', type = str,required=True)
-    parser.add_argument('--genome-size','-g', required = True)
     parser.add_argument('--outdir', '-d', required = True, type = str)
     parser.add_argument('--name','-n',required=True, type = str)
+    parser.add_argument('--genome-size','-g', required = True)
     parser.add_argument('--ext-size','-e', type = int, default = 50)
     parser.add_argument('--q-value', '-q', type = float, default = 0.05)
     

@@ -5,7 +5,7 @@ rule all:
     input : TARGET
 
 rule filter_short_fragments:
-    output : temp('{prefix}/fragments.short.bed.gz')
+    output : '{prefix}/fragments.short.bed.gz'
     params:
         max_fraglen = config['max_fraglen'],
         fragments = config['fragment_file']
@@ -18,7 +18,7 @@ rule filter_barcodes:
     input: 
         fragments= rules.filter_short_fragments.output,
         barcodes='{prefix}/clusters/{name}.barcodes.txt'
-    output: temp('{prefix}/{name}.fragments.short.barcodes.bed.gz')
+    output: '{prefix}/{name}.fragments.short.barcodes.bed.gz'
     shell:
         "gzip -d -c {input.fragments} | mira-preprocess filter-barcodes - {input.barcodes}"
         "| gzip > {output}"
@@ -76,8 +76,18 @@ checkpoint cluster_cells:
     output: directory('{prefix}/clusters/')
     params:
         resolution = config['leiden_resolution'],
+        report_dir = lambda w : w.prefix,
+        min_peaks = config['min_peaks'],
+        max_counts = config['max_counts'],
+        min_frip = config['min_frip'],
+        min_fragments_in_cluster = config['min_fragments_in_cluster'],
+        components = config['num_lsi_components']
     shell:
-        "mira-preprocess cluster-cells -i {input} -r {params.resolution}"
+        "mira-preprocess cluster-cells -i {input} -o {output} "
+        "-r {params.report_dir} --resolution {params.resolution} "
+        "--min-peaks {params.min_peaks} --max-counts {params.max_counts} "
+        "--min-frip {params.min_frip} --min-fragments-in-cluster {params.min_fragments_in_cluster} "
+        "--num-lsi-components {params.components}"
 
 
 def get_cluster_peaks(wildcards):
