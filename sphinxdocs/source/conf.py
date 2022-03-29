@@ -49,6 +49,7 @@ extensions = [
     'numpydoc',
     'sphinx.ext.autosummary',
     'nbsphinx',
+    'IPython.sphinxext.ipython_console_highlighting'
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -57,7 +58,18 @@ templates_path = ['_templates']
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = []
+pygments_style = "sphinx"
+
+# List of patterns, relative to source directory, that match files and
+# directories to ignore when looking for source files.
+# This pattern also affects html_static_path and html_extra_path.
+exclude_patterns = [
+    "auto_*/**.ipynb",
+    "auto_*/**.md5",
+    "auto_*/**.py",
+    "release/changelog/*",
+    "**.ipynb_checkpoints",
+]
 
 
 # -- Options for HTML output -------------------------------------------------

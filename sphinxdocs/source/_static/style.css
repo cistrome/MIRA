@@ -1,2 +1,6 @@
 
 .center {text-align: center;}
+
+.wy-nav-content {
+    max-width: 1200px !important;
+}
