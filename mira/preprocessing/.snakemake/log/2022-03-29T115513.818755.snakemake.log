@@ -1,0 +1,3 @@
+KeyError in line 4 of /Users/alynch/projects/multiomics/mira/mira/mira/preprocessing/Snakefile:
+'fragment_file'
+  File "/Users/alynch/projects/multiomics/mira/mira/mira/preprocessing/Snakefile", line 4, in <module>

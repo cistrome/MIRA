@@ -1,0 +1,3 @@
+KeyError in line 44 of /Users/alynch/projects/multiomics/mira/mira/mira/preprocessing/Snakefile:
+'genome_file'
+  File "/Users/alynch/projects/multiomics/mira/mira/mira/preprocessing/Snakefile", line 44, in <module>

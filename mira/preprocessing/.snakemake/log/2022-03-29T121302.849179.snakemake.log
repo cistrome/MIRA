@@ -1,0 +1,4 @@
+Building DAG of jobs...
+MissingInputException in line 17 of /Users/alynch/projects/multiomics/mira/mira/mira/preprocessing/Snakefile:
+Missing input files for rule filter_barcodes:
+blah/clusters/bulk.barcodes.txt

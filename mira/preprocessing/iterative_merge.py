@@ -90,7 +90,7 @@ def iterative_merge(
     return peaks
 
 
-def get_arguments(parser):
+def add_arguments(parser):
 
     parser.add_argument('--summit-files', '-s', nargs = '+', type = str,
         help = 'List of MACS summit files to merge', required = True)

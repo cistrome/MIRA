@@ -7,6 +7,13 @@ from scipy import sparse
 import anndata
 import pandas as pd
 
+def _check(genome, region):
+    try:
+        genome.check_region(region)
+        return True
+    except gt.NotInGenomeError:
+        return False
+
 def count_peaks(*,fragment_file, peaks_file, genome_file):
     
     command = ' '.join([
@@ -29,6 +36,7 @@ def count_peaks(*,fragment_file, peaks_file, genome_file):
     
     genome = gt.Genome.from_file(genome_file)
     peaks = gt.Region.read_bedfile(peaks_file)
+    peaks = [peak for peak in peaks if _check(genome, peak)]
     peaks = gt.RegionSet(peaks, genome)
     peak_dict = {r.to_tuple() : i for i,r in enumerate(peaks.regions)}
     peak_dict['background'] = len(peak_dict)
@@ -45,7 +53,6 @@ def count_peaks(*,fragment_file, peaks_file, genome_file):
             i+=1
             
             line = line.decode().strip().split('\t')
-            assert(len(line) == 8)
 
             frag_chrom, frag_start, frag_end, barcode, count, \
                 peak_chrom, peak_start, peak_end = line[:8]
@@ -66,7 +73,7 @@ def count_peaks(*,fragment_file, peaks_file, genome_file):
             counts.append(int(count))
             
             if i%5000000 == 0:
-                logger.warning('Processed {} million fragments ...'.format(str(i//5e6)))
+                logger.warning('Processed {} million fragments ...'.format(str(i//1e6)))
 
     if not process.poll() == 0:
         raise Exception('Error while scanning for motifs: ' + process.stderr.read().decode())
@@ -94,13 +101,13 @@ def format_adata(mtx, barcodes, peaks):
 
 def add_arguments(parser):
     #fragment_file, peak_file, genome_file
-    parser.add_arguments('--fragments','-f', type = str, required=True,
+    parser.add_argument('--fragments','-f', type = str, required=True,
         help = 'Fragment file, may be gzipped')
-    parser.add_arguments('--peaks','-p', type = str, required=True,
+    parser.add_argument('--peaks','-p', type = str, required=True,
         help = 'File of peaks from which to assemble count matrix. Just need (chr, start, end) columns.')
     parser.add_argument('--genome-file','-g', type = str, 
         help = 'Genome file (or chromlengths file).', required = True)
-    parser.add_arguemtn('--outfile','-o',required=True, type = str,
+    parser.add_argument('--outfile','-o',required=True, type = str,
         help = 'Output filename for adata object.')
 
 def main(args):

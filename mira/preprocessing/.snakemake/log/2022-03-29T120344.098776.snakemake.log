@@ -1,0 +1,37 @@
+Building DAG of jobs...
+Job counts:
+	count	jobs
+	2	aggregate_peakcounts
+	1	all
+	2	callpeaks
+	1	cluster_cells
+	1	filter_short_fragments
+	1	merge_peaks
+	8
+
+[Tue Mar 29 12:03:44 2022]
+rule filter_short_fragments:
+    input: ../../../../cellgen2/data/peak_filtering/pbmc_granulocyte_sorted_10k_atac_fragments.tsv.gz
+    output: blah/fragments.short.bed.gz
+    jobid: 7
+    wildcards: prefix=blah
+
+gzip -d -c ../../../../cellgen2/data/peak_filtering/pbmc_granulocyte_sorted_10k_atac_fragments.tsv.gz | awk '$3 - $2 <= 10 && $1 != "#"'| gzip > blah/fragments.short.bed.gz
+
+[Tue Mar 29 12:03:44 2022]
+rule callpeaks:
+    input: blah/fragments.short.bed.gz
+    output: blah/all/peakcall/all_summits.bed
+    jobid: 6
+    wildcards: prefix=blah, name=all
+
+InputFunctionException in line 35 of /Users/alynch/projects/multiomics/mira/mira/mira/preprocessing/Snakefile:
+KeyError: 'prefix'
+Wildcards:
+prefix=blah
+name=all
+  File "/Users/alynch/opt/miniconda3/envs/noR/lib/python3.7/site-packages/snakemake/executors/__init__.py", line 115, in run_jobs
+  File "/Users/alynch/opt/miniconda3/envs/noR/lib/python3.7/site-packages/snakemake/executors/__init__.py", line 120, in run
+  File "/Users/alynch/opt/miniconda3/envs/noR/lib/python3.7/site-packages/snakemake/executors/__init__.py", line 131, in _run
+  File "/Users/alynch/opt/miniconda3/envs/noR/lib/python3.7/site-packages/snakemake/executors/__init__.py", line 151, in printjob
+  File "/Users/alynch/opt/miniconda3/envs/noR/lib/python3.7/site-packages/snakemake/executors/__init__.py", line 137, in printjob
