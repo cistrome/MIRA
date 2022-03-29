@@ -96,9 +96,9 @@ html_theme_options = {
     ],
 }
 
-html_context = {
-    'css_files': ['_static/style.css'],
-}
+#html_context = {
+#    'css_files': ['_static/style.css'],
+#}
 
 plot_pre_code = '''
 import mira
