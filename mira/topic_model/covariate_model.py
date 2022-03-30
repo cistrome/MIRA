@@ -20,14 +20,10 @@ from functools import partial
 
 class CovariateModelMixin(BaseModel):
 
-    def __init__(self, *args, mine_lr = 1e-4, mine_alpha = 0.1, 
-        mine_hidden = 64, MI_beta = 5000, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        self.mine_lr = mine_lr
-        self.mine_alpha = self.mine_alpha
-        self.mine_hidden = self.mine_hidden
-        self.MI_beta = MI_beta
+    mine_lr = 1e4
+    mine_alpha = 0.01
+    mine_hidden = 100
+    MI_beta = 5000
 
 
     def _get_weights(self, on_gpu = True, inference_mode = False):

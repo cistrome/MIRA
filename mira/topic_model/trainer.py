@@ -431,16 +431,12 @@ class TopicModelTuner:
         except AttributeError:
             raise Exception('User must run "tune_hyperparameters" before running this function')
         
-        def score_trial(trial):
-            if trial.user_attrs['completed']:
-                try:
-                    return trial.values[-1]
-                except (TypeError, AttributeError):
-                    pass
+        
+        valid_trials = [
+          trial for trial in self.study.trials if trial.state == ts.COMPLETE
+        ]
 
-            return np.inf
-
-        sorted_trials = sorted(self.study.trials, key = score_trial)
+        sorted_trials = sorted(valid_trials, key = lambda trial : trial.values[-1])
 
         return sorted_trials[:top_n_trials]
 
