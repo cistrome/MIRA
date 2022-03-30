@@ -110,5 +110,6 @@ setup(name='mira-multiome',
         'optuna>=2.8,<3',
         'anndata>=0.7.6,<1',
       ],
+      scripts = ['bin/mira-preprocess'],
       include_package_data = True,
       zip_safe=True)
