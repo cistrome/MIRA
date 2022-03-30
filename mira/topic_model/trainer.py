@@ -348,14 +348,14 @@ class TopicModelTuner:
                 n_startup_trials=3,
                 n_warmup_steps=0,
             )
-        elif issubclass(self.pruner, optuna.pruners.BasePruner):
+        elif isinstance(self.pruner, optuna.pruners.BasePruner):
             return self.pruner
         else:
             raise ValueError('Pruner {} is not an option'.format(str(self.pruner)))
 
 
     def get_tuner(self):
-        if issubclass(self.sampler, optuna.samplers.BaseSampler):
+        if isinstance(self.sampler, optuna.samplers.BaseSampler):
             return self.sampler
         elif self.sampler == 'tpe':
             return optuna.samplers.TPESampler(
@@ -393,7 +393,7 @@ class TopicModelTuner:
             self.study = optuna.create_study(
                 direction = 'minimize',
                 pruner = self.get_pruner(),
-                sample = self.get_tuner(),
+                sampler = self.get_tuner(),
                 study_name = self.save_name,
             )
 
@@ -458,16 +458,11 @@ class TopicModelTuner:
         except AttributeError:
             raise Exception('User must run "tune_hyperparameters" before running this function')
         
-        def score_trial(trial):
-            if trial.user_attrs['completed']:
-                try:
-                    return trial.values[-1]
-                except (TypeError, AttributeError):
-                    pass
-
-            return np.inf
-
-        sorted_trials = sorted(self.study.trials, key = score_trial)
+        valid_trials = [
+          trial for trial in self.study.trials if trial.state == ts.COMPLETE
+        ]
+        
+        sorted_trials = sorted(valid_trials, key = lambda trial : trial.values[-1])
 
         return sorted_trials[:top_n_trials]
 
