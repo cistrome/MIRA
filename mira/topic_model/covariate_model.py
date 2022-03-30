@@ -29,9 +29,11 @@ class CovariateModelMixin(BaseModel):
     def _get_weights(self, on_gpu = True, inference_mode = False):
         super()._get_weights(on_gpu=on_gpu, inference_mode=inference_mode)
 
+
         if self.covariate_compensation:
-            self.mine_network = Mine(get_statistics_network(
-                2*self.num_exog_features, self.mine_hidden)).to(self.device)
+            self.dependence_network = Mine(Mine.get_statistics_network(
+                2*self.num_exog_features, self.mine_hidden)
+            ).to(self.device)
 
     def get_loss_fn(self):
         return TraceMeanField_ELBO().differentiable_loss
@@ -42,7 +44,7 @@ class CovariateModelMixin(BaseModel):
 
         bioloss = self.get_loss_fn()(self.model, self.guide, *args, **kwargs)
 
-        causal_MI = -self.mine_network(
+        causal_MI = -self.dependence_network(
             self.decoder.biological_signal,
             self.decoder.covariate_signal,
         )
@@ -62,18 +64,18 @@ class CovariateModelMixin(BaseModel):
 
         return loss.item(), total_norm
 
-    def mine_step(self, opt):
+    def dependence_step(self, opt):
 
         opt.zero_grad()
-        loss = self.mine_network(
+        loss = self.dependence_network(
             self.decoder.biological_signal.detach(),
             self.decoder.covariate_signal.detach(),
         )
         loss.backward()
         
-        nn.utils.clip_grad_norm_(self.mine_network.parameters(), 100)
+        nn.utils.clip_grad_norm_(self.dependence_network.parameters(), 100)
         total_norm = 0
-        for p in self.mine_network.parameters():
+        for p in self.dependence_network.parameters():
             param_norm = p.grad.detach().data.norm(2)
             total_norm += param_norm.item() ** 2
         total_norm = total_norm ** 0.5
@@ -148,11 +150,11 @@ class CovariateModelMixin(BaseModel):
 
                         if self.covariate_compensation:
                             mine_optimizer = Adam(
-                                self.mine_network.parameters(), lr = self.mine_lr,
+                                self.dependence_network.parameters(), lr = self.mine_lr,
                             )
 
                     step_loss += self.model_step(model_optimizer, params, **minibatch, anneal_factor = 1.)[0]
-                    self.mine_losses.append(float(self.mine_step(mine_optimizer)[0]))
+                    self.mine_losses.append(float(self.dependence_step(mine_optimizer)[0]))
 
                     batches_complete+=1
                     samples_seen += minibatch['endog_features'].shape[0]
@@ -235,14 +237,14 @@ class CovariateModelMixin(BaseModel):
 
                             if self.covariate_compensation:
                                 mine_optimizer = Adam(
-                                    self.mine_network.parameters(), lr = self.mine_lr,
+                                    self.dependence_network.parameters(), lr = self.mine_lr,
                                 )
 
                         step_loss, step_norm = self.model_step(model_optimizer, params, **minibatch, anneal_factor = anneal_factor)
                         running_loss+=float(step_loss)
                         self.model_norms.append(step_norm)
 
-                        mine_loss, mine_norm = self.mine_step(mine_optimizer)
+                        mine_loss, mine_norm = self.dependence_step(mine_optimizer)
                         self.mine_losses.append(float(mine_loss))
                         self.mine_norms.append(mine_norm)
                         step_count+=1
@@ -283,4 +285,4 @@ class CovariateModelMixin(BaseModel):
 
     def set_device(self, device):
         super().set_device(device)
-        self.mine_network = self.mine_network.to(device)
+        self.dependence_network = self.dependence_network.to(device)

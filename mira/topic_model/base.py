@@ -75,26 +75,27 @@ def get_fc_stack(layer_dims = [256, 128, 128, 128], dropout = 0.2, skip_nonlin =
 
 class Decoder(PyroModule):
     
-    def __init__(self, covar_channels = 32,*,num_exog_features, num_topics, num_covariates, 
-        dropout):
+    def __init__(self, covar_channels = 32,*,
+        num_exog_features, num_topics, num_covariates, dropout):
         super().__init__()
         self.beta = nn.Linear(num_topics, num_exog_features, bias = False)
         self.bn = nn.BatchNorm1d(num_exog_features)
-        #droprate = -np.sqrt(1-dropout) + 1
         self.drop = nn.Dropout(dropout)
-        #self.drop2 = nn.Dropout(droprate)
         self.num_topics = num_topics
         self.num_covariates = num_covariates
-        self.batch_effect_model = nn.Sequential(
-            encoder_layer(num_topics + num_covariates, covar_channels, 
-                dropout=dropout, nonlin=True),
-            nn.Linear(covar_channels, num_exog_features),
-            nn.BatchNorm1d(num_exog_features, affine = False),
-        )
+
         if num_covariates > 0:
-            self.batch_effect_gamma = nn.Parameter(
-                torch.zeros(num_exog_features)
+
+            self.batch_effect_model = nn.Sequential(
+                encoder_layer(num_topics + num_covariates, covar_channels, 
+                    dropout=dropout, nonlin=True),
+                nn.Linear(covar_channels, num_exog_features),
+                nn.BatchNorm1d(num_exog_features, affine = False),
             )
+            if num_covariates > 0:
+                self.batch_effect_gamma = nn.Parameter(
+                    torch.zeros(num_exog_features)
+                )
 
     def forward(self, theta, covariates, nullify_covariates = False):
 
@@ -105,11 +106,11 @@ class Decoder(PyroModule):
 
         self.biological_signal = self.get_biological_effect(X)
         
-        return F.softmax(self.bn(self.biological_signal + self.covariate_signal), dim=1)
+        return F.softmax(self.biological_signal + self.covariate_signal, dim=1)
 
 
     def get_biological_effect(self, theta):
-        return self.beta(theta)
+        return self.bn(self.beta(theta))
 
     def get_batch_effect(self, theta, covariates, nullify_covariates = False):
         
@@ -126,7 +127,7 @@ class Decoder(PyroModule):
 
     def get_softmax_denom(self, X, batch_effect):
 
-        return self.bn(self.beta(X) + batch_effect).exp().sum(-1)
+        return (self.get_biological_effect(X) + batch_effect).exp().sum(-1)
 
 
 class ModelParamError(ValueError):
