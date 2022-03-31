@@ -91,6 +91,7 @@ class Mine(nn.Module):
             mi = -self.forward(x, z, z_marg)
         return mi
 
+
 class Wasserstein(Mine):
 
     lr = 1e-4
@@ -106,3 +107,43 @@ class Wasserstein(Mine):
             spectral_norm(nn.Linear(hidden, hidden)), nn.ReLU(),
             spectral_norm(nn.Linear(hidden, 1)),
         )
+
+
+
+def dual_ema_loss(x, running_mean, alpha):
+
+    if running_mean == 0:
+        running_mean = x
+    else:
+        running_mean = ema(x, alpha, running_mean.item())
+
+    return running_mean
+
+
+class WassersteinDual(Mine):
+
+    lr = 1e-4
+    hidden = 64
+    loss_beta = 5000
+
+    @classmethod
+    def get_statistics_network(cls, dim, hidden):
+
+        return nn.Sequential(
+            ConcatLayer(1),
+            spectral_norm(nn.Linear(dim,hidden)), nn.ReLU(),
+            spectral_norm(nn.Linear(hidden, hidden)), nn.ReLU(),
+            spectral_norm(nn.Linear(hidden, 1)),
+        )
+
+    def forward(self, x, z, z_marg=None):
+        if z_marg is None:
+            z_marg = z[torch.randperm(x.shape[0])]
+
+        t = self.T((x, z)).mean()
+        t_marg = self.T((x, z_marg)).mean()
+
+        self.running_mean = dual_ema_loss(
+            t_marg, self.running_mean, self.alpha)
+
+        return -t + self.running_mean
