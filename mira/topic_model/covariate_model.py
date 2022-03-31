@@ -13,7 +13,7 @@ from math import ceil
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 logger = logging.getLogger(__name__)
-from mira.topic_model.mine import Wasserstein as DependencyModel
+from mira.topic_model.mine import WassersteinDual as DependencyModel
 from pyro import poutine
 from functools import partial
 
