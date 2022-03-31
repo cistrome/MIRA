@@ -5,6 +5,7 @@ import math
 import torch
 import torch.nn as nn
 from tqdm.notebook import tqdm
+from torch.nn.utils import spectral_norm
 
 EPS = 1e-6
 
@@ -40,6 +41,7 @@ def ema_loss(x, running_mean, alpha):
 
     return t_log, running_mean
 
+
 class ConcatLayer(nn.Module):
     def __init__(self, dim=1):
         super().__init__()
@@ -49,17 +51,22 @@ class ConcatLayer(nn.Module):
         return torch.cat(x, self.dim)
 
 
-def get_statistics_network(dim, hidden):
-
-    return nn.Sequential(
-        ConcatLayer(1),
-        nn.Linear(dim,hidden), nn.ReLU(), nn.Dropout(0.05),
-        nn.Linear(hidden, hidden), nn.ReLU(), nn.Dropout(0.05),
-        nn.Linear(hidden, 1),
-    )
-
-
 class Mine(nn.Module):
+
+    lr = 1e-4
+    hidden = 64
+    loss_beta = 5000
+
+    @classmethod
+    def get_statistics_network(cls, dim, hidden):
+
+        return nn.Sequential(
+            ConcatLayer(1),
+            nn.Linear(dim,hidden), nn.ReLU(), nn.Dropout(0.05),
+            nn.Linear(hidden, hidden), nn.ReLU(), nn.Dropout(0.05),
+            nn.Linear(hidden, 1),
+        )
+
     def __init__(self, T, alpha=0.01):
         super().__init__()
         self.running_mean = 0
@@ -83,3 +90,19 @@ class Mine(nn.Module):
         with torch.no_grad():
             mi = -self.forward(x, z, z_marg)
         return mi
+
+class Wasserstein(Mine):
+
+    lr = 1e-4
+    hidden = 64
+    loss_beta = 5000
+
+    @classmethod
+    def get_statistics_network(cls, dim, hidden):
+
+        return nn.Sequential(
+            ConcatLayer(1),
+            spectral_norm(nn.Linear(dim,hidden)), nn.ReLU(),
+            spectral_norm(nn.Linear(hidden, hidden)), nn.ReLU(),
+            spectral_norm(nn.Linear(hidden, 1)),
+        )

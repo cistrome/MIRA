@@ -101,7 +101,7 @@ class Decoder(PyroModule):
 
         X = self.drop(theta)
 
-        self.covariate_signal = self.get_batch_effect(X, covariates, 
+        self.covariate_signal = self.get_batch_effect(theta, covariates, 
             nullify_covariates = nullify_covariates)
 
         self.biological_signal = self.get_biological_effect(X)
@@ -1106,8 +1106,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_obsm, add_key = 'X_umap_features'),
-        fill_kwargs=['topic_compositions', 'covariates'])
-    def get_umap_features(self, box_cox = 0.5, *, topic_compositions, covariates):
+        fill_kwargs=['topic_compositions', 'covariates','extra_features'])
+    def get_umap_features(self, box_cox = 0.5, *, topic_compositions, covariates, extra_features):
         '''
         Predict transformed topic compositions for each cell to derive nearest-
         neighbors graph. Projects topic compositions to orthonormal space using

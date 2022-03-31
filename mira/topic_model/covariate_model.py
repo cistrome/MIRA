@@ -13,17 +13,12 @@ from math import ceil
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 logger = logging.getLogger(__name__)
-from mira.topic_model.mine import Mine, get_statistics_network
+from mira.topic_model.mine import Wasserstein as DependencyModel
 from pyro import poutine
 from functools import partial
 
 
 class CovariateModelMixin(BaseModel):
-
-    mine_lr = 1e4
-    mine_alpha = 0.01
-    mine_hidden = 100
-    MI_beta = 5000
 
 
     def _get_weights(self, on_gpu = True, inference_mode = False):
@@ -31,8 +26,8 @@ class CovariateModelMixin(BaseModel):
 
 
         if self.covariate_compensation:
-            self.dependence_network = Mine(Mine.get_statistics_network(
-                2*self.num_exog_features, self.mine_hidden)
+            self.dependence_network = DependencyModel(DependencyModel.get_statistics_network(
+                2*self.num_exog_features, DependencyModel.hidden)
             ).to(self.device)
 
     def get_loss_fn(self):
@@ -44,12 +39,12 @@ class CovariateModelMixin(BaseModel):
 
         bioloss = self.get_loss_fn()(self.model, self.guide, *args, **kwargs)
 
-        causal_MI = -self.dependence_network(
+        dependence_loss = -self.dependence_network(
             self.decoder.biological_signal,
             self.decoder.covariate_signal,
         )
 
-        loss = bioloss + torch.tensor(anneal_factor, requires_grad = False) * self.MI_beta * causal_MI        
+        loss = bioloss + torch.tensor(anneal_factor, requires_grad = False) * DependencyModel.loss_beta * dependence_loss        
         loss.backward()
         
         nn.utils.clip_grad_norm_(parameters, 1e5)
@@ -123,7 +118,7 @@ class CovariateModelMixin(BaseModel):
             return learning_rates[e]/learning_rates[0]
 
         batches_complete, steps_complete, step_loss, samples_seen = 0,0,0,0
-        learning_rate_losses, self.mine_losses = [], []
+        learning_rate_losses, self.dependence_losses = [], []
         
         try:
             t = trange(eval_steps-2, desc = 'Learning rate range test', leave = True)
@@ -150,11 +145,11 @@ class CovariateModelMixin(BaseModel):
 
                         if self.covariate_compensation:
                             mine_optimizer = Adam(
-                                self.dependence_network.parameters(), lr = self.mine_lr,
+                                self.dependence_network.parameters(), lr = DependencyModel.lr,
                             )
 
                     step_loss += self.model_step(model_optimizer, params, **minibatch, anneal_factor = 1.)[0]
-                    self.mine_losses.append(float(self.dependence_step(mine_optimizer)[0]))
+                    self.dependence_losses.append(float(self.dependence_step(mine_optimizer)[0]))
 
                     batches_complete+=1
                     samples_seen += minibatch['endog_features'].shape[0]
@@ -206,7 +201,7 @@ class CovariateModelMixin(BaseModel):
             n_batches_per_epoch = n_batches)
 
         step_count = 0
-        self.anneal_factors, self.mine_losses = [],[]
+        self.anneal_factors, self.dependence_losses = [],[]
         self.mine_norms, self.model_norms = [],[]
         try:
 
@@ -237,15 +232,15 @@ class CovariateModelMixin(BaseModel):
 
                             if self.covariate_compensation:
                                 mine_optimizer = Adam(
-                                    self.dependence_network.parameters(), lr = self.mine_lr,
+                                    self.dependence_network.parameters(), lr = DependencyModel.lr,
                                 )
 
                         step_loss, step_norm = self.model_step(model_optimizer, params, **minibatch, anneal_factor = anneal_factor)
                         running_loss+=float(step_loss)
                         self.model_norms.append(step_norm)
 
-                        mine_loss, mine_norm = self.dependence_step(mine_optimizer)
-                        self.mine_losses.append(float(mine_loss))
+                        dependence_loss, mine_norm = self.dependence_step(mine_optimizer)
+                        self.dependence_losses.append(float(dependence_loss))
                         self.mine_norms.append(mine_norm)
                         step_count+=1
                     except ValueError:
