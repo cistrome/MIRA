@@ -55,7 +55,7 @@ class Mine(nn.Module):
 
     lr = 1e-4
     hidden = 64
-    loss_beta = 5000
+    loss_beta = 1000
 
     @classmethod
     def get_statistics_network(cls, dim, hidden):
@@ -95,7 +95,7 @@ class Wasserstein(Mine):
 
     lr = 1e-4
     hidden = 64
-    loss_beta = 5000
+    loss_beta = 1000
 
     @classmethod
     def get_statistics_network(cls, dim, hidden):

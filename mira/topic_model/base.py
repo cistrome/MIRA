@@ -101,7 +101,7 @@ class Decoder(PyroModule):
 
         X = self.drop(theta)
 
-        self.covariate_signal = self.get_batch_effect(theta, covariates, 
+        self.covariate_signal = self.get_batch_effect(X, covariates, 
             nullify_covariates = nullify_covariates)
 
         self.biological_signal = self.get_biological_effect(X)
