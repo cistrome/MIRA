@@ -429,7 +429,7 @@ class TopicModelTuner:
             self.cv = KFold(self.cv, random_state = self.seed, shuffle= True)
         
         trial_func = partial(
-            self.trial, 
+            self._trial, 
             tuner = self,
             model = self.model, data = train_data,
             cv = self.cv, batch_sizes = self.batch_sizes,
