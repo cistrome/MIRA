@@ -303,11 +303,15 @@ def _build_tree(cell_colors = None, size = None, shape = None, max_bar_height = 
             
             max_times[end_clus] = segment_pseudotime.max()
             min_times[end_clus] = segment_pseudotime.min()
+            pseudotime_range = segment_pseudotime.max() - segment_pseudotime.min()
             
             connection = ((centerlines[start_clus], max_times[start_clus]), 
                             (centerlines[end_clus], min_times[end_clus]))
 
             segment_is_leaf = is_leaf(tree_graph, end_clus)
+
+            if segment_is_leaf and pseudotime_range < min_pseudotime:
+                segment_pseudotime = (segment_pseudotime - segment_pseudotime.min()) * (min_pseudotime/pseudotime_range) + segment_pseudotime.min()
 
             plot_fn(features = segment_features, pseudotime = segment_pseudotime, is_leaf = segment_is_leaf, is_root = not has_plotted, ax = ax,
                 centerline = centerline, lineage_name = lineage_names[end_clus], segment_connection = connection, cell_colors = segment_cell_colors)
@@ -326,7 +330,7 @@ def _build_tree(cell_colors = None, size = None, shape = None, max_bar_height = 
     return plot_bottom
 
 
-def _normalize_numerical_features(features,*, clip, scale_features, max_bar_height, style, split):
+def _normalize_numerical_features(features, enforce_max = None, *, clip, scale_features, max_bar_height, style, split):
 
     if not clip is None:
         means, stds = features.mean(0, keepdims = True), features.std(0, keepdims = True)
@@ -334,7 +338,7 @@ def _normalize_numerical_features(features,*, clip, scale_features, max_bar_heig
         features = np.clip(features, clip_min, clip_max)
 
     features_min, features_max = features.min(0, keepdims = True), features.max(0, keepdims = True)
-    
+
     if scale_features:
         features = (features - features_min)/(features_max - features_min) #scale relative heights of features
     else:
@@ -349,6 +353,9 @@ def _normalize_numerical_features(features,*, clip, scale_features, max_bar_heig
 
     features = features/height_normalizer * max_bar_height
 
+    if not enforce_max is None:
+        features*=(features_max - features_min)/enforce_max
+
     return features
     
 
@@ -358,9 +365,9 @@ def _normalize_numerical_features(features,*, clip, scale_features, max_bar_heig
 def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_features = False, order = 'ascending',
     title = None, show_legend = True, legend_cols = 5, max_bar_height = 0.6, size = None, max_swarm_density = 1e5, hide_feature_threshold = 0,
     palette = None, color = 'black', linecolor = 'black', linewidth = None, hue_order = None, pseudotime_triangle = True,
-    scaffold_linecolor = 'lightgrey', scaffold_linewidth = 1, min_pseudotime = 0.05, orientation = 'h',
+    scaffold_linecolor = 'lightgrey', scaffold_linewidth = 1, min_pseudotime = -1, orientation = 'h',
     figsize = (10,5), ax = None, plots_per_row = 4, height = 4, aspect = 1.3, tree_structure = True,
-    center_baseline = True, window_size = 101, clip = 10, alpha = 1., vertical = False,
+    center_baseline = True, window_size = 101, clip = 10, alpha = 1., vertical = False, enforce_max = None,
     feature_labels = None, group_names = None, tree_graph = None,*, features, pseudotime, group):
     '''
 
@@ -652,7 +659,7 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
     num_features = features.shape[-1]
     
     if np.issubdtype(features.dtype, np.number):
-        features = _normalize_numerical_features(features, clip = clip, split = split,
+        features = _normalize_numerical_features(features, clip = clip, split = split, enforce_max=enforce_max,
             scale_features = scale_features, max_bar_height = max_bar_height, style = style)
     
     if group_names is None:
@@ -674,7 +681,6 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
 
     if log_pseudotime:
         pseudotime = np.log(pseudotime+ 1)
-        min_pseudotime = np.log(min_pseudotime + 1)
 
     if not order is None:
         feature_order = np.argsort(

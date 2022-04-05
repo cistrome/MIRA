@@ -150,6 +150,7 @@ class TopicModelTuner:
         study = None,
         seed = 2556,
         pruner = 'halving',
+        sampler = 'tpe',
     ):
         '''
 
@@ -236,6 +237,7 @@ class TopicModelTuner:
         self.seed = seed
         self.save_name = save_name
         self.pruner = pruner
+        self.sampler = sampler
 
         if not study is None:
             assert(not study.study_name is None), 'Provided studies must have names.'
@@ -363,8 +365,21 @@ class TopicModelTuner:
                 n_startup_trials=3,
                 n_warmup_steps=0,
             )
+        elif issubclass(self.pruner, optuna.pruners.BasePruner):
+            return self.pruner
         else:
             raise ValueError('Pruner {} is not an option'.format(str(self.pruner)))
+
+
+    def get_tuner(self):
+        if issubclass(self.sampler, optuna.samplers.BaseSampler):
+            return self.sampler
+        elif self.sampler == 'tpe':
+            return optuna.samplers.TPESampler(
+                seed = self.seed
+            )
+        else:
+            raise ValueError('Sampler {} is not an option'.format(str(self.sampler)))
 
 
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, 
@@ -395,7 +410,8 @@ class TopicModelTuner:
         if self.study is None:
             self.study = optuna.create_study(
                 direction = 'minimize',
-                pruner = self._get_pruner(),
+                pruner = self.get_pruner(),
+                sample = self.get_tuner(),
                 study_name = self.save_name,
             )
 

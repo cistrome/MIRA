@@ -2,7 +2,7 @@ import numpy as np
 import mira.adata_interface.core as adi
 import mira.adata_interface.regulators as ri
 from scipy.stats import mannwhitneyu
-import tqdm
+from tqdm.notebook import tqdm
 from functools import partial
 import logging
 
@@ -35,7 +35,7 @@ def _driver_TF_test(background = None, alt_hypothesis = 'greater',*,
     ))
 
     results = []
-    for factor_scores in tqdm.tqdm(isd_matrix.T, desc = 'Testing factors'):
+    for factor_scores in tqdm(isd_matrix.T, desc = 'Testing factors'):
         results.append(
             mannwhitneyu(factor_scores[query_mask], factor_scores[background_mask], 
                 alternative = alt_hypothesis)

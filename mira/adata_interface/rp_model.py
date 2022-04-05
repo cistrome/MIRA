@@ -1,13 +1,27 @@
 import logging
 import inspect
-from functools import wraps
+from functools import partial, wraps
 import numpy as np
 from scipy.sparse import isspmatrix
-from mira.adata_interface.core import fetch_layer,project_matrix
+from mira.adata_interface.core import fetch_layer,project_matrix, add_layer
 from mira.adata_interface.regulators import fetch_peaks, fetch_factor_hits
-import tqdm
+from tqdm.notebook import tqdm
 from scipy import sparse
+from joblib import Parallel, delayed
 logger = logging.getLogger(__name__)
+
+def add_predictions(adata, output, model_type = 'LITE', sparse = True):
+
+    features, predictions = output
+    expr_predictions, logp_data = list(zip(*predictions))
+    
+    #(adata, output, add_layer = 'imputed', sparse = False):
+    add_layer(adata, (features, np.hstack(expr_predictions)), 
+        add_layer = model_type + '_prediction', sparse = True)
+
+    add_layer(adata, (features, np.hstack(logp_data)), 
+        add_layer = model_type + '_logp', sparse = True)
+
 
 def get_peak_and_tss_data(self, adata, tss_data = None, peak_chrom = 'chr', peak_start = 'start', peak_end = 'end', 
         gene_id = 'geneSymbol', gene_chrom = 'chrom', gene_start = 'txStart', gene_end = 'txEnd', gene_strand = 'strand'):
@@ -46,15 +60,78 @@ def add_peak_gene_distances(adata, output):
     logger.info('Added key to uns: distance_to_TSS_genes')
 
 
+def fetch_TSS_from_adata(self, adata):
+    
+    try:
+        tss_metadata = adata.uns['TSS_metadata']
+    except KeyError:
+        raise KeyError('Adata does not have .uns["TSS_metadata"], user must run mira.tl.get_distance_to_TSS first.')
+
+    tss_metadata = {
+        gene : {
+            'gene_chrom' : chrom, 'gene_start' : start, 'gene_end' : end, 'gene_strand' : strand
+        }
+        for gene, chrom, start, end, strand in list(zip(
+            tss_metadata['gene'], tss_metadata['chromosome'], 
+            tss_metadata['txStart'], tss_metadata['txEnd'], tss_metadata['strand']
+        ))
+    }
+
+    try:
+        return tss_metadata[self.gene]
+    except KeyError:
+        raise KeyError('Gene {} not in TSS annotation.'.format(self.gene))
+
+
+def set_up_model(gene_name, atac_adata, expr_adata, 
+    distance_matrix, read_depth, expr_softmax_denom,
+    NITE_features, atac_softmax_denom, include_factor_data,
+    self):
+
+    try:
+        gene_idx = np.argwhere(np.array(atac_adata.uns['distance_to_TSS_genes']) == gene_name)[0,0]
+    except IndexError:
+        raise IndexError('Gene {} does not appear in peak annotation'.format(gene_name))
+
+    try:
+        gene_expr = expr_adata.obs_vector(gene_name, layer = self.counts_layer)
+
+        assert(np.isclose(gene_expr.astype(np.int64), gene_expr, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
+        gene_expr = gene_expr.astype(int)
+        
+    except KeyError:
+        raise KeyError('Gene {} is not found in expression data var_names'.format(gene_name))
+
+    peak_idx = distance_matrix[gene_idx, :].indices
+    tss_distance = distance_matrix[gene_idx, :].data
+
+    model_features = {}
+    for region_name, mask in zip(['promoter','upstream','downstream'], self._get_masks(tss_distance)):
+        model_features[region_name + '_idx'] = peak_idx[mask]
+        model_features[region_name + '_distances'] = np.abs(tss_distance[mask])
+
+    model_features.pop('promoter_distances')
+
+    return self._get_features_for_model(
+                        gene_expr = gene_expr,
+                        read_depth = read_depth,
+                        expr_softmax_denom = expr_softmax_denom,
+                        NITE_features = NITE_features,
+                        atac_softmax_denom = atac_softmax_denom,
+                        include_factor_data = include_factor_data,
+                        **model_features,
+                        )
+
+
 def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **kwargs : None, 
     bar_desc = '', include_factor_data = False):
 
     def wrap_fn(func):
 
-        def rp_signature(*, expr_adata, atac_adata, atac_topic_comps_key = 'X_topic_compositions'):
+        def rp_signature(*, expr_adata, atac_adata, n_jobs = 1, atac_topic_comps_key = 'X_topic_compositions'):
             pass
 
-        def isd_signature(*, expr_adata, atac_adata, checkpoint = None, 
+        def isd_signature(*, expr_adata, atac_adata, n_jobs = 1, checkpoint = None, 
             atac_topic_comps_key = 'X_topic_compositions', factor_type = 'motifs'):
             pass
 
@@ -72,7 +149,9 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
         
         @wraps(func)
         def get_RP_model_features(self,*, expr_adata, atac_adata, atac_topic_comps_key = 'X_topic_compositions', 
-            factor_type = 'motifs', checkpoint = None, **kwargs):
+            factor_type = 'motifs', checkpoint = None, n_jobs = 1, **kwargs):
+
+            assert(isinstance(n_jobs, int) and (n_jobs >= 1 or n_jobs == -1))
 
             unannotated_genes = np.setdiff1d(self.genes, atac_adata.uns['distance_to_TSS_genes'])
             if len(unannotated_genes) > 0:
@@ -112,48 +191,28 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
                 logger.warn('Resuming pISD from checkpoint. If wanting to recalcuate, use a new checkpoint file, or set checkpoint to None.')
                 kwargs['checkpoint'] = checkpoint
 
-            results = []
-            for model in tqdm.tqdm(self.models, desc = bar_desc):
+            get_model_features_function = partial(set_up_model, atac_adata = atac_adata,
+                expr_adata = expr_adata, distance_matrix = distance_matrix, read_depth = read_depth, 
+                expr_softmax_denom = expr_softmax_denom, NITE_features = NITE_features, 
+                atac_softmax_denom = atac_softmax_denom, include_factor_data = include_factor_data,
+                self = self)
 
-                gene_name = model.gene
-                try:
-                    gene_idx = np.argwhere(np.array(atac_adata.uns['distance_to_TSS_genes']) == gene_name)[0,0]
-                except IndexError:
-                    raise IndexError('Gene {} does not appear in peak annotation'.format(gene_name))
+            if n_jobs == 1:
+                
+                results = [
+                    func(self, model, get_model_features_function(model.gene), **hits_data, **kwargs)
+                    for model in tqdm(self.models, desc =bar_desc)
+                ]
 
-                try:
-                    gene_expr = expr_adata.obs_vector(gene_name, layer = self.counts_layer)
+            else:
+                
+                def feature_producer():
+                    for model in self.models:
+                        yield model, get_model_features_function(model.gene)
 
-                    assert(np.isclose(gene_expr.astype(np.int64), gene_expr, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
-                    gene_expr = gene_expr.astype(int)
-                    
-                except KeyError:
-                    raise KeyError('Gene {} is not found in expression data var_names'.format(gene_name))
-
-                peak_idx = distance_matrix[gene_idx, :].indices
-                tss_distance = distance_matrix[gene_idx, :].data
-
-                model_features = {}
-                for region_name, mask in zip(['promoter','upstream','downstream'], self._get_masks(tss_distance)):
-                    model_features[region_name + '_idx'] = peak_idx[mask]
-                    model_features[region_name + '_distances'] = np.abs(tss_distance[mask])
-
-                model_features.pop('promoter_distances')
-
-                results.append(func(
-                        self, model, 
-                        self._get_features_for_model(
-                            gene_expr = gene_expr,
-                            read_depth = read_depth,
-                            expr_softmax_denom = expr_softmax_denom,
-                            NITE_features = NITE_features,
-                            atac_softmax_denom = atac_softmax_denom,
-                            include_factor_data = include_factor_data,
-                            **model_features,
-                            ),
-                        **hits_data,
-                        **kwargs)
-                )
+                results = Parallel(n_jobs=n_jobs, verbose=0, pre_dispatch='2*n_jobs')\
+                    (delayed(func)(self, model, features, **hits_data, **kwargs) 
+                    for model, features in tqdm(feature_producer(), desc = bar_desc, total = len(self.models)))
 
             return adata_adder(self, expr_adata, atac_adata, results, factor_type = factor_type)
 

@@ -78,15 +78,7 @@ Or you can set **diffmap_distances_key** to "distances" to use directly use the 
         )
     return dict(distance_matrix = distance_matrix, diffmap = diffmap)
 
-
-def fetch_diffmap_distances_and_components(self, adata, start_cell = None,
-        diffmap_distances_key = 'X_diffmap_distances',
-        diffmap_coordinates_key = 'X_diffmap'):
-
-    try:
-        components = adata.obs_vector('mira_connected_components')
-    except KeyError:
-        raise KeyError('User must run "get_connected_components" before running this function.')
+def validate_cell(adata, start_cell):
 
     assert(not start_cell is None), 'Must provide a start cell.'
     assert(isinstance(start_cell, (int, str)))
@@ -98,6 +90,20 @@ def fetch_diffmap_distances_and_components(self, adata, start_cell = None,
             raise ValueError('Cell {} not in adata.obs_names'.format(str(start_cell)))
     elif start_cell >= len(adata):
         raise ValueError('Invalid cell#: {}, only {} cells in dataset.'.format(str(start_cell), str(len(adata))))
+
+    return start_cell
+
+
+def fetch_diffmap_distances_and_components(self, adata, start_cell = None,
+        diffmap_distances_key = 'X_diffmap_distances',
+        diffmap_coordinates_key = 'X_diffmap'):
+
+    try:
+        components = adata.obs_vector('mira_connected_components')
+    except KeyError:
+        raise KeyError('User must run "get_connected_components" before running this function.')
+
+    start_cell = validate_cell(adata, start_cell)
         
     return dict(
         **fetch_diffmap_distances(self, adata, diffmap_distances_key, diffmap_coordinates_key = diffmap_coordinates_key),
@@ -151,14 +157,8 @@ def fetch_transport_map_and_terminal_cells(self, adata, terminal_cells = None):
     termini_dict = {}
     for lineage, cell in terminal_cells.items():
         assert(isinstance(lineage, str)), 'Lineage name {} is not of type str'.format(str(lineage))
-        assert(isinstance(cell, (int, str))), 'Cell may be cell# or cell name of type int or str only.'
-        if isinstance(cell, str):
-            try:
-                cell = np.argwhere(adata.obs_names == cell)[0,0]
-            except IndexError:
-                raise ValueError('Cell {} not found in adata.obs_names'.format(str(cell)))
-        elif cell >= len(adata):
-            raise ValueError('Invalid cell#: {}, only {} cells in dataset.'.format(str(cell), str(len(adata))))
+        
+        cell = validate_cell(adata, cell)
 
         termini_dict[lineage] = cell
 
@@ -169,17 +169,33 @@ def fetch_transport_map_and_terminal_cells(self, adata, terminal_cells = None):
     return dict(transport_map = adata.obsp['transport_map'], terminal_cells = termini_dict)
 
 
-def fetch_tree_state_args(self, adata):
+def fetch_tree_state_args(self, adata, cellrank = False, 
+    pseudotime_key = 'mira_pseudotime', branch_probs_key = 'branch_probs',
+    lineage_names_key = 'lineage_names', start_cell = None):
 
-    try:
+    if start_cell is None:
+        try:
+            start_cell = adata.uns['start_cell']
+        except KeyError:
+            raise KeyError('No start cell provided, and start cell not found in .uns["start_cell"]. To run this function, provide a start cell.')
+
+    if not cellrank:
+        try:
+            return dict(
+                lineage_names = adata.uns[lineage_names_key],
+                branch_probs = adata.obsm[branch_probs_key],
+                pseudotime = adata.obs[pseudotime_key].values,
+                start_cell = validate_cell(adata, start_cell),
+            )
+        except KeyError:
+            raise KeyError('One of the required pieces to run this function is not present. Make sure you\'ve first run "get_transport_map" and "get_branch_probabilities".')
+    else:
         return dict(
-            lineage_names = adata.uns['lineage_names'],
-            branch_probs = adata.obsm['branch_probs'],
-            pseudotime = adata.obs['mira_pseudotime'].values,
-            start_cell = np.argwhere(adata.obs_names == adata.uns['start_cell'])[0,0],
-        )
-    except KeyError:
-        raise KeyError('One of the required pieces to run this function is not present. Make sure you\'ve first run "get_transport_map" and "get_branch_probabilities".')
+                lineage_names = adata.obsm['to_terminal_states'].names,
+                branch_probs = np.array(adata.obsm['to_terminal_states']),
+                pseudotime = adata.obs[pseudotime_key].values,
+                start_cell = validate_cell(adata, start_cell),
+            )
 
 
 def add_tree_state_args(adata, output):
@@ -223,6 +239,7 @@ def fetch_trace_args(self, adata,
     pseudotime_key = 'mira_pseudotime',
     diffmap_distances_key = 'X_diffmap_distances', 
     diffmap_coordinates_key = 'X_diffmap',
+    transport_map_key = None,
     start_cells = None, start_lineage = None,
     num_start_cells = 50):
 
@@ -232,10 +249,16 @@ def fetch_trace_args(self, adata,
     except KeyError:
         raise KeyError('Basis {} has not been calculated'.format(str(basis)))
 
-    out.update(
-        fetch_diffmap_distances(self, adata, diffmap_coordinates_key=diffmap_coordinates_key,
-            diffmap_distances_key=diffmap_distances_key)
-    )
+    if transport_map_key is None:
+        try:
+            out.update(
+                fetch_diffmap_distances(self, adata, diffmap_coordinates_key=diffmap_coordinates_key,
+                    diffmap_distances_key=diffmap_distances_key)
+            )
+            out['pseudotime'] = adata.obs_vector(pseudotime_key)
+            del out['diffmap']
+        except KeyError:
+            raise KeyError('If no transport map key provided, uses distance matrix and pseudotime to produce a new transport map.')
 
     if start_cells is None and start_lineage is None:
         raise ValueError('One of either "start_cells" or "start_lineage" must be given.')
@@ -284,8 +307,10 @@ def fetch_trace_args(self, adata,
 
         start_cells = (-branch_probs[start_lineage]).argsort().argsort() < num_start_cells
 
-    out.update({'start_cells' : start_cells, 'pseudotime' : adata.obs_vector(pseudotime_key)})
+    out['start_cells'] = start_cells
+
+    if not transport_map_key is None:
+        out['transport_map'] = adata.obsp[transport_map_key]   
     
-    del out['diffmap']
     return out
     

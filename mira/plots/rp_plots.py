@@ -1,4 +1,4 @@
-'''import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 import numpy as np
 from lisa.core.genome_tools import Region
 import tqdm
@@ -14,7 +14,7 @@ def _plot_rp_model_tails(ax, start_pos, left_decay, right_decay, color = 'lightg
     
 
 def _plot_rp_models(ax, color = 'lightgrey', linecolor = 'black', 
-        linewidth = 1, alpha = 0.25,*, 
+        linewidth = 1, alpha = 0.25, bin_size = 50, *, 
         interval_chrom, interval_start, interval_end, rp_models, 
         gene_id, chrom, start, end, strand):
     
@@ -43,4 +43,5 @@ def _plot_rp_models(ax, color = 'lightgrey', linecolor = 'black',
             
             if gene_bounds.overlaps(interval):
                 _plot_rp_model_tails(ax, start_pos, left, right, 
-                    color = color, alpha = alpha, linecolor = linecolor, linewidth = linewidth)'''
+                    color = color, alpha = alpha, linecolor = linecolor, linewidth = linewidth, 
+                    bin_size = bin_size)

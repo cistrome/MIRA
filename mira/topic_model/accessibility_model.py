@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributions.constraints as constraints
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 import warnings
 from sklearn.preprocessing import scale
 from scipy import sparse

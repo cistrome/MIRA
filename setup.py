@@ -5,7 +5,6 @@ import os
 
 configpath = os.path.join(os.path.dirname(__file__), 'mira', 'config.ini')
 
-print(configpath)
 config = configparser.ConfigParser()
 config.read(configpath)
 
@@ -99,5 +98,6 @@ setup(name='mira-multiome',
         'optuna>=2.8,<3',
         'anndata>=0.7.6,<1',
       ],
+      scripts = ['bin/mira-preprocess'],
       include_package_data = True,
       zip_safe=True)

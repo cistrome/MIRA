@@ -63,15 +63,16 @@ def _animate(frame_num, palette = 'BuPu', vmax_quantile = 0.99,*,
     return scatter
 
 @adi.wraps_functional(pti.fetch_trace_args, adi.return_output, 
-    ['basis','start_cells','distance_matrix','pseudotime'])
+    ['basis','start_cells','distance_matrix','pseudotime','transport_map'])
 def trace_differentiation(
     palette = 'BuPu', add_outline = True, outline_width = (0,12), 
     outline_color = 'lightgrey',
     size = 1, figsize = (10,7), fps = 24, steps_per_frame = 1,
     num_steps = 4000, ka = 5, vmax_quantile = 0.99, 
     direction = 'forward', num_preview_frames = 4, 
-    log_prob = False, sqrt_time = False, *,
-    basis, start_cells, distance_matrix, pseudotime, save_name,
+    log_prob = False, sqrt_time = False, 
+    distance_matrix = None, transport_map = None, pseudotime = None, *,
+    basis, start_cells, save_name,
     **plot_args,
 ):
     '''
@@ -169,12 +170,14 @@ def trace_differentiation(
 
     logger.info('Creating transport map ...')
 
-    if direction == 'backward':
-        pseudotime = pseudotime.max() - pseudotime
+    if transport_map is None:
 
-    transport_map = _make_map(ka = ka, 
-        distance_matrix= distance_matrix,
-        pseudotime=pseudotime)
+        if direction == 'backward':
+            pseudotime = pseudotime.max() - pseudotime
+
+        transport_map = _make_map(ka = ka, 
+            distance_matrix= distance_matrix,
+            pseudotime=pseudotime)
 
     logger.info('Tracing ancestral populations ...')
 
