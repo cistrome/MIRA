@@ -423,6 +423,9 @@ def find_terminal_cells(iterations = 1, max_termini = 15, threshold = 1e-3, *, t
         Treshold includes eigenvectors that are greater than 1 - `threshold`.
         To loosen the definition of terminal states and identify more cells,
         increase `threshold`, e.g. 1e-2.
+    seed : int, default = None
+        Seed for terminal state calling. Seed initializes SVD decomposition
+        of transport map.
 
     Returns
     -------

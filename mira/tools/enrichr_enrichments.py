@@ -3,8 +3,9 @@ import json
 from functools import partial
 from mira.plots.base import map_plot
 from collections.abc import Iterable
+import charset_normalizer
 import logging
-requests.logging.getLogger().setLevel(logging.WARN)
+charset_normalizer.logging.getLogger().setLevel(logging.WARN)
 
 
 ENRICHR_URL = 'http://maayanlab.cloud/Enrichr/'

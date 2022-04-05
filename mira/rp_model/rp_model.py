@@ -64,6 +64,33 @@ class BaseModel:
 
     @classmethod
     def load_dir(cls,counts_layer = None,*,expr_model, accessibility_model, prefix):
+        '''
+        Load directory of RP models. Adds all available RP models into a container.
+
+        Parameters
+        ----------
+        expr_model: mira.topics.ExpressionTopicModel
+            Trained MIRA expression topic model.
+        accessibility_model : mira.topics.AccessibilityTopicModel
+            Trained MIRA accessibility topic model.
+        counts_layer : str, default=None
+            Layer in AnnData that countains raw counts for modeling.
+        prefix : str
+            Prefix under which RP models were saved.
+
+        Examples
+        --------
+
+        .. code-block :: python
+
+            >>> litemodel = mira.rp.LITE_Model.load_dir(
+            ...     counts_layer = 'counts',
+            ...     expr_model = rna_model, 
+            ...     accessibility_model = atac_model,
+            ...     prefix = 'path/to/rpmodels/'
+            ... )
+
+        '''
 
         paths = glob.glob(prefix + cls.prefix + '*.pth')
 
@@ -127,7 +154,72 @@ class BaseModel:
         genes,
         learning_rate = 1,
         counts_layer = None,
-        initialization_model = None):
+        initialization_model = None): 
+        '''
+        Parameters
+        ----------
+
+        expr_model: mira.topics.ExpressionTopicModel
+            Trained MIRA expression topic model.
+        accessibility_model : mira.topics.AccessibilityTopicModel
+            Trained MIRA accessibility topic model.
+        genes : np.ndarray[str], list[str]
+            List of genes for which to learn RP models.
+        learning_rate : float>0
+            Learning rate for L-BGFS optimizer.
+        counts_layer : str, default=None
+            Layer in AnnData that countains raw counts for modeling.
+        initialization_model : mira.rp.LITE_Model, mira.rp.NITE_Model, None
+            Initialize parameters of RP model using the provided model before
+            further optimization with L-BGFS. This is used when training the NITE
+            model, which is initialized with the LITE model parameters learned 
+            for the same genes, then retrained to optimized the NITE model's 
+            extra parameters. This procedure speeds training.
+
+        Attributes
+        ----------
+        genes : np.ndarray[str]
+            Array of gene names for models
+        features : np.ndarray[str]
+            Array of gene names for models
+        models : list[mira.rp.GeneModel]
+            List of trained RP models
+        model_type : {"NITE", "LITE"}
+        
+        Examples
+        --------
+
+        Setup requires RNA and ATAC AnnData objects with shared cell barcodes
+        and trained topic models for both modes:
+
+        .. code-block:: python
+            
+            >>> rp_args = dict(expr_adata = rna_data, atac_adata = atac_data)
+        
+        Instantiating a LITE model (local chromatin accessibility only):
+
+        .. code-block:: python
+
+            >>> litemodel = mira.rp.LITE_Model(
+            ...     expr_model = rna_model, 
+            ...     accessibility_model = atac_model,
+            ...     counts_layer = 'counts',
+            ...     genes = ['LEF1','WNT3','EDA','NOTCH1'],
+            ... )
+            >>> litemodel.fit(**rp_args)
+        
+        Instantiating a NITE model (local chromatin accessibility only):
+
+            >>> nitemodel = mira.rp.NITE_Model(
+            ...     expr_model = rna_model, 
+            ...     accessibility_model = atac_model,
+            ...     counts_layer = 'counts',
+            ...     genes = litemodel.genes,
+            ...     instantiation_model = litemodel
+            ... )
+            >>> nitemodel.fit(**rp_args)
+        
+        '''
 
         self.expr_model = expr_model
         self.accessibility_model = accessibility_model
@@ -153,6 +245,24 @@ class BaseModel:
             )
 
     def subset(self, genes):
+        '''
+        Return a subset container of RP models.
+
+        Parameters
+        ----------
+
+        genes : np.ndarray[str], list[str]
+            List of genes to subset from RP model
+
+        Examples
+        --------
+
+        .. code-block :: python
+
+            >>> less_models = litemodel.subset(['LEF1','WNT3'])
+
+        
+        '''
         assert(isinstance(genes, (list, np.ndarray)))
         for gene in genes:
             if not gene in self.genes:
@@ -166,6 +276,29 @@ class BaseModel:
         )
 
     def join(self, rp_model):
+        '''
+        Merge RP models from two model containers.
+
+        Parameters
+        ----------
+
+        rp_model : mira.rp.LITE_Model, mira.rp.NITE_Model
+            RP model container from which to append new RP models
+
+        Examples
+        --------
+
+        .. code-block :: python
+
+            >>> model1.genes
+            ... ['LEF1','WNT3']
+            >>> model2.genes
+            ... ['CTSC','EDAR']
+            >>> merged_model = model1.join(model2)
+            >>> merged_model.genes
+            ... ['LEF1','WNT3','CTSC','EDAR']
+
+        '''
 
         assert(isinstance(rp_model, BaseModel))
         assert(rp_model.use_NITE_features == self.use_NITE_features), 'Cannot join LITE model with NITE model'
@@ -241,11 +374,33 @@ class BaseModel:
 
 
     def save(self, prefix):
+        '''
+        Save RP models.
+
+        Parameters
+        ----------
+
+        prefix : str
+            Prefix under which to save RP models. May be filename prefix
+            or directory. RP models will save with format:
+            **{prefix}_{LITE/NITE}_{gene}.pth**
+
+        '''
         for model in self.models:
             model.save(prefix)
 
 
     def get_model(self, gene):
+        '''
+        Gets model for gene
+
+        Parameters
+        ----------
+
+        gene : str
+            Fetch RP model for this gene
+
+        '''
         try:
             return self.models[np.argwhere(self.genes == gene)[0,0]]
         except IndexError:
@@ -253,6 +408,16 @@ class BaseModel:
 
 
     def load(self, prefix):
+        '''
+        Load RP models saved with *prefix*.
+
+        Parameters
+        ----------
+
+        prefix : str
+            Prefix under which RP models were saved.
+
+        '''
 
         genes = self.genes
         self.models = []
@@ -285,6 +450,25 @@ class BaseModel:
 
     @wraps_rp_func(lambda self, expr_adata, atac_data, output, **kwargs : self.subset_fit_models(output), bar_desc = 'Fitting models')
     def fit(self, model, features, callback = None):
+        '''
+        Optimize parameters of RP models to learn *cis*-regulatory relationships.
+
+        Parameters
+        ----------
+
+        expr_adata : anndata.AnnData
+            AnnData of expression features
+        atac_adata : anndata.AnnData
+            AnnData of accessibility features. Must be annotated with 
+            mira.tl.get_distance_to_TSS.
+
+        Returns
+        -------
+
+        rp_model : mira.rp.LITE_Model, mira.rp.NITE_Model
+            RP model with optimized parameters
+ 
+        '''
         try:
             model.fit(features)
         except ValueError:
@@ -304,6 +488,30 @@ class BaseModel:
         add_layer(expr_adata, (self.features, np.hstack(output)), add_layer = self.model_type + '_prediction', sparse = True),
         bar_desc = 'Predicting expression')
     def predict(self, model, features):
+        '''
+        Predicts the expression of genes given their *cis*-accessibility state.
+        Also evaluates the probability of that prediction for LITE/NITE evaluation.
+
+        Parameters
+        ----------
+
+        expr_adata : anndata.AnnData
+            AnnData of expression features
+        atac_adata : anndata.AnnData
+            AnnData of accessibility features. Must be annotated with 
+            mira.tl.get_distance_to_TSS.
+
+        Returns
+        -------
+
+        anndata.AnnData
+            `.layers['LITE_prediction']` or `.layers['NITE_prediction']`: np.ndarray[float] of shape (n_cells, n_features)
+                Predicted relative frequencies of features using LITE or NITE model, respectively
+            `.layers['LTIE_logp']` or `.layers['NITE_logp']` : np.ndarray[float] of shape (n_cells, n_features)
+                Probability of observed expression given posterior predictive estimate of LITE or
+                NITE model, respectively.
+        
+        '''
         return model.predict(features)
 
     @wraps_rp_func(lambda self, expr_adata, atac_data, output, **kwargs: \
@@ -331,6 +539,41 @@ class BaseModel:
         bar_desc = 'Predicting TF influence', include_factor_data = True)
     def probabilistic_isd(self, model, features, n_samples = 1500, checkpoint = None,
         *,hits_matrix, metadata):
+        '''
+        For each gene, calcuate association scores with each transcription factor.
+        Association scores detect when a TF binds within *cis*-regulatory
+        elements (CREs) that are influential to expression predictions for that gene.
+        CREs that influence the RP model expression prediction are nearby a 
+        gene's TSS and have accessibility that correlates with expression. This
+        model assumes these attributes indicate a factor is more likely to 
+        regulate a gene. 
+
+        Parameters
+        ----------
+
+        expr_adata : anndata.AnnData
+            AnnData of expression features
+        atac_adata : anndata.AnnData
+            AnnData of accessibility features. Must be annotated with TSS and factor
+            binding data using mira.tl.get_distance_to_TSS **and** 
+            mira.tl.get_motif_hits_in_peaks/mira.tl.get_CHIP_hits_in_peaks.
+        n_samples : int>0, default=1500
+            Downsample cells to this amount for calculations. Speeds up computation
+            time. Cells are sampled by stratifying over expression levels.
+        checkpoint : str, default = None
+            Path to checkpoint h5 file. pISD calculations can be slow, and saving
+            a checkpoint ensures progress is not lost if calculations are 
+            interrupted. To resume from a checkpoint, just pass the path to the h5.
+
+        Returns
+        -------
+
+        anndata.AnnData
+            `.varm['motifs-prob_deletion']` or `.varm['chip-prob_deletion']`: np.ndarray[float] of shape (n_genes, n_factors)
+                Association scores for each gene-TF combination. Higher scores indicate
+                greater predicted association/regulatory influence.
+
+        '''
 
         already_calculated = False
         if not checkpoint is None:
@@ -370,6 +613,20 @@ class LITE_Model(BaseModel):
 
     def __init__(self,*, expr_model, accessibility_model, genes, learning_rate = 1, 
         counts_layer = None, initialization_model = None):
+        '''
+        Container for multiple regulatory potential (RP) LITE models. LITE models
+        learn a relationship between a gene's expression and accessibility in 
+        nearby *cis*-regulatory elements (CRE). The MIRA model assumes the regulatory
+        influence of a CRE on a gene decays with respect to distance from that
+        gene. MIRA learns this distance using variational Bayesian inference. 
+
+        With a trained RP model, one may assess the 
+
+        * LITE/NITE characteristics of a gene: whether that gene's expression is decoupled from changes in local chromatin.
+        * Chromatin differential: the relative levels of nearby accessibility versus gene expression.
+        * *Insilico*-deletion: predicts transcription factor regulators based on a model of nearby binding in influential CREs, as determined by the RP model.
+        
+        '''
         super().__init__(
             expr_model = expr_model, 
             accessibility_model = accessibility_model, 
@@ -387,6 +644,17 @@ class NITE_Model(BaseModel):
 
     def __init__(self,*, expr_model, accessibility_model, genes, learning_rate = 1, 
         counts_layer = None, initialization_model = None):
+        '''
+        Container for multiple regulatory potential (RP) NITE models. NITE models
+        learn a relationship between a gene's expression and accessibility in 
+        nearby *cis*-regulatory elements (CRE), **and** the cell-wide chromatin landscape. 
+
+        The predictive capacity of local vs. cell-wide chromatin in predicting a gene's
+        expression state determines a gene's *NITE Score*, and edulicates whether that
+        gene is primarily regulated by local or nonlocal mechanisms.
+
+        '''
+
         super().__init__(
             expr_model = expr_model, 
             accessibility_model = accessibility_model, 
@@ -769,10 +1037,6 @@ class GeneModel:
         informative_samples = self._select_informative_samples(features['gene_expr'], 
             n_bins = n_bins, n_samples = n_samples)
         
-
-        '''informative_samples = np.random.choice(
-            N, size = 1500, replace = False,
-        )'''
         
         for k in 'gene_expr,upstream_weights,downstream_weights,promoter_weights,softmax_denom,read_depth,NITE_features'.split(','):
             features[k] = features[k][informative_samples]

@@ -23,6 +23,17 @@ Topic Modeling
    :toctree: topicmodeling
 
    mira.topics.TopicModelTuner
+   
+
+Regulatory Potential Modeling
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: rpmodeling
+   :template: rp_model.rst
+
+   mira.rp.LITE_Model
+   mira.rp.NITE_Model
 
 
 Pseudotime
@@ -57,11 +68,15 @@ Tools
 
    mira.tl.get_motif_hits_in_peaks
    mira.tl.get_ChIP_hits_in_peaks
-   mira.tl.get_distance_to_TSS
    mira.tl.post_genelist
    mira.tl.fetch_ontology
    mira.tl.fetch_ontologies
+   mira.tl.get_distance_to_TSS
    mira.tl.get_NITE_score_genes
    mira.tl.get_NITE_score_cells
    mira.tl.get_chromatin_differential
-   mira.tl.get_chromatin_differential
+
+Utils/Accessors
+~~~~~~~~~~~~~~~
+
+

@@ -43,16 +43,6 @@ def _plot_chromatin_differential_scatter(ax,
     
     line_extent = max(lite_prediction.max(), nite_prediction.max()) * 1.2
     line_min = min(lite_prediction.min(), nite_prediction.min()) * 0.8
-    
-    '''ax[3].fill_between([line_min, line_extent],[line_min, line_extent], color = 'royalblue', alpha = 0.025)
-    ax[3].fill_between([line_min, line_extent],[line_extent, line_extent],[line_min, line_extent], color = 'red', alpha = 0.025)
-
-    ax[3].legend(handles = [
-                Patch(color = 'red', label = 'Over-estimates', alpha = 0.5),
-                Patch(color = 'cornflowerblue', label = 'Under-estimates', alpha = 0.5),
-            ], **dict(
-                loc="upper center", bbox_to_anchor=(0.5, -0.25), frameon = False, ncol = 2, 
-            ))'''
 
     ax.set(ylim = (line_min, line_extent), xlim = (line_min, line_extent))
     
@@ -117,7 +107,8 @@ def _plot_chromatin_differential_panel(
     
     plt.tight_layout()
     return ax
-    
+
+
 @adi.wraps_functional(
     pli.fetch_differential_plot, adi.return_output,
     ['gene_names','umap','chromatin_differential','expression','lite_prediction', 'nite_prediction']
@@ -147,6 +138,7 @@ def plot_chromatin_differential(
 
     Parameters
     ----------
+    
     
 
     '''

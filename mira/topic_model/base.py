@@ -140,8 +140,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         .. code-block:: python
 
-            >>> rna_model = mira.topics.ExpressionTopicModel('rna_model.pth')
-            >>> atac_model = mira.topics.AccessibilityTopicModel('atac_model.pth')
+            >>> model = mira.topics.ExpressionTopicModel('model.pth')
 
         '''
 
@@ -270,14 +269,14 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         .. code-block:: python
 
-            >>> rna_model = mira.topics.ExpressionTopicModel(
-                    exogenous_key = 'predict_expression', 
-                    endogenous_key = 'highly_variable',
-                    counts_layer = 'rawcounts',
-                    num_topics = 15,
-                )
-            >>> rna_model.fit(adata)
-            >>> rna_model.predict(adata)
+            >>> model = mira.topics.ExpressionTopicModel(
+            ...    exogenous_key = 'exog', 
+            ...     endogenous_key = 'endog',
+            ...     counts_layer = 'rawcounts',
+            ...     num_topics = 15,
+            ... )
+            >>> model.fit(adata)
+            >>> model.predict(adata)
                 
         '''
         super().__init__()
@@ -564,7 +563,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         .. code-block:: python
 
-            >>> rna_model.get_learning_rate_bounds(rna_data, num_epochs = 3)
+            >>> model.get_learning_rate_bounds(rna_data, num_epochs = 3)
             Learning rate range test: 100%|██████████| 85/85 [00:17<00:00,  4.73it/s]
             (4.619921114045972e-06, 0.1800121741235493)
         '''
@@ -711,7 +710,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         .. code-block:: python
 
-            >>> rna_model.trim_learning_rate_bounds(2, 1)
+            >>> model.trim_learning_rate_bounds(2, 1)
             (4.619921114045972e-04, 0.1800121741235493e-1)
         '''
 
@@ -1204,7 +1203,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         .. code-block:: python
 
-            >>> rna_model.score(rna_data)
+            >>> model.score(rna_data)
             0.11564
 
         Notes
@@ -1271,7 +1270,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         .. code-block::
 
-            >>> rna_model.impute(rna_data)
+            >>> model.impute(rna_data)
             >>> rna_data
             View of AnnData object with n_obs × n_vars = 18482 × 22293
                 layers: 'imputed'

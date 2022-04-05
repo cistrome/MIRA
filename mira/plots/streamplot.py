@@ -469,7 +469,7 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
 
     Coloring
 
-    palette : str or None, default = None
+    palette : str, list[str], or None; default = None
         Palette of plot. Default of None will set `palette` to the style-specific default.
     color : str, default = "black"
         When only plotting one feature, streams, lines, or scatters, are colored by this

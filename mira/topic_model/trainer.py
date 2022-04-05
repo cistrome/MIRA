@@ -184,9 +184,12 @@ class TopicModelTuner:
             resume that study. If study is provided, `save_name` need not be set.
         seed : int > 0, default = 2556
             Random seed for K-fold cross validator and optuna optimizer.
-        pruner : "halving" or "median"
+        pruner : "halving", "median", or optuna.pruner.BasePruner, default = "halving"
             If "halving", use SuccessiveHalving Bandit pruner. Works best with default
-            five folds of cross validation. If "median", use median pruner.
+            five folds of cross validation. If "median", use median pruner. Else pass
+            any object inheriting from optuna.runer.BasePruner
+        sampler : None or optuna.pruner.BaseSampler, default = None
+            If None, uses MIRA's default choice of the TPE sampler.
 
         Returns
         -------
@@ -203,9 +206,9 @@ class TopicModelTuner:
         .. code-block::
 
             >>> tuner = mira.topics.TopicModelTuner(
-                    topic_model,
-                    save_name = 'study.pkl',
-                )
+            ...     topic_model,
+            ...     save_name = 'study.pkl',
+            ... )
 
         For large datasets, it may be useful to skip cross validation since the
         variance of the estimate of model performance should be lower. It may also
@@ -214,11 +217,11 @@ class TopicModelTuner:
         .. code-block::
         
             >>> tuner = mira.topics.TopicModelTuner(
-                topic_model,
-                save_name = 'study.pkl',
-                cv = sklearn.model_selection.ShuffleSplit(n_splits = 1, train_size = 0.8),
-                batch_sizes = [64,128],
-            )
+            ...    topic_model,
+            ...    save_name = 'study.pkl',
+            ...    cv = sklearn.model_selection.ShuffleSplit(n_splits = 1, train_size = 0.8),
+            ...    batch_sizes = [64,128],
+            ... )
 
         '''
         self.model = topic_model
@@ -506,6 +509,7 @@ class TopicModelTuner:
         -------
         best_model : sublcass of mira.topic_model.BaseModel
             Best-performing model chosen using validation set.
+            
         '''
 
         scores = []

@@ -89,3 +89,18 @@ def fetch_ISD_matrix(expr_adata, factor_type = 'motifs', mask_factors = True,
         )
     except KeyError:
         raise KeyError('{} column is not associated with {} factor metadata')
+
+
+def fetch_motif_hits(atac_adata, factor_type, mask_factors = False):
+
+    metadata, mask = ri.fetch_factor_meta(None, atac_adata, 
+        factor_type = factor_type, mask_factors = mask_factors)
+
+    hits_matrix = atac_adata.varm[factor_type + '_hits'].T.tocsr()
+    hits_matrix = hits_matrix[mask, :]
+
+    return anndata.AnnData(
+        obs = pd.DataFrame(metadata),
+        var = atac_adata.var,
+        X = hits_matrix,
+    )
