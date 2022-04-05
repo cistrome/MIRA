@@ -8,9 +8,10 @@ rule filter_short_fragments:
     output : '{prefix}/fragments.short.bed.gz'
     params:
         max_fraglen = config['max_fraglen'],
-        fragments = config['fragment_file']
+        fragments = config['fragment_file'],
+        genome_file = config['genome_file'],
     shell:
-        "gzip -d -c {params.fragments} | awk '$3 - $2 <= {params.max_fraglen} && $1 != \"#\"'"
+        "gzip -d -c {params.fragments} | filter-chroms - {params.genome_file} | awk '$3 - $2 <= {params.max_fraglen} && $1 != \"#\"'"
         "| gzip > {output}"
 
 
@@ -50,7 +51,7 @@ rule slop_peaks:
         genome_file = config['genome_file'],
         slop_distance = config['slop_distance']
     shell :
-        "awk 'OFS=\"\\t\" {{print $1, $2-{params.slop_distance}, $3+{params.slop_distance}, $4, $5}}' {input} > {output}"
+        "bedtools slop -i {input} -g {params.genome_file} -b {params.slop_distance} > {output}"
 
 
 def get_peakset(wildcards):

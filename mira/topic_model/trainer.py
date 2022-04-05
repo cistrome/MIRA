@@ -151,6 +151,8 @@ class TopicModelTuner:
         seed = 2556,
         pruner = 'halving',
         sampler = 'tpe',
+        tune_layers = False,
+        tune_kl_strategy  = False,
     ):
         '''
 
@@ -238,6 +240,8 @@ class TopicModelTuner:
         self.save_name = save_name
         self.pruner = pruner
         self.sampler = sampler
+        self.tune_layers = tune_layers
+        self.tune_kl_strategy = tune_kl_strategy
 
         if not study is None:
             assert(not study.study_name is None), 'Provided studies must have names.'
@@ -279,7 +283,7 @@ class TopicModelTuner:
     def _trial(
             trial,
             prune_penalty = 0.01,*,
-            model, data, cv, batch_sizes,
+            model, tuner, data, cv, batch_sizes,
             min_topics, max_topics,
             min_dropout, max_dropout,
             min_epochs, max_epochs,
@@ -292,6 +296,12 @@ class TopicModelTuner:
             beta = trial.suggest_float('beta', 0.90, 0.99, log = True),
             seed = np.random.randint(0, 2**32 - 1),
         )
+
+        if tuner.tune_kl_strategy:
+            params['kl_strategy'] = trial.suggest_categorical('kl_strategy', ['monotonic','cyclic'])
+
+        if tuner.tune_layers:
+            params['num_layers'] = trial.suggest_categorical('num_layers', [2,3])
 
         model.set_params(**params)
 
@@ -354,7 +364,7 @@ class TopicModelTuner:
         '''
         _print_study(self.study, None)
 
-    def _get_pruner(self):
+    def get_pruner(self):
         if self.pruner == 'halving':
             return optuna.pruners.SuccessiveHalvingPruner(
                         min_resource=1.0, 
@@ -365,14 +375,14 @@ class TopicModelTuner:
                 n_startup_trials=3,
                 n_warmup_steps=0,
             )
-        elif issubclass(self.pruner, optuna.pruners.BasePruner):
+        elif isinstance(self.pruner, optuna.pruners.BasePruner):
             return self.pruner
         else:
             raise ValueError('Pruner {} is not an option'.format(str(self.pruner)))
 
 
     def get_tuner(self):
-        if issubclass(self.sampler, optuna.samplers.BaseSampler):
+        if isinstance(self.sampler, optuna.samplers.BaseSampler):
             return self.sampler
         elif self.sampler == 'tpe':
             return optuna.samplers.TPESampler(
@@ -411,7 +421,7 @@ class TopicModelTuner:
             self.study = optuna.create_study(
                 direction = 'minimize',
                 pruner = self.get_pruner(),
-                sample = self.get_tuner(),
+                sampler = self.get_tuner(),
                 study_name = self.save_name,
             )
 
@@ -419,7 +429,8 @@ class TopicModelTuner:
             self.cv = KFold(self.cv, random_state = self.seed, shuffle= True)
         
         trial_func = partial(
-            self._trial, 
+            self.trial, 
+            tuner = self,
             model = self.model, data = train_data,
             cv = self.cv, batch_sizes = self.batch_sizes,
             min_dropout = self.min_dropout, max_dropout = self.max_dropout,
@@ -475,16 +486,11 @@ class TopicModelTuner:
         except AttributeError:
             raise Exception('User must run "tune_hyperparameters" before running this function')
         
-        def score_trial(trial):
-            if trial.user_attrs['completed']:
-                try:
-                    return trial.values[-1]
-                except (TypeError, AttributeError):
-                    pass
-
-            return np.inf
-
-        sorted_trials = sorted(self.study.trials, key = score_trial)
+        valid_trials = [
+          trial for trial in self.study.trials if trial.state == ts.COMPLETE
+        ]
+        
+        sorted_trials = sorted(valid_trials, key = lambda trial : trial.values[-1])
 
         return sorted_trials[:top_n_trials]
 

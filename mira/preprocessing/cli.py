@@ -4,7 +4,8 @@ import sys
 import subprocess
 
 from mira.preprocessing import iterative_merge, aggregate_countmatrix, \
-        callpeaks, filter_fragment_barcodes, cluster_cells
+        callpeaks, filter_fragment_barcodes, cluster_cells, \
+        filter_chromosomes
 
 parser = argparse.ArgumentParser()
 subparsers = parser.add_subparsers(help = 'commands')
@@ -20,7 +21,7 @@ add_subcommand(callpeaks, 'call-peaks')
 add_subcommand(iterative_merge, 'merge-peaks')
 add_subcommand(aggregate_countmatrix, 'agg-countmatrix')
 add_subcommand(cluster_cells, 'cluster-cells')
-
+add_subcommand(filter_chromosomes, 'filter-chroms')
 
 def run_snakemake_pipeline(args):
 
