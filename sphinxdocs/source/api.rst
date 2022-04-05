@@ -76,7 +76,16 @@ Tools
    mira.tl.get_NITE_score_cells
    mira.tl.get_chromatin_differential
 
+
 Utils/Accessors
 ~~~~~~~~~~~~~~~
 
+.. autosummary::
+   :toctree: utils
 
+   mira.utils.make_joint_representation
+   mira.utils.wide_view
+   mira.utils.pretty_stderr
+   mira.utils.subset_factors
+   mira.utils.fetch_factor_meta
+   mira.utils.fetch_factor_hits

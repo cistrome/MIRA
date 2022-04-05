@@ -625,6 +625,12 @@ def get_tree_structure(threshold = 0.1,*, lineage_names, branch_probs, pseudotim
         thresholds are more sensitive to divergence events. Try multiple values
         for threshold to find best value to parse lineage tree. Typically, 0.1 is a
         very sensitive value, while 1.0-2.0 are very tolerant.
+    cellrank : boolean, default=False
+        If using cellrank to assign terminal states and lineage probabilities,
+        set this option to **True**.
+    start_cell : int or barcode, default=None
+        Cell representing start state of differentiation. *Only needed if 
+        cellrank is True*.
 
     Returns
     -------

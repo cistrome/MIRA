@@ -9,8 +9,24 @@ logger = logging.getLogger(__name__)
 
 
 def wide_view():
+    '''
+    Makes Jupyter notebooks take up whole screen.
+    '''
     from IPython.core.display import display, HTML
     display(HTML("<style>.container { width:100% !important; }</style>"))
+
+def pretty_sderr():
+    '''
+    Changes stderr color to blue in Jupyter notebooks.
+    '''
+    from IPython.core.display import HTML
+    return HTML("""
+<style>
+div.output_stderr {
+    background: #e6e7ed;
+}
+</style>
+    """)
     
 
 def make_joint_representation(
@@ -19,6 +35,34 @@ def make_joint_representation(
     adata2_key = 'X_umap_features',
     key_added = 'X_joint_umap_features',
 ):
+    '''
+    Finds common cells between two dataframes and concatenates features
+    to form the joint representation. 
+
+    Parameters
+    ----------
+    adata1, adata2 : anndata.AnnData
+        Two AnnData objects from which to construct joint representation.
+        Order (ATAC or RNA) does not matter. 
+    adata1_key : str, default='X_umap_features'
+        Which key in `.obsm` to find ILR-transformed topic embeddings
+        in adata1.
+    adata2_key : str, default='X_umap_features'
+        Which key in `.obsm` to find ILR-transformed topic embeddings
+        in adata2.
+    key_added : str, default='X_joint_umap_features'
+        Key to add to both adatas' `.obsm` containing the joint representation.
+
+    Returns
+    -------
+
+    adata1, adata2 : anndata.AnnData
+        Adata objects returned in the order provided. New adata objects
+        contain only cells common between both input adatas, and have the
+        same ordering. Both adatas have a new field: the joint representation,
+        stored in `.obsm[<key_added>]`.
+
+    '''
 
     obs_1, obs_2 = adata1.obs_names.values, adata2.obs_names.values
 
@@ -53,6 +97,34 @@ def make_joint_representation(
 
 
 def subset_factors(atac_adata,*, use_factors, factor_type = 'motifs'):
+    '''
+    Subset which transcription factor binding annotations are used
+    in downstream analysis. This function marks annotations if the factor
+    is in the list provided to *use_factors*, but does not erase
+    out-of-list factors' information. Thus, a new subset may be applied 
+    without re-scanning for motifs.
+
+    **Important: we do not suggest subsetting to transcription factors
+    that have high or highly dispersed expression in multiomics analyses. 
+    Many transcription factors may have potent regulatory effects without
+    showing a great change in expression.**
+
+    Parameters
+    ----------
+    
+    atac_adata : anndata.AnnData
+        AnnData object of ATAC features
+    use_factors : np.ndarray[str], list[str]
+        List of transcription factor names to use for downstream analysis.
+    factor_type : {'motifs','chip'}, default='motifs' 
+        Which factor type to filter.
+
+    Returns
+    -------
+
+    anndata.AnnData
+
+    '''
     
     metadata, _ = ri.fetch_factor_meta(None, atac_adata, 
         factor_type = factor_type, mask_factors = False)
@@ -70,9 +142,76 @@ def subset_factors(atac_adata,*, use_factors, factor_type = 'motifs'):
 
 
 def fetch_factor_meta(atac_adata, factor_type = 'motifs', mask_factors = False):
+    '''
+    Fetch metadata associated with transcription factor binding annotations.
+    Returns "id", "name", and "parsed_name" fields. "parsed_name" is used
+    to look up TFs in expression data.
+
+    Parameters
+    ----------
+    
+    atac_adata : anndata.AnnData
+        AnnData object of ATAC features
+    mask_factors : boolean, default = False
+        Whether to subset the list of TFs returned to those flagged by 
+        "subset_factors".
+    factor_type : {'motifs','chip'}, default='motifs' 
+        Which factor type to filter.
+
+    Returns
+    -------
+
+    pd.DataFrame
+
+    '''
+
     return pd.DataFrame(
             ri.fetch_factor_meta(None, atac_adata, factor_type = factor_type, 
             mask_factors = mask_factors)[0]
+    )
+
+
+def fetch_factor_hits(atac_adata, factor_type = 'motifs', mask_factors = False):
+    '''
+    Returns AnnData object of transcription factor binding annotations.
+    
+    Parameters
+    ----------
+    
+    atac_adata : anndata.AnnData
+        AnnData object of ATAC features
+    mask_factors : boolean, default = False
+        Whether to subset the list of TFs returned to those flagged by 
+        "subset_factors".
+    factor_type : {'motifs','chip'}, default='motifs' 
+        Which factor type to filter.
+
+    Returns
+    -------
+
+    anndata.AnnData:
+        `.obs` : pd.DataFrame
+            TF annotation metadata.
+        `.var` : pd.DataFrame
+            Peak metadata taken from *atac_adata*.
+        `X` : scipy.sparsematrix
+            TF binding predictions. For motifs, values show MOODS3 "Match Score", 
+            with higher values indicating a better match between a peak sequence and motif PWM. 
+            For ChIP-seq samples, values are binary, with 1 indicating overlap with a 
+            peak in a Cistrome ChIP-seq sample.
+    
+    '''
+
+    metadata, mask = ri.fetch_factor_meta(None, atac_adata, 
+        factor_type = factor_type, mask_factors = mask_factors)
+
+    hits_matrix = atac_adata.varm[factor_type + '_hits'].T.tocsr()
+    hits_matrix = hits_matrix[mask, :]
+
+    return anndata.AnnData(
+        obs = pd.DataFrame(metadata),
+        var = atac_adata.var,
+        X = hits_matrix,
     )
 
 
@@ -89,18 +228,3 @@ def fetch_ISD_matrix(expr_adata, factor_type = 'motifs', mask_factors = True,
         )
     except KeyError:
         raise KeyError('{} column is not associated with {} factor metadata')
-
-
-def fetch_motif_hits(atac_adata, factor_type, mask_factors = False):
-
-    metadata, mask = ri.fetch_factor_meta(None, atac_adata, 
-        factor_type = factor_type, mask_factors = mask_factors)
-
-    hits_matrix = atac_adata.varm[factor_type + '_hits'].T.tocsr()
-    hits_matrix = hits_matrix[mask, :]
-
-    return anndata.AnnData(
-        obs = pd.DataFrame(metadata),
-        var = atac_adata.var,
-        X = hits_matrix,
-    )

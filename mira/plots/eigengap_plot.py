@@ -81,7 +81,7 @@ def plot_eigengap(
 
     fig1,ax = plt.subplots(2,1,figsize=(7,4), sharex = True, 
                         gridspec_kw={'height_ratios' : [3,2]})
-    ax[0].plot(range(len(eigvals)-1), eigvals[1:], '--bo', c = 'black')
+    ax[0].plot(range(len(eigvals)-1), eigvals[1:], '--o', c = 'black')
     ax[0].set(ylabel = 'Eigenvalues')
     ax[1].bar(range(len(eigen_gap)), eigen_gap, color = 'lightgrey', edgecolor = 'black', linewidth = 0.5)
     ax[1].set(ylabel = 'Eigen Gap', xlabel = 'Num Components')

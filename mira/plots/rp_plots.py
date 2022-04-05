@@ -6,7 +6,15 @@ import tqdm
 def _plot_rp_model_tails(ax, start_pos, left_decay, right_decay, color = 'lightgrey', linecolor = 'black',
         linewidth = 1, alpha = 0.25, bin_size = 50):
 
-    
+    left_extent = int(10*left_decay)
+    left_x = np.arange(0, left_extent, left_extent//bin_size)
+    left_y = 0.5**(left_x / left_decay)
+
+    right_extent = int(10*right_decay)
+    right_x = np.arange(0, right_extent, right_extent//bin_size)
+    right_y = 0.5**(right_x / right_decay)
+
+    x, y = np.concatenate([-left_x[::-1] - 1500, right_x + 1500]) + start_pos, np.concatenate([left_y[::-1], right_y])
 
     ax.fill_between(x, y, y2 = 0, color = color, alpha = alpha)
     ax.plot(x, y, color = linecolor, linewidth = linewidth)

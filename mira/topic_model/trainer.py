@@ -112,9 +112,9 @@ class TopicModelTuner:
     .. code-block:: python
 
         >>> tuner = mira.topics.TopicModelTuner(
-                    topic_model,
-                    save_name = 'study.pkl',
-                )
+        ...     topic_model,
+        ...     save_name = 'study.pkl',
+        ... )
         >>> tuner.train_test_split(data)
         >>> tuner.tune(data)
         >>> tuner.select_best_model(data)
