@@ -11,7 +11,7 @@ rule filter_short_fragments:
         fragments = config['fragment_file'],
         genome_file = config['genome_file'],
     shell:
-        "gzip -d -c {params.fragments} | filter-chroms - {params.genome_file} | awk '$3 - $2 <= {params.max_fraglen} && $1 != \"#\"'"
+        "gzip -d -c {params.fragments} | mira-preprocess filter-chroms - {params.genome_file} | awk '$3 - $2 <= {params.max_fraglen} && $1 != \"#\"'"
         "| gzip > {output}"
 
 
