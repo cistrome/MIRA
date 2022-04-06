@@ -1,5 +1,7 @@
 
-.center {text-align: center;}
+div.output_stderr {
+    background: #e6e7ed;
+}
 
 .wy-nav-content {
     max-width: 1200px !important;

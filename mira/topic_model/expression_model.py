@@ -23,28 +23,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-'''class WeightedNegativeBinomial(pyro.distributions.NegativeBinomial):
-
-    def __init__(self,*,total_count, weights, probs=None, logits=None, validate_args=None):
-        super().__init__(total_count=total_count, probs = probs, logits = logits, validate_args=validate_args)
-        _, self.weights = broadcast_all(self.total_count, weights)
-    
-    def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
-
-        log_unnormalized_prob = (self.total_count * F.logsigmoid(-self.logits) +
-                                 value * F.logsigmoid(self.logits))
-
-        log_normalization = (-torch.lgamma(self.total_count + value) + torch.lgamma(1. + value) +
-                             torch.lgamma(self.total_count))
-
-        unweighted_probs = log_unnormalized_prob - log_normalization
-        return unweighted_probs * self.weights
-
-    def expand(self, batch_shape, _instance=None):
-        return ExpandedDistribution(self, batch_shape)'''
-
 
 class ExpressionEncoder(torch.nn.Module):
 
@@ -169,26 +147,39 @@ class ExpressionTopicModel(BaseModel):
                     "read_depth", dist.LogNormal(rd_loc.reshape((-1,1)), rd_scale.reshape((-1,1))).to_event(1)
                 )
 
-    def _get_dataset_statistics(self, endog_features, exog_features):
-        super()._get_dataset_statistics(endog_features, exog_features)
+    def _get_dataset_statistics(self, dataset):
+        super()._get_dataset_statistics(dataset)
 
-        self.residual_pi = np.array(endog_features.sum(axis = 0)).reshape(-1)/endog_features.sum()
+        skim_endog = dataset[0][0]
+        cummulative_counts = np.zeros(skim_endog.shape[1])
+
+        for i in range(len(dataset)):
+            cummulative_counts = cummulative_counts + dataset[i][0].toarray().reshape(-1)
+
+        self.residual_pi = cummulative_counts/cummulative_counts.sum()
 
 
     @adi.wraps_modelfunc(tmi.fetch_features, partial(adi.add_obs_col, colname = 'model_read_scale'),
-        ['endog_features','exog_features'])
-    def _get_read_depth(self, *, endog_features, exog_features, batch_size = 512):
+        ['dataset'])
+    def _get_read_depth(self, *, dataset, batch_size = 512):
 
-        return self._run_encoder_fn(self.encoder.read_depth, endog_features = endog_features, exog_features = exog_features, 
+        return self._run_encoder_fn(self.encoder.read_depth, dataset, 
             batch_size =batch_size, bar = False, desc = 'Calculating reads scale')
         
 
-    def _preprocess_endog(self, X, read_depth):
+    def _preprocess_endog(self,*, endog_features, exog_features):
+
+        print(endog_features)
+
+        print('endog')
         
+        X = endog_features
         assert(isinstance(X, np.ndarray) or isspmatrix(X))
         
         if isspmatrix(X):
             X = X.toarray()
+
+        print(X)
 
         assert(len(X.shape) == 2)
         assert(X.shape[1] == self.num_endog_features)
@@ -197,13 +188,14 @@ class ExpressionTopicModel(BaseModel):
 
         X = self._residual_transform(X.astype(np.float32), self.residual_pi)
 
+        print('endog')
         return torch.tensor(X, requires_grad = False).to(self.device)
 
 
-    def _preprocess_exog(self, X):
-        
+    def _preprocess_exog(self,*, endog_features, exog_features):
+        X = exog_features
+
         assert(isinstance(X, np.ndarray) or isspmatrix(X))
-        
         if isspmatrix(X):
             X = X.toarray()
 
@@ -211,7 +203,10 @@ class ExpressionTopicModel(BaseModel):
         assert(X.shape[1] == self.num_exog_features)
         
         assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
+
+        print('exog')
         return torch.tensor(X.astype(np.float32), requires_grad = False).to(self.device)
+
 
     def _get_save_data(self):
         data = super()._get_save_data()

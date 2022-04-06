@@ -6,6 +6,39 @@ from scipy.sparse import isspmatrix
 from scipy import sparse
 from mira.adata_interface.core import fetch_layer, add_obs_col, \
         add_obsm, project_matrix, add_varm
+from torch.utils.data import Dataset
+
+def collate_batch(batch):
+    endog, exog = list(zip(*batch))
+
+    return {
+        'endog_features' : sparse.vstack(endog), 
+        'exog_features' : sparse.vstack(exog)
+    }
+
+
+class InMemoryDataset(Dataset):
+
+    def __init__(self,*, features, highly_variable, 
+        counts_layer, adata):
+
+        self.features = features
+        self.highly_variable = highly_variable
+
+        adata = adata[:, self.features]
+
+        self.exog_features = fetch_layer(self, adata, counts_layer).copy()
+        self.endog_features = fetch_layer(self, adata[:, highly_variable], counts_layer).copy()
+
+        assert isinstance(self.exog_features, sparse.spmatrix)
+        assert isinstance(self.exog_features, sparse.spmatrix)
+
+    def __len__(self):
+        return self.exog_features.shape[0]
+
+    def __getitem__(self, idx):
+        return self.endog_features[idx], self.exog_features[idx]
+
 
 logger = logging.getLogger(__name__)
 
@@ -48,18 +81,23 @@ def fit_adata(self, adata):
     return dict(
         features = features,
         highly_variable = highly_variable,
-        endog_features = fetch_layer(self, adata[:, highly_variable], self.counts_layer),
-        exog_features = fetch_layer(self, adata, self.counts_layer)
+        dataset = InMemoryDataset(
+            features = features,
+            highly_variable = highly_variable,
+            counts_layer = self.counts_layer,
+            adata = adata
+        )
     )
 
 def fetch_features(self, adata):
 
-    adata = adata[:, self.features]
-
-    return dict(
-        endog_features = fetch_layer(self, adata[:, self.highly_variable], self.counts_layer),
-        exog_features = fetch_layer(self, adata, self.counts_layer),
+    return InMemoryDataset(
+        features = self.features,
+        highly_variable = self.highly_variable,
+        counts_layer = self.counts_layer,
+        adata = adata
     )
+
 
 def fetch_topic_comps(self, adata, key = 'X_topic_compositions'):
     logger.info('Fetching key {} from obsm'.format(key))

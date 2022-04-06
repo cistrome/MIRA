@@ -27,7 +27,14 @@ div.output_stderr {
 }
 </style>
     """)
-    
+
+def show_gif(path):
+    '''
+    Display GIF in Jupyter notebook.
+    '''
+    from IPython.display import Image, display
+    with open(path,'rb') as f:
+        display(Image(data=f.read(), format='png'))
 
 def make_joint_representation(
     adata1, adata2,

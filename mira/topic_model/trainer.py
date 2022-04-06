@@ -1,12 +1,14 @@
 import numpy as np
 from sklearn.model_selection import KFold
 from functools import partial
+import os
 import optuna
 import logging
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 from optuna.trial import TrialState as ts
 import joblib
+from joblib import Parallel, delayed
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARN)  # Setup the root logger.
 optuna.logging.set_verbosity(optuna.logging.WARN)
@@ -14,6 +16,14 @@ from mira.topic_model.base import logger as baselogger
 from mira.adata_interface.topic_model import logger as interfacelogger
 
 
+tensorboard_available = False
+try:
+    from torch.utils.tensorboard import SummaryWriter
+    tensorboard_available = True
+except ModuleNotFoundError:
+    pass
+
+    
 class DisableLogger:
     def __init__(self, logger):
         self.logger = logger
@@ -151,8 +161,10 @@ class TopicModelTuner:
         seed = 2556,
         pruner = 'halving',
         sampler = 'tpe',
-        tune_layers = False,
-        tune_kl_strategy  = False,
+        tune_layers = True,
+        tune_kl_strategy  = True,
+        tensorboard_logdir = 'runs', 
+        use_tensorboard = False,
     ):
         '''
 
@@ -242,6 +254,8 @@ class TopicModelTuner:
         self.sampler = sampler
         self.tune_layers = tune_layers
         self.tune_kl_strategy = tune_kl_strategy
+        self.tensorboard_logdir = tensorboard_logdir
+        self.use_tensorboard = use_tensorboard
 
         if not study is None:
             assert(not study.study_name is None), 'Provided studies must have names.'
@@ -282,11 +296,15 @@ class TopicModelTuner:
     @staticmethod
     def _trial(
             trial,
-            prune_penalty = 0.01,*,
-            model, tuner, data, cv, batch_sizes,
+            prune_penalty = 0.01,
+            tensorboard_logdir = None,*,
+            model, data, cv, batch_sizes,
             min_topics, max_topics,
             min_dropout, max_dropout,
             min_epochs, max_epochs,
+            tune_kl_strategy,
+            tune_layers,
+            study_name,
         ):
         params = dict(
             num_topics = trial.suggest_int('num_topics', min_topics, max_topics, log=True),
@@ -297,10 +315,10 @@ class TopicModelTuner:
             seed = np.random.randint(0, 2**32 - 1),
         )
 
-        if tuner.tune_kl_strategy:
+        if tune_kl_strategy:
             params['kl_strategy'] = trial.suggest_categorical('kl_strategy', ['monotonic','cyclic'])
 
-        if tuner.tune_layers:
+        if tune_layers:
             params['num_layers'] = trial.suggest_categorical('num_layers', [2,3])
 
         model.set_params(**params)
@@ -313,33 +331,61 @@ class TopicModelTuner:
         num_splits = cv.get_n_splits(data)
         cv_scores = []
 
-        num_updates = num_splits * params['num_epochs']
-        print('Evaluating: ' + str(params))
-        for step, (train_idx, test_idx) in enumerate(cv.split(data)):
+        if not tensorboard_logdir is None:
+            writer = SummaryWriter(log_dir=os.path.join(tensorboard_logdir, study_name, str(trial.number)),
+             max_queue=100)
+        else:
+            writer = None
 
-            train_counts, test_counts = data[train_idx], data[test_idx]
-            
-            for epoch, loss in model._internal_fit(train_counts):
-                num_hashtags = int(10 * epoch/params['num_epochs'])
-                print('\rProgress: ' + '|##########'*step + '|' + '#'*num_hashtags + ' '*(10-num_hashtags) + '|' + '          |'*(num_splits-step-1),
-                    end = '')
+        try:
 
-            cv_scores.append(
-                model.score(test_counts)
-            )
+            if not writer is None:
+                writer.add_hparams(model.get_params())
 
-            if step == 0:
-                trial.report(1.0, 0)
+            print('Evaluating: ' + str(params))
+            for step, (train_idx, test_idx) in enumerate(cv.split(data)):
 
-            trial.report(np.mean(cv_scores) + (prune_penalty * 0.5**step), step+1)
+                train_counts, test_counts = data[train_idx], data[test_idx]
                 
-            if trial.should_prune() and step + 1 < num_splits:
-                trial.set_user_attr('batches_trained', step+1)
-                raise optuna.TrialPruned()
+                for epoch, loss in model._internal_fit(train_counts, writer = writer):
+                    num_hashtags = int(10 * epoch/params['num_epochs'])
+                    print('\rProgress: ' + '|##########'*step + '|' + '#'*num_hashtags + ' '*(10-num_hashtags) + '|' + '          |'*(num_splits-step-1),
+                        end = '')
 
-        trial.set_user_attr('batches_trained', step+1)
-        trial.set_user_attr('completed', True)
-        trial_score = np.mean(cv_scores)
+                cv_scores.append(
+                    model.score(test_counts)
+                )
+
+                if step == 0:
+                    trial.report(1.0, 0)
+
+                trial.report(np.mean(cv_scores) + (prune_penalty * 0.5**step), step+1)
+                    
+                if trial.should_prune() and step + 1 < num_splits:
+                    trial.set_user_attr('batches_trained', step+1)
+
+                    if not writer is None:
+                        writer.add_hparams({
+                            **{'cv_{}_score'.format(str(i)) : cv_score for i, cv_score in cv_scores},
+                            'batches_trained' : step+1
+                        })
+
+                    raise optuna.TrialPruned()
+
+            trial.set_user_attr('batches_trained', step+1)
+            trial.set_user_attr('completed', True)
+            trial_score = np.mean(cv_scores)
+
+            if not writer is None:
+                writer.add_hparams({
+                    **{'cv_{}_score'.format(str(i)) : cv_score for i, cv_score in cv_scores},
+                    'trial_score' : trial_score,
+                    'batches_trained' : num_splits,
+                })
+
+        finally:
+            if not writer is None:
+                writer.close()
 
         return trial_score
 
@@ -392,6 +438,45 @@ class TopicModelTuner:
             raise ValueError('Sampler {} is not an option'.format(str(self.sampler)))
 
 
+    def distributed_tune(self, n_workers = 1, writer = None,*,
+            all_data, train_data, test_data):
+
+        self.sampler = optuna.samplers.TPESampler(
+                seed = self.seed, constant_liar=True,
+            )
+
+        self.study = optuna.create_study(
+            direction = 'minimize',
+            pruner = self.get_pruner(),
+            sampler = self.get_tuner(),
+            study_name = self.save_name,
+            storage = 'sqlite:///{}.db'.format(self.save_name),
+        )
+
+        if isinstance(self.cv, int):
+            self.cv = KFold(self.cv, random_state = self.seed, shuffle= True)
+        
+        trial_func = partial(
+            self._trial, 
+            writer = writer,
+            model = self.model, data = train_data,
+            cv = self.cv, batch_sizes = self.batch_sizes,
+            min_dropout = self.min_dropout, max_dropout = self.max_dropout,
+            min_epochs = self.min_epochs, max_epochs = self.max_epochs,
+            min_topics = self.min_topics, max_topics = self.max_topics,
+            tune_kl_strategy = self.tune_kl_strategy, 
+            tune_layers = self.tune_layers,
+        )
+
+        optim_func = partial(self.study.optimize, trial_func, n_trials = self.iters//n_workers, 
+                catch = (RuntimeError,ValueError)
+        )
+
+        Parallel(n_jobs=n_workers)(delayed(optim_func)() for i in n_workers)
+        
+        return self.study
+
+
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, 
         fill_kwargs = ['all_data', 'train_data', 'test_data'])
     def tune(self,*, all_data, train_data, test_data):
@@ -427,7 +512,8 @@ class TopicModelTuner:
 
         if isinstance(self.cv, int):
             self.cv = KFold(self.cv, random_state = self.seed, shuffle= True)
-        
+
+
         trial_func = partial(
             self._trial, 
             tuner = self,
@@ -436,9 +522,15 @@ class TopicModelTuner:
             min_dropout = self.min_dropout, max_dropout = self.max_dropout,
             min_epochs = self.min_epochs, max_epochs = self.max_epochs,
             min_topics = self.min_topics, max_topics = self.max_topics,
+            tune_kl_strategy = self.tune_kl_strategy, 
+            tune_layers = self.tune_layers,
+            study_name = self.study.study_name,
+            tensorboard_logdir = self.tensorboard_logdir if self.use_tensorboard and tensorboard_available else None,
         )
 
         with DisableLogger(baselogger), DisableLogger(interfacelogger):
+            
+            np.random.seed(self.seed)
 
             try:
                 self.study.optimize(trial_func, n_trials = self.iters, callbacks = [_print_study, self._save_study],
@@ -448,9 +540,7 @@ class TopicModelTuner:
 
         self.print()
         self._save_study(self.study, None)
-        #finally:
-        #    error_file.close()
-        
+
         return self.study
 
 
@@ -512,7 +602,8 @@ class TopicModelTuner:
 
 
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, adi.return_output, ['all_data', 'train_data', 'test_data'])
-    def select_best_model(self, top_n_trials = 5, *,all_data, train_data, test_data):
+    def select_best_model(self, top_n_trials = 5, color_col = 'leiden',*,
+        all_data, train_data, test_data):
         '''
         Retrain best parameter combinations on all training data, then 
         compare validation data performance. Best-performing model on test set 
@@ -536,11 +627,41 @@ class TopicModelTuner:
 
         scores = []
         best_params = self.get_best_params(top_n_trials)
-        for params in best_params:
+
+        for i, params in enumerate(best_params):
             logging.info('Training model with parameters: ' + str(params))
+
+            if self.use_tensorboard and tensorboard_available:
+                writer = SummaryWriter(
+                    log_dir= os.path.join(
+                        self.tensorboard_logdir, self.study.study_name, 'evaluation_' + str(i))
+                )
+            else:
+                writer = None
+
             try:
-                scores.append(self.model.set_params(**params).fit(train_data).score(test_data))
+                scores.append(
+                    self.model.set_params(**params).fit(train_data, writer = writer).score(test_data)
+                )
+
                 logging.info('Score: {:.5e}'.format(scores[-1]))
+
+                if not writer is None:
+                    writer.add_hparams(self.model.get_params())
+
+                    self.model.predict(all_data)
+                    self.model.get_umap_features(all_data)
+
+                    try:
+                        metadata = all_data.obs_vector(color_col).astype(str)
+                    except KeyError:
+                        metadata = None
+
+                    writer.add_embedding(
+                        all_data.obsm['X_umap_features'], metadata= metadata,
+                    )
+
+
             except (RuntimeError, ValueError) as err:
                 logging.error('Error occured while training, skipping model.')
                 scores.append(np.inf)

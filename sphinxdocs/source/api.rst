@@ -89,3 +89,4 @@ Utils/Accessors
    mira.utils.subset_factors
    mira.utils.fetch_factor_meta
    mira.utils.fetch_factor_hits
+   mira.utils.show_gif
