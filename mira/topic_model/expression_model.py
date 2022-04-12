@@ -95,13 +95,6 @@ class ExpressionTopicModel(BaseModel):
 
         return np.clip(np.nan_to_num(r_ij), -10, 10)
 
-    def _get_obs_weight(self):
-
-        weights = self.highly_variable.astype(int) + 1
-        weights = weights * self.num_exog_features/weights.sum()
-        #weights = torch.tensor(self._get_obs_weight(), requires_grad = False).to(self.device)
-
-        return weights
 
     @scope(prefix= 'rna')
     def model(self,*,endog_features, exog_features, read_depth, anneal_factor = 1.):
@@ -168,10 +161,6 @@ class ExpressionTopicModel(BaseModel):
         
 
     def _preprocess_endog(self,*, endog_features, exog_features):
-
-        print(endog_features)
-
-        print('endog')
         
         X = endog_features
         assert(isinstance(X, np.ndarray) or isspmatrix(X))
@@ -179,16 +168,13 @@ class ExpressionTopicModel(BaseModel):
         if isspmatrix(X):
             X = X.toarray()
 
-        print(X)
-
         assert(len(X.shape) == 2)
         assert(X.shape[1] == self.num_endog_features)
         
         assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
 
-        X = self._residual_transform(X.astype(np.float32), self.residual_pi)
+        X = self._residual_transform(X, self.residual_pi).astype(np.float32)
 
-        print('endog')
         return torch.tensor(X, requires_grad = False).to(self.device)
 
 
@@ -204,7 +190,6 @@ class ExpressionTopicModel(BaseModel):
         
         assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
 
-        print('exog')
         return torch.tensor(X.astype(np.float32), requires_grad = False).to(self.device)
 
 

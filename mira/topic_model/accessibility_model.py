@@ -83,6 +83,7 @@ class DANEncoder(nn.Module):
 
         return theta_loc, theta_scale
 
+
     def topic_comps(self, idx, read_depth):
         theta = self.forward(idx, read_depth)[0]
         theta = theta.exp()/theta.exp().sum(-1, keepdim = True)
@@ -165,18 +166,18 @@ class AccessibilityTopicModel(BaseModel):
         return dense_matrix.astype(np.int64)
 
     
-    def _preprocess_endog(self, X, read_depth):
+    def _preprocess_endog(self,*, endog_features, exog_features):
         
         return torch.tensor(
-            self._get_padded_idx_matrix(self._binarize_matrix(X, self.num_endog_features)), 
+            self._get_padded_idx_matrix(self._binarize_matrix(endog_features, self.num_endog_features)), 
             requires_grad = False
         ).to(self.device)
 
 
-    def _preprocess_exog(self, X):
+    def _preprocess_exog(self,*, endog_features, exog_features):
         
         return torch.tensor(
-            self._get_padded_idx_matrix(self._binarize_matrix(X, self.num_exog_features)), 
+            self._get_padded_idx_matrix(self._binarize_matrix(exog_features, self.num_exog_features)), 
             requires_grad = False
         ).to(self.device)
 
@@ -188,6 +189,7 @@ class AccessibilityTopicModel(BaseModel):
 
     def rank_peaks(self, topic_num):
         return self.peaks[self._argsort_peaks(topic_num)]
+
 
     def _validate_hits_matrix(self, hits_matrix):
         assert(isspmatrix(hits_matrix))

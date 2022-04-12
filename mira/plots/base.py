@@ -1,12 +1,12 @@
 
-import warnings
+
 import numpy as np
 from matplotlib.colors import Normalize, ColorConverter
 from matplotlib import cm
 from matplotlib.patches import Patch
 import matplotlib.pyplot as plt
 from math import ceil
-
+from pandas.core.arrays.categorical import Categorical
 
 def map_plot(func, data, plots_per_row = 3, height =4, aspect = 1.5, vertical = False):
 
@@ -40,7 +40,10 @@ def map_colors(ax, c, palette, add_legend = True, hue_order = None, na_color = '
         legend_kwargs = {}, cbar_kwargs = {}, vmin = None, vmax = None, log = False,
         normalizer = Normalize):
 
-    assert(isinstance(c, (np.ndarray, list)))
+    assert(isinstance(c, (np.ndarray, list, Categorical)))
+
+    if isinstance(c, Categorical):
+        c = c.astype(str)
     
     if isinstance(c, list):
         c = np.array(c)

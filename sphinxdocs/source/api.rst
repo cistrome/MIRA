@@ -1,6 +1,8 @@
 API
 ===
 
+------------
+
 .. module:: mira
 .. currentmodule:: mira
 
@@ -30,11 +32,21 @@ Regulatory Potential Modeling
 
 .. autosummary::
    :toctree: rpmodeling
-   :template: rp_model.rst
+   :template: lite_model.rst
 
    mira.rp.LITE_Model
+
+.. autosummary::
+   :toctree: rpmodeling
+   :template: rp_model.rst
+
    mira.rp.NITE_Model
 
+.. autosummary:: 
+   :toctree: rpmodeling
+   :template: gene_rp_model.rst
+
+   mira.rp_model.rp_model.GeneModel
 
 Pseudotime
 ~~~~~~~~~~
@@ -59,6 +71,10 @@ Plotting
    :toctree: plotting
 
    mira.pl.plot_stream
+   mira.pl.plot_chromatin_differential
+   mira.pl.plot_scatter_chromatin_differential
+   mira.pl.plot_enrichments
+   mira.pl.compare_driver_TFs_plot
 
 Tools
 ~~~~~
@@ -87,6 +103,7 @@ Utils/Accessors
    mira.utils.wide_view
    mira.utils.pretty_stderr
    mira.utils.subset_factors
+   mira.utils.fetch_TSS_data
    mira.utils.fetch_factor_meta
    mira.utils.fetch_factor_hits
    mira.utils.show_gif

@@ -50,22 +50,22 @@ def get_ChIP_hits_in_peaks(species = 'mm10', *,peaks):
     .. code-block:: python
 
         >>> atac_data.var
-                               chr   start     end
-            chr1:9778-10670     chr1    9778   10670
-            chr1:180631-181281  chr1  180631  181281
-            chr1:183970-184795  chr1  183970  184795
-            chr1:190991-191935  chr1  190991  191935
+        ...                       chr   start     end
+        ...    chr1:9778-10670     chr1    9778   10670
+        ...    chr1:180631-181281  chr1  180631  181281
+        ...    chr1:183970-184795  chr1  183970  184795
+        ...    chr1:190991-191935  chr1  190991  191935
         >>> mira.tl.get_ChIP_hits_in_peaks(atac_data, 
-            chrom = "chr", start = "start", end = "end",
-            species = "hg38")
-            Grabbing hg38 data (~15 minutes):
-               Downloading from database    
-               Done
-            Loading gene info ...
-            Validating user-provided regions ...
-            WARNING: 71 regions encounted from unknown chromsomes: KI270728.1,GL000194.1,GL000205.2,GL000195.1,GL000219.1,KI270734.1,GL000218.1,KI270721.1,KI270726.1,KI270711.1,KI270713.1
-            INFO:mira.adata_interface.regulators:Added key to varm: chip_hits
-            INFO:mira.adata_interface.regulators:Added key to uns: chip
+        ...    chrom = "chr", start = "start", end = "end",
+        ...    species = "hg38")
+        ...    Grabbing hg38 data (~15 minutes):
+        ...       Downloading from database    
+        ...       Done
+        ...    Loading gene info ...
+        ...    Validating user-provided regions ...
+        ...    WARNING: 71 regions encounted from unknown chromsomes: KI270728.1,GL000194.1,GL000205.2,GL000195.1,GL000219.1,KI270734.1,GL000218.1,KI270721.1,KI270726.1,KI270711.1,KI270713.1
+        ...    INFO:mira.adata_interface.regulators:Added key to varm: chip_hits
+        ...    INFO:mira.adata_interface.regulators:Added key to uns: chip
 
     '''
 

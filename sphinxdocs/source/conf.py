@@ -24,7 +24,8 @@ copyright = '2022, Allen W. Lynch'
 author = 'Allen W. Lynch'
 
 # The full version, including alpha/beta/rc tags
-release = '0.2'
+release = '1.0.0'
+version = '1.0.0'
 
 
 # -- General configuration ---------------------------------------------------
@@ -49,7 +50,9 @@ extensions = [
     'numpydoc',
     'sphinx.ext.autosummary',
     'nbsphinx',
-    'IPython.sphinxext.ipython_console_highlighting'
+    'IPython.sphinxext.ipython_console_highlighting',
+    'sphinx_copybutton',
+    'sphinx_panels',
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -94,6 +97,10 @@ html_theme_options = {
             "icon": "fab fa-github-square",
         }
     ],
+}
+
+html_sidebars = {
+    'index' : []
 }
 
 html_css_files = ['style.css']

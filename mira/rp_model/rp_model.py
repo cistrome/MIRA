@@ -308,6 +308,19 @@ class BaseModel:
         
         return self
 
+    def __getitem__(self, gene):
+        '''
+        Alias for `get_model(gene)`.
+
+        Examples
+        --------
+
+        >>> rp_model["LEF1"]
+        ... <mira.rp_model.rp_model.GeneModel at 0x7fa07af1cf10>
+
+        '''
+        return self.get_model(gene)
+
     @property
     def genes(self):
         return np.array([model.gene for model in self.models])
@@ -606,6 +619,16 @@ class BaseModel:
 
             return result
 
+    @property
+    def parameters_(self):
+        '''
+        Returns parameters of all contained RP models.
+        '''
+        return {
+            gene : self[gene].parameters_
+            for gene in self.features
+        }
+
 
 class LITE_Model(BaseModel):
 
@@ -640,6 +663,21 @@ class LITE_Model(BaseModel):
             search_reps = search_reps,
         )
 
+    def spawn_NITE_model(self):
+        '''
+        Returns a NITE model seeded with the LITE model's
+        parameters.
+        '''
+        return NITE_Model(
+            expr_model= self.expr_model,
+            accessibility_model=self.accessibility_model,
+            genes = self.genes,
+            learning_rate=self.learning_rate,
+            counts_layer=self.counts_layer,
+            initialization_model=self,
+            search_reps=self.search_reps
+        )
+
 class NITE_Model(BaseModel):
 
     use_NITE_features = True
@@ -672,6 +710,9 @@ class NITE_Model(BaseModel):
 
 
 class GeneModel:
+    '''
+    Gene-level RP model object.
+    '''
 
     def __init__(self,*,
         gene, 
@@ -961,7 +1002,7 @@ class GeneModel:
         state = torch.load(self.get_savename(prefix))
         self._load_save_data(state)
 
-    def get_normalized_params(self):
+    def _get_normalized_params(self):
         d = {
             k[len(self.prefix) + 1:] : v.detach().cpu().numpy()
             for k, v in self.posterior_map.items()
@@ -1099,7 +1140,7 @@ class GeneModel:
         
         return self._prob_ISD(
             hits_matrix, **features, 
-            params = self.get_normalized_params(), 
+            params = self._get_normalized_params(), 
             bn_eps= self.bn.eps
         ), samples_mask
 
@@ -1113,7 +1154,7 @@ class GeneModel:
         assert(isinstance(bin_size, int) and bin_size > 0)
         assert(scale_height in [True, False])
 
-        rp_params = self.get_normalized_params()
+        rp_params = self._get_normalized_params()
             
         upstream, downstream = 1e3 * rp_params['distance']
 
@@ -1125,15 +1166,14 @@ class GeneModel:
             right_a, promoter_a, left_a = rp_params['a']
         
         left_extent = int(decay_periods*left_decay)
-        left_x = np.linspace(0, left_extent, left_extent//bin_size).astype(int)
+        left_x = np.linspace(1, left_extent, left_extent//bin_size).astype(int)
         left_y = 0.5**(left_x / left_decay) * (left_a if scale_height else 1.)
-
 
         right_extent = int(decay_periods*right_decay)
         right_x = np.linspace(0, right_extent, right_extent//bin_size).astype(int)
         right_y = 0.5**(right_x / right_decay) * (right_a if scale_height else 1.)
 
-        left_x = -left_x[::-1][:-1] - promoter_width//2 + start_pos
+        left_x = -left_x[::-1] - promoter_width//2 + start_pos
         right_x = right_x + promoter_width//2 + start_pos
         promoter_x = [-promoter_width//2 + start_pos]
         promoter_y = [promoter_a if scale_height else 1.]
@@ -1143,11 +1183,58 @@ class GeneModel:
 
         return x, y
 
+    @property
+    def parameters_(self):
+        '''
+        Returns maximum a posteriori estimate of RP model parameters
+        as dictionary dict[str : parameter, float : value].
+
+        '''
+        norm_params = self._get_normalized_params()
+
+        params = {
+            k : np.atleast_1d(v)[0]
+            for k, v in norm_params.items() if len(np.atleast_1d(v)) == 1
+        }
+
+        params['a_upstream'] = norm_params['a'][0]
+        params['a_promoter'] = norm_params['a'][1]
+        params['a_downstream'] = norm_params['a'][2]
+
+        if self.use_NITE_features:
+            params.update({
+                'a-NITE_' + str(i) : v
+                for i, v in enumerate(norm_params['a_NITE'])
+            })
+
+        return params
+
     @adi.wraps_modelfunc(fetch_TSS_from_adata, 
         fill_kwargs = ['gene_chrom','gene_start','gene_end','gene_strand'])
     def write_bedgraph(self, scale_height = True, bin_size = 50,
         decay_periods = 20, promoter_width = 3000,*, save_name,
         gene_chrom, gene_start, gene_end, gene_strand):
+        '''
+        Write bedgraph of RP model coverage. Useful for visualization with 
+        Bedtools.
+
+        Parameters
+        ----------
+
+        adata : anndata.AnnData
+            AnnData object with TSS data annotated by `mira.tl.get_distance_to_TSS`.
+        save_name : str
+            Path to saved bedgraph file.
+        scale_height : boolean, default = True
+            Write RP model tails proportional in height to their respective
+            multiplicative coeffecient. Useful for evaluating not only the distance
+            of predicted regulatory influence, but the weighted importance of regions 
+            in terms of predicting expression.
+        decay_periods : int>0, default = 10
+            Number of decay periods to write.
+        promoter_width : int>0, default = 0
+            Width of flat region at promoter of gene in base pairs (bp). MIRA default is 3000 bp.
+        '''
 
         coord, value = self._get_RP_model_coordinates(scale_height = scale_height, bin_size = bin_size,
             decay_periods = decay_periods, promoter_width = promoter_width,

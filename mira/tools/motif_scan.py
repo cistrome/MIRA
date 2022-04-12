@@ -241,14 +241,15 @@ def get_motif_hits_in_peaks(peaks, pvalue_threshold = 0.0001,*, genome_fasta):
     .. code-block:: python
 
         >>> atac_data.var
-                         chr   start     end
-            chr1:9778-10670     chr1    9778   10670
-            chr1:180631-181281  chr1  180631  181281
-            chr1:183970-184795  chr1  183970  184795
-            chr1:190991-191935  chr1  190991  191935
+        ...                 chr   start     end
+        ...    chr1:9778-10670     chr1    9778   10670
+        ...    chr1:180631-181281  chr1  180631  181281
+        ...    chr1:183970-184795  chr1  183970  184795
+        ...    chr1:190991-191935  chr1  190991  191935
         >>> mira.tl.get_motif_hits_in_peaks(atac_data, 
-            chrom = "chr", start = "start", end = "end",
-            genome_file = "~/genomes/hg38/hg38.fa")
+        ...    chrom = "chr", start = "start", end = "end",
+        ...    genome_file = "~/genomes/hg38/hg38.fa"
+        ... )
 
     '''
 

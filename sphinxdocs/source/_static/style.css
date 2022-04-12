@@ -1,8 +1,15 @@
 
-div.output_stderr {
-    background: #e6e7ed;
-}
 
 .wy-nav-content {
-    max-width: 1200px !important;
+    max-width: 70% !important;
+}
+
+.a {
+    color : #E83D8C
+}
+
+.hidden { display: none }
+
+div.nboutput.container div.output_area.stderr {
+    background: #e6e7ed;
 }

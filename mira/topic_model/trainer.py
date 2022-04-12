@@ -1,29 +1,30 @@
+from multiprocessing.spawn import import_main_path
 import numpy as np
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, BaseCrossValidator
 from functools import partial
 import os
 import optuna
-import logging
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 from optuna.trial import TrialState as ts
-import joblib
 from joblib import Parallel, delayed
+import time
+
+import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARN)  # Setup the root logger.
-optuna.logging.set_verbosity(optuna.logging.WARN)
+logger.setLevel(logging.INFO)  # Setup the root logger.
+
+optuna.logging.set_verbosity(optuna.logging.CRITICAL)
 from mira.topic_model.base import logger as baselogger
+from optuna.exceptions import ExperimentalWarning
+import warnings
+warnings.filterwarnings("ignore", category=ExperimentalWarning, module="optuna")
 from mira.adata_interface.topic_model import logger as interfacelogger
+from mira.adata_interface.core import logger as corelogger
+from torch.utils.tensorboard import SummaryWriter
+import torch
 
 
-tensorboard_available = False
-try:
-    from torch.utils.tensorboard import SummaryWriter
-    tensorboard_available = True
-except ModuleNotFoundError:
-    pass
-
-    
 class DisableLogger:
     def __init__(self, logger):
         self.logger = logger
@@ -36,6 +37,27 @@ class DisableLogger:
         self.logger.setLevel(self.level)
 
 
+def _log_progress(study, trial,*, num_trials, worker_number):
+    logger.info('Worker {}: Finished trial {}/{}.'.format(
+        str(worker_number), str(trial.number+1), str(num_trials)
+    ))
+    
+def _format_params(params):
+
+    def _format_param_value(value):
+
+        if type(value) == float:
+            return "{:.4f}".format(value)
+        elif type(value) == str:
+            return "'{}'".format(value)
+        else:
+            return str(value)
+
+    return '{' + \
+        ', '.join(["'{}': {}".format(param, _format_param_value(value))
+        for param, value in params.items()]) \
+    + '}'
+
 def _print_study(study, trial):
 
     if study is None:
@@ -44,9 +66,9 @@ def _print_study(study, trial):
     def get_trial_desc(trial):
 
         if trial.state == ts.COMPLETE:
-            return 'Trial #{:<3} | completed, score: {:.4e} | params: {}'.format(str(trial.number), trial.values[-1], str(trial.user_attrs['trial_params']))
+            return 'Trial #{:<3} | completed, score: {:.4e} | params: {}'.format(str(trial.number), trial.values[-1], _format_params(trial.user_attrs['trial_params']))
         elif trial.state == ts.PRUNED:
-            return 'Trial #{:<3} | pruned at step: {:<12} | params: {}'.format(str(trial.number), str(trial.user_attrs['batches_trained']), str(trial.user_attrs['trial_params']))
+            return 'Trial #{:<3} | pruned at step: {:<12} | params: {}'.format(str(trial.number), str(trial.user_attrs['batches_trained']), _format_params(trial.user_attrs['trial_params']))
         elif trial.state == ts.FAIL:
             return 'Trial #{:<3} | ERROR                        | params: {}'\
                 .format(str(trial.number), str(trial.user_attrs['trial_params']))
@@ -65,7 +87,7 @@ def _print_study(study, trial):
     except ValueError:
         print('Trials finished {}'.format(str(len(study.trials))), end = '\n\n')        
 
-    print('Modules | Trials (number is #folds tested)', end = '')
+    print('#Topics | Trials (number is #folds tested)', end = '')
 
     study_results = sorted([
         (trial_.user_attrs['trial_params']['num_topics'], trial_.user_attrs['batches_trained'], trial_.number)
@@ -100,73 +122,60 @@ except ImportError:
     NOTEBOOK_MODE = False
 
 class TopicModelTuner:
-    '''
-    Tune hyperparameters of the MIRA topic model using iterative Bayesian optimization.
-    First, the optimization engine suggests a hyperparameter combination. The model
-    is then trained with those parameters for 5 folds of cross validation (default option)
-    to compute the performance of that model. If the parameter combination does not 
-    meet the performance of previously-trained combinations, the trial is terminated early. 
-
-    Depending on the size of your dataset, you may change the pruning and cross validation
-    schemes to reduce training time. 
-
-    The tuner returns an ``study`` object from the package `Optuna <https://optuna.readthedocs.io/en/stable/reference/generated/optuna.study.Study.html#optuna.study.Study>`_.
-    The study may be reloaded to resume optimization later, or printed to review results.
-
-    After tuning, the best models compete to minimize loss on a held-out set of cells.
-    The winning model is returned as the final model of the dataset.
-
-    Examples
-    --------
-
-    .. code-block:: python
-
-        >>> tuner = mira.topics.TopicModelTuner(
-        ...     topic_model,
-        ...     save_name = 'study.pkl',
-        ... )
-        >>> tuner.train_test_split(data)
-        >>> tuner.tune(data)
-        >>> tuner.select_best_model(data)
-
-    '''
 
     @classmethod
-    def load_study(cls, filename):
-        '''
-        Load study from file.
+    def load_study(cls, study_name, storage = 'sqlite:///mira-tuning.db'):
 
-        Parameters
-        ----------
-        filename : str
-            Path to optuna.study.Study saved to disk.
-
-        Returns
-        -------
-        study : optuna.study.Study
-
-        '''
-        return joblib.load(filename)
+        return optuna.create_study(
+            direction = 'minimize',
+            study_name = study_name,
+            storage = storage,
+            load_if_exists= True,
+        )
 
     def __init__(self,
         topic_model,
-        save_name = None,
         test_column = None,
         min_topics = 5, max_topics = 55,
         min_epochs = 20, max_epochs = 40,
         min_dropout = 0.01, max_dropout = 0.15,
         batch_sizes = [32,64,128],
         cv = 5, iters = 64,
-        study = None,
         seed = 2556,
         pruner = 'halving',
         sampler = 'tpe',
         tune_layers = True,
         tune_kl_strategy  = True,
-        tensorboard_logdir = 'runs', 
-        use_tensorboard = False,
+        tensorboard_logdir = 'runs',
+        storage = 'sqlite:///mira-tuning.db',*,
+        save_name,
     ):
         '''
+        Tune hyperparameters of the MIRA topic model using iterative Bayesian optimization.
+        First, the optimization engine suggests a hyperparameter combination. The model
+        is then trained with those parameters for 5 folds of cross validation (default option)
+        to compute the performance of that model. If the parameter combination does not 
+        meet the performance of previously-trained combinations, the trial is terminated early. 
+
+        Depending on the size of your dataset, you may change the pruning and cross validation
+        schemes to reduce training time. 
+
+        The tuner returns an ``study`` object from the package `Optuna <https://optuna.readthedocs.io/en/stable/reference/generated/optuna.study.Study.html#optuna.study.Study>`_.
+        The study may be reloaded to resume optimization later, or printed to review results.
+
+        After tuning, the best models compete to minimize loss on a held-out set of cells.
+        The winning model is returned as the final model of the dataset.
+
+        Parallelized training is available to speed up tuning. Metrics and results from hyperparameter
+        trials and model training are saved as tensorboard log files for diagnostic evaluation.
+
+        .. image :: /_static/tensorboard_hparams.png
+            :width: 1200
+
+        .. note::
+
+            Please refer to the :ref:`topic model tuning tutorial </notebooks/tutorial_topic_model_tuning_full.ipynb>`
+            for instruction on parallelized training and tensorboard logging.
 
         Parameters
         ----------
@@ -174,9 +183,8 @@ class TopicModelTuner:
             Topic model to tune. The provided model should have columns specified
             to retrieve endogenous and exogenous features, and should have the learning
             rate configued by ``get_learning_rate_bounds``.
-        save_name : str, default = None
-            Filename under which to save tuning results. After each iteration, the ``study``
-            object will be saved here.
+        study_name : str, default = None
+            Table under which to save tuning results in *storage* SQLite table. 
         test_column : str, default = 'test_set'
             Column of anndata.obs marking cells held out for validation set. 
         min_topics : int, default = 5
@@ -205,6 +213,15 @@ class TopicModelTuner:
             any object inheriting from optuna.runer.BasePruner
         sampler : None or optuna.pruner.BaseSampler, default = None
             If None, uses MIRA's default choice of the TPE sampler.
+        tune_kl_strategy : boolean, default = True
+            Tune KL annealing strategy of model. Options are monotonic KL annealing,
+            as implemented by the MIRA paper, and cyclic KL annealing.
+        tune_layers : boolean, default = True,
+            Tune the number of layers in the encoder model. Options are 2 or 3.
+        tensorboard_logdir : str, default = 'runs',
+            Directory in which to save tensorboard log files.
+        storage : str, default = 'sqlite:///mira-tuning.db'
+            SQLite database name.
 
         Returns
         -------
@@ -216,14 +233,18 @@ class TopicModelTuner:
 
         Examples
         --------
-        Using default parameters:
+        
+        The tuning workflow, very briefly, is:
 
-        .. code-block::
+        .. code-block:: python
 
             >>> tuner = mira.topics.TopicModelTuner(
             ...     topic_model,
-            ...     save_name = 'study.pkl',
+            ...     save_name = 'topic-model-study',
             ... )
+            >>> tuner.train_test_split(data)
+            >>> tuner.tune(data, n_workers = 1)
+            >>> tuner.select_best_model(data)
 
         For large datasets, it may be useful to skip cross validation since the
         variance of the estimate of model performance should be lower. It may also
@@ -233,7 +254,7 @@ class TopicModelTuner:
         
             >>> tuner = mira.topics.TopicModelTuner(
             ...    topic_model,
-            ...    save_name = 'study.pkl',
+            ...    save_name = 'study',
             ...    cv = sklearn.model_selection.ShuffleSplit(n_splits = 1, train_size = 0.8),
             ...    batch_sizes = [64,128],
             ... )
@@ -247,22 +268,14 @@ class TopicModelTuner:
         self.batch_sizes = batch_sizes
         self.cv = cv
         self.iters = iters
-        self.study = study
         self.seed = seed
-        self.save_name = save_name
+        self.study_name = save_name
+        self.storage = storage
         self.pruner = pruner
         self.sampler = sampler
         self.tune_layers = tune_layers
         self.tune_kl_strategy = tune_kl_strategy
         self.tensorboard_logdir = tensorboard_logdir
-        self.use_tensorboard = use_tensorboard
-
-        if not study is None:
-            assert(not study.study_name is None), 'Provided studies must have names.'
-        elif study is None and save_name is None:
-            raise ValueError('Must provide a "save_name" to start a new study.')
-        
-        self.study = study
 
 
     @adi.wraps_modelfunc(adi.fetch_adata_shape, tmi.add_test_column, ['shape'])
@@ -297,7 +310,8 @@ class TopicModelTuner:
     def _trial(
             trial,
             prune_penalty = 0.01,
-            tensorboard_logdir = None,*,
+            parallel = False,*,
+            tensorboard_logdir,
             model, data, cv, batch_sizes,
             min_topics, max_topics,
             min_dropout, max_dropout,
@@ -321,6 +335,12 @@ class TopicModelTuner:
         if tune_layers:
             params['num_layers'] = trial.suggest_categorical('num_layers', [2,3])
 
+        domains = {
+            'kl_strategy' : ['monotonic','cyclic'],
+            'batch_size' : batch_sizes,
+            'num_layers' : [2,3],
+        }
+
         model.set_params(**params)
 
         trial.set_user_attr('trial_params', params)
@@ -331,26 +351,22 @@ class TopicModelTuner:
         num_splits = cv.get_n_splits(data)
         cv_scores = []
 
-        if not tensorboard_logdir is None:
-            writer = SummaryWriter(log_dir=os.path.join(tensorboard_logdir, study_name, str(trial.number)),
-             max_queue=100)
-        else:
-            writer = None
+        with SummaryWriter(log_dir=os.path.join(tensorboard_logdir, study_name, str(trial.number))) as trial_writer:
+            
+            if not parallel:
+                print('Evaluating: ' + _format_params(params))
 
-        try:
-
-            if not writer is None:
-                writer.add_hparams(model.get_params())
-
-            print('Evaluating: ' + str(params))
             for step, (train_idx, test_idx) in enumerate(cv.split(data)):
 
                 train_counts, test_counts = data[train_idx], data[test_idx]
                 
-                for epoch, loss in model._internal_fit(train_counts, writer = writer):
-                    num_hashtags = int(10 * epoch/params['num_epochs'])
-                    print('\rProgress: ' + '|##########'*step + '|' + '#'*num_hashtags + ' '*(10-num_hashtags) + '|' + '          |'*(num_splits-step-1),
-                        end = '')
+                with SummaryWriter(log_dir=os.path.join(tensorboard_logdir, study_name, str(trial.number), str(step))) as model_writer:
+                    for epoch, loss in model._internal_fit(train_counts, writer = model_writer):
+                        
+                        if not parallel:
+                            num_hashtags = int(10 * epoch/params['num_epochs'])
+                            print('\rProgress: ' + '|##########'*step + '|' + '#'*num_hashtags + ' '*(10-num_hashtags) + '|' + '          |'*(num_splits-step-1),
+                                end = '')
 
                 cv_scores.append(
                     model.score(test_counts)
@@ -363,45 +379,19 @@ class TopicModelTuner:
                     
                 if trial.should_prune() and step + 1 < num_splits:
                     trial.set_user_attr('batches_trained', step+1)
-
-                    if not writer is None:
-                        writer.add_hparams({
-                            **{'cv_{}_score'.format(str(i)) : cv_score for i, cv_score in cv_scores},
-                            'batches_trained' : step+1
-                        })
-
                     raise optuna.TrialPruned()
 
             trial.set_user_attr('batches_trained', step+1)
             trial.set_user_attr('completed', True)
             trial_score = np.mean(cv_scores)
 
-            if not writer is None:
-                writer.add_hparams({
-                    **{'cv_{}_score'.format(str(i)) : cv_score for i, cv_score in cv_scores},
-                    'trial_score' : trial_score,
-                    'batches_trained' : num_splits,
-                })
+            metrics = {**{'cv_{}_score'.format(str(i)) : cv_score for i, cv_score in enumerate(cv_scores)}, 
+                                'trial_score' : trial_score,
+                                'test_score' : 1.}
 
-        finally:
-            if not writer is None:
-                writer.close()
+            trial_writer.add_hparams(params, metrics, domains)
 
         return trial_score
-
-    @staticmethod
-    def _save_study(study, trial):
-        joblib.dump(study, study.study_name)
-
-    def save(self):
-        '''
-        Save study to `study_name`.
-
-        Parameters
-        ----------
-        None
-        '''
-        self._save_study(self.study, None)
 
     def print(self):
         '''
@@ -409,6 +399,7 @@ class TopicModelTuner:
         tuning when reloading study.
         '''
         _print_study(self.study, None)
+
 
     def get_pruner(self):
         if self.pruner == 'halving':
@@ -427,61 +418,26 @@ class TopicModelTuner:
             raise ValueError('Pruner {} is not an option'.format(str(self.pruner)))
 
 
-    def get_tuner(self):
+    def get_tuner(self, worker_number = 0, parallel = False):
         if isinstance(self.sampler, optuna.samplers.BaseSampler):
+            self.sampler.seed+=worker_number
             return self.sampler
         elif self.sampler == 'tpe':
             return optuna.samplers.TPESampler(
-                seed = self.seed
+                seed = self.seed + worker_number,
+                constant_liar=parallel,
             )
         else:
             raise ValueError('Sampler {} is not an option'.format(str(self.sampler)))
 
 
-    def distributed_tune(self, n_workers = 1, writer = None,*,
-            all_data, train_data, test_data):
-
-        self.sampler = optuna.samplers.TPESampler(
-                seed = self.seed, constant_liar=True,
-            )
-
-        self.study = optuna.create_study(
-            direction = 'minimize',
-            pruner = self.get_pruner(),
-            sampler = self.get_tuner(),
-            study_name = self.save_name,
-            storage = 'sqlite:///{}.db'.format(self.save_name),
-        )
-
-        if isinstance(self.cv, int):
-            self.cv = KFold(self.cv, random_state = self.seed, shuffle= True)
-        
-        trial_func = partial(
-            self._trial, 
-            writer = writer,
-            model = self.model, data = train_data,
-            cv = self.cv, batch_sizes = self.batch_sizes,
-            min_dropout = self.min_dropout, max_dropout = self.max_dropout,
-            min_epochs = self.min_epochs, max_epochs = self.max_epochs,
-            min_topics = self.min_topics, max_topics = self.max_topics,
-            tune_kl_strategy = self.tune_kl_strategy, 
-            tune_layers = self.tune_layers,
-        )
-
-        optim_func = partial(self.study.optimize, trial_func, n_trials = self.iters//n_workers, 
-                catch = (RuntimeError,ValueError)
-        )
-
-        Parallel(n_jobs=n_workers)(delayed(optim_func)() for i in n_workers)
-        
-        return self.study
-
-
-    @adi.wraps_modelfunc(tmi.fetch_split_train_test, 
-        fill_kwargs = ['all_data', 'train_data', 'test_data'])
-    def tune(self,*, all_data, train_data, test_data):
+    def tune(self, adata, n_workers = 1):
         '''
-        Run Bayesian optimization scheme for topic model hyperparameters. 
+        Run Bayesian optimization scheme for topic model hyperparameters. This
+        function launches multiple concurrent training processes to evaluate 
+        hyperparameter combinations. All processes are launched on the same node.
+        Evaluate the memory usage of a single MIRA topic model to determine 
+        number of workers. 
 
         Parameters
         ----------
@@ -489,6 +445,8 @@ class TopicModelTuner:
             Anndata of expression or accessibility data.
             Cells must be labeled with test or train set membership using
             `tuner.train_test_split`.
+        n_workers : int, default = 1
+            Number of tuning processes to launch.
         
         Returns
         -------
@@ -496,27 +454,54 @@ class TopicModelTuner:
             Study object summarizing results of tuning iterations.
 
         '''
-        
-        '''error_file = logging.FileHandler(self.logfile, mode="a")
-        logger.addHandler(error_file)
-        optuna.logging.enable_propagation()  # Propagate logs to the root logger.
-        optuna.logging.disable_default_handler()  # Stop showing logs in sys.stderr.'''
 
-        if self.study is None:
-            self.study = optuna.create_study(
-                direction = 'minimize',
-                pruner = self.get_pruner(),
-                sampler = self.get_tuner(),
-                study_name = self.save_name,
+        assert isinstance(n_workers, int) and n_workers > 0
+
+        self.model.cpu()
+
+        self.study = optuna.create_study(
+            direction = 'minimize',
+            study_name = self.study_name,
+            storage = self.storage,
+            load_if_exists= True,
+        )
+
+        tune_func = partial(
+                self._tune, adata, parallel = n_workers>1, n_workers = n_workers,
             )
 
-        if isinstance(self.cv, int):
-            self.cv = KFold(self.cv, random_state = self.seed, shuffle= True)
+        Parallel(n_jobs=n_workers, verbose = 0)\
+            (delayed(tune_func)(worker_number = i) for i in range(n_workers))
 
+        self.print()
+        time.sleep(0.05)
+
+        return self.study
+
+
+    @adi.wraps_modelfunc(tmi.fetch_split_train_test, 
+        fill_kwargs = ['all_data', 'train_data', 'test_data'])
+    def _tune(self, worker_number = 0, n_workers = 1, parallel = False,*, 
+        all_data, train_data, test_data):
+        
+        self.study = optuna.create_study(
+            direction = 'minimize',
+            pruner = self.get_pruner(),
+            sampler = self.get_tuner(worker_number = worker_number, parallel=parallel),
+            study_name = self.study_name,
+            storage = self.storage,
+            load_if_exists= True,
+        )
+
+        if isinstance(self.cv, int):
+            self.cv = KFold(self.cv, random_state = self.seed + worker_number, shuffle= True)
+        else:
+            assert isinstance(self.cv, BaseCrossValidator)
+            self.cv.seed+=worker_number
+        
 
         trial_func = partial(
-            self._trial, 
-            tuner = self,
+            self._trial,
             model = self.model, data = train_data,
             cv = self.cv, batch_sizes = self.batch_sizes,
             min_dropout = self.min_dropout, max_dropout = self.max_dropout,
@@ -524,22 +509,35 @@ class TopicModelTuner:
             min_topics = self.min_topics, max_topics = self.max_topics,
             tune_kl_strategy = self.tune_kl_strategy, 
             tune_layers = self.tune_layers,
-            study_name = self.study.study_name,
-            tensorboard_logdir = self.tensorboard_logdir if self.use_tensorboard and tensorboard_available else None,
+            study_name = self.study_name,
+            tensorboard_logdir = self.tensorboard_logdir,
+            parallel = parallel
         )
 
-        with DisableLogger(baselogger), DisableLogger(interfacelogger):
-            
-            np.random.seed(self.seed)
+        if not torch.cuda.is_available():
+            logger.warn('Worker {}: GPU is not available, will not speed up training.'.format(str(worker_number)))
 
-            try:
-                self.study.optimize(trial_func, n_trials = self.iters, callbacks = [_print_study, self._save_study],
-                catch = (RuntimeError,ValueError),)
-            except KeyboardInterrupt:
-                pass
+        remaining_trials = self.iters - len(self.study.trials)
+        if remaining_trials > 0:
 
-        self.print()
-        self._save_study(self.study, None)
+            with DisableLogger(baselogger), DisableLogger(interfacelogger), DisableLogger(corelogger):
+
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                
+                    np.random.seed(self.seed + worker_number)
+
+                    try:
+                        self.study.optimize(
+                            trial_func, n_trials = self.iters//n_workers, 
+                            callbacks = [_print_study] if not parallel else [partial(_log_progress, worker_number = worker_number, num_trials = self.iters)],
+                            catch = (RuntimeError,ValueError),
+                        )
+                    except KeyboardInterrupt:
+                        pass
+
+            if not parallel:
+                self.print()
 
         return self.study
 
@@ -602,7 +600,7 @@ class TopicModelTuner:
 
 
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, adi.return_output, ['all_data', 'train_data', 'test_data'])
-    def select_best_model(self, top_n_trials = 5, color_col = 'leiden',*,
+    def select_best_model(self, top_n_trials = 5, color_col = 'leiden', record_umaps = True,*,
         all_data, train_data, test_data):
         '''
         Retrain best parameter combinations on all training data, then 
@@ -617,6 +615,13 @@ class TopicModelTuner:
             `tuner.train_test_split`.
         top_n_trials : int > 0, default = 5
             Number of top parameter combinations to test on validation data.
+        record_umaps : boolean, default = True,
+            Record ILR-transformed topics as cell embeddings in tensorboard
+            embedding projector. Enables exploration of manifold for each
+            trained topic model.
+        color_col : str, default = 'leiden'
+            With which column to color cells in tensorboard embedding projector.
+            If column is not present in *adata*, skips coloring.
 
         Returns
         -------
@@ -625,52 +630,56 @@ class TopicModelTuner:
             
         '''
 
+        domains = {
+            'kl_strategy' : ['monotonic','cyclic'],
+            'batch_size' : self.batch_sizes,
+            'num_layers' : [2,3],
+        }
+
         scores = []
         best_params = self.get_best_params(top_n_trials)
 
         for i, params in enumerate(best_params):
-            logging.info('Training model with parameters: ' + str(params))
-
-            if self.use_tensorboard and tensorboard_available:
-                writer = SummaryWriter(
-                    log_dir= os.path.join(
-                        self.tensorboard_logdir, self.study.study_name, 'evaluation_' + str(i))
-                )
-            else:
-                writer = None
+            logger.info('Training model with parameters: ' + str(params))
 
             try:
-                scores.append(
-                    self.model.set_params(**params).fit(train_data, writer = writer).score(test_data)
-                )
+            
+                with SummaryWriter(log_dir=os.path.join(self.tensorboard_logdir, self.study_name, 'eval_' + str(i))) as writer:
 
-                logging.info('Score: {:.5e}'.format(scores[-1]))
+                    with DisableLogger(baselogger), DisableLogger(interfacelogger), DisableLogger(corelogger):
+                    
+                        test_score = self.model.set_params(**params).fit(train_data, writer = writer).score(test_data)
+                        scores.append(test_score)
 
-                if not writer is None:
-                    writer.add_hparams(self.model.get_params())
+                        logger.info('Score: {:.5e}'.format(test_score))
+                        writer.add_hparams(params, {'test_score' : test_score}, domains)
 
-                    self.model.predict(all_data)
-                    self.model.get_umap_features(all_data)
+                        if record_umaps:
 
-                    try:
-                        metadata = all_data.obs_vector(color_col).astype(str)
-                    except KeyError:
-                        metadata = None
+                            self.model.predict(all_data)
+                            self.model.get_umap_features(all_data)
 
-                    writer.add_embedding(
-                        all_data.obsm['X_umap_features'], metadata= metadata,
-                    )
+                            try:
+                                metadata = all_data.obs_vector(color_col)
+                            except KeyError:
+                                metadata = None
+
+                            writer.add_embedding(
+                                all_data.obsm['X_umap_features'], metadata= metadata,
+                            )
 
 
             except (RuntimeError, ValueError) as err:
-                logging.error('Error occured while training, skipping model.')
+                logger.error('Error occured while training, skipping model.')
                 scores.append(np.inf)
 
         final_choice = best_params[np.argmin(scores)]
-        logging.info('Set parameters to best combination: ' + str(final_choice))
+        logger.info('Set parameters to best combination: ' + str(final_choice))
         self.model.set_params(**final_choice)
         
-        logging.info('Training model with all data.')
-        self.model.fit(all_data)
+        logger.info('Training model with all data.')
+
+        with SummaryWriter(log_dir= os.path.join(self.tensorboard_logdir, self.study.study_name, 'best_model')) as writer:
+            self.model.fit(all_data, writer = writer)
 
         return self.model

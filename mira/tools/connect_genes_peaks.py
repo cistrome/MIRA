@@ -173,31 +173,31 @@ def get_distance_to_TSS(max_distance = 6e5, promoter_width = 3000,*,
     .. code-block:: python
 
         >>> atac_data.var
-                                chr   start     end
-            chr1:9778-10670     chr1    9778   10670
-            chr1:180631-181281  chr1  180631  181281
-            chr1:183970-184795  chr1  183970  184795
-            chr1:190991-191935  chr1  190991  191935
+        ...                        chr   start     end
+        ...    chr1:9778-10670     chr1    9778   10670
+        ...    chr1:180631-181281  chr1  180631  181281
+        ...    chr1:183970-184795  chr1  183970  184795
+        ...    chr1:190991-191935  chr1  190991  191935
         >>> tss_data
-            chrom strand   geneSymbol chrom  chromStart  chromEnd
-            0  chr1      +      DDX11L1  chr1     11868.0   14409.0
-            2  chr1      -       WASH7P  chr1     14403.0   29570.0
-            3  chr1      -    MIR6859-1  chr1     17368.0   17436.0
-            4  chr1      +  MIR1302-2HG  chr1     29553.0   31097.0
+        ...    chrom strand   geneSymbol chrom  chromStart  chromEnd
+        ...    0  chr1      +      DDX11L1  chr1     11868.0   14409.0
+        ...    2  chr1      -       WASH7P  chr1     14403.0   29570.0
+        ...    3  chr1      -    MIR6859-1  chr1     17368.0   17436.0
+        ...    4  chr1      +  MIR1302-2HG  chr1     29553.0   31097.0
         >>> mira.tl.get_distance_to_TSS(atac_data, 
-                                tss_data = tss_data, 
-                                gene_chrom='chrom', 
-                                gene_strand='strand', 
-                                gene_start='chromStart',
-                                gene_end='chromEnd',
-                                genome_file = '~/genomes/hg38/hg38.genome'
-                            )
-            WARNING:mira.tools.connect_genes_peaks:71 regions encounted from unknown chromsomes: KI270728.1,GL000194.1,GL000205.2,GL000195.1,GL000219.1,KI270734.1,GL000218.1,KI270721.1,KI270726.1,KI270711.1,KI270713.1
-            INFO:mira.tools.connect_genes_peaks:Finding peak intersections with promoters ...
-            INFO:mira.tools.connect_genes_peaks:Calculating distances between peaks and TSS ...
-            INFO:mira.tools.connect_genes_peaks:Masking other genes' promoters ...
-            INFO:mira.adata_interface.rp_model:Added key to var: distance_to_TSS
-            INFO:mira.adata_interface.rp_model:Added key to uns: distance_to_TSS_genes
+        ...                        tss_data = tss_data, 
+        ...                        gene_chrom='chrom', 
+        ...                        gene_strand='strand', 
+        ...                        gene_start='chromStart',
+        ...                        gene_end='chromEnd',
+        ...                        genome_file = '~/genomes/hg38/hg38.genome'
+        ...                    )
+        ...    WARNING:mira.tools.connect_genes_peaks:71 regions encounted from unknown chromsomes: KI270728.1,GL000194.1,GL000205.2,GL000195.1,GL000219.1,KI270734.1,GL000218.1,KI270721.1,KI270726.1,KI270711.1,KI270713.1
+        ...    INFO:mira.tools.connect_genes_peaks:Finding peak intersections with promoters ...
+        ...    INFO:mira.tools.connect_genes_peaks:Calculating distances between peaks and TSS ...
+        ...    INFO:mira.tools.connect_genes_peaks:Masking other genes' promoters ...
+        ...    INFO:mira.adata_interface.rp_model:Added key to var: distance_to_TSS
+        ...    INFO:mira.adata_interface.rp_model:Added key to uns: distance_to_TSS_genes
 
     '''
 

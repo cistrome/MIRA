@@ -42,6 +42,22 @@ def fetch_differential_plot(self, adata, genes=None, counts_layer = None, basis 
     return r
 
 
+def fetch_scatter_differential_plot(self, adata,
+    gene = None, color = None, layer = None):
+
+    assert not gene is None
+    
+    if color is None:
+        color = gene
+
+    return {
+        'lite_prediction' : adata.obs_vector(gene, layer = 'LITE_prediction'),
+        'nite_prediction' : adata.obs_vector(gene, layer = 'NITE_prediction'),
+        'hue' : adata.obs_vector(color, layer = layer),
+        'hue_label' : color,
+    }
+
+
 def fetch_streamplot_data(self, adata, 
         data = None,
         layers = None, 

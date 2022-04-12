@@ -5,6 +5,7 @@ import pandas as pd
 import logging
 import mira.adata_interface.core as adi
 import mira.adata_interface.regulators as ri
+import mira.adata_interface.rp_model as rpi
 logger = logging.getLogger(__name__)
 
 
@@ -35,6 +36,7 @@ def show_gif(path):
     from IPython.display import Image, display
     with open(path,'rb') as f:
         display(Image(data=f.read(), format='png'))
+
 
 def make_joint_representation(
     adata1, adata2,
@@ -220,6 +222,12 @@ def fetch_factor_hits(atac_adata, factor_type = 'motifs', mask_factors = False):
         var = atac_adata.var,
         X = hits_matrix,
     )
+
+def fetch_TSS_data(adata):
+    '''
+    Returns TSS metadata from `mira.tl.get_distance_to_TSS`.
+    '''
+    return rpi.fetch_TSS_data(None, adata)
 
 
 def fetch_ISD_matrix(expr_adata, factor_type = 'motifs', mask_factors = True, 

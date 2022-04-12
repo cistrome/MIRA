@@ -159,6 +159,84 @@ def compare_driver_TFs_plot(background = None, alt_hypothesis = 'greater', facto
     pval_threshold = (1e-3, 1e-3), na_color = 'lightgrey', show_factor_ids = False,
     color = 'grey', label_closeness = 3, max_label_repeats = 3,*,
     geneset1, geneset2, isd_matrix, genes, factors):
+    '''
+    Use pISD (probabilistic *insilico* deletion) association scores between 
+    transcription factors and genes to compare and contrast 
+    driving regulatorys of two genesets.
+
+    The genesets may be determined by shared regulation (e.g. topics), 
+    by differential expression, or based on similar regulatory dynamcis.
+
+    .. note::
+
+        Please refer to the :ref:`LITE/NITE tutorial </notebooks/tutorial_topic_model_tuning.ipynb>`
+        for instruction on training RP models and calculating pISD scores.
+
+    Parameters
+    ----------
+
+    background : np.ndarrary[str], list[str], None; default = None
+        List of gene names to use for background of driver TF test.
+        For each transcription factor, assesses association in each
+        query geneset against the provided background. If no background
+        provided, all compares query against all other genes for which
+        pISD scores were calculated.
+    geneset_1 : np.ndarray[str], list[str]
+        Query geneset 1. List of genes linked by some process (similar
+        regulatory dynamics, topic activtation, etc.).
+    geneset_2 : np.ndarray[str], list[str]
+        Query geneset 1. List of genes linked by some contrasting
+        process.
+    factor_type : str, 'motifs' or 'chip', default = 'motifs'
+        Which factor type to use for enrichment.
+    label_factors : list[str], np.ndarray[str], None; default=None
+        List of factors to label. If not provided, will label all
+        factors that meet the p-value thresholds.
+    hue : dict[str : {str, float}] or None
+        If provided, colors the factors on the plot. The keys of the dict
+        must be the names of transcription factors, and the values are
+        the associated data to map to colors. The values may be 
+        categorical, e.g. cluster labels, or scalar, e.g. expression
+        values. TFs not provided in the dict are colored as *na_color*.
+    palette : str, list[str], or None; default = None
+        Palette of plot. Default of None will set `palette` to the style-specific default.
+    hue_order : list[str] or None, default = None
+        Order to assign hues to features provided by `data`. Works similarly to
+        hue_order in seaborn. User must provide list of features corresponding to 
+        the order of hue assignment. 
+    ax : matplotlib.pyplot.axes, deafult = None
+        Provide axes object to function to add streamplot to a subplot composition,
+        et cetera. If no axes are provided, they are created internally.
+    figsize : tuple(float, float), default = (8,8)
+        Size of figure
+    legend_label : str, None
+        Label for legend.
+    show_legend : boolean, default=True
+        Show figure legend.
+    fontsize : int>0, default=13
+        Fontsize of TF labels on plot.
+    pval_threshold : tuple[float, float], default=(1e-50, 1e-50)
+        Threshold below with TFs will not be labeled on plot. The first and
+        second positions relate p-value with respect to topic 1 and topic 2.
+    na_color : str, default='lightgrey'
+        Color for TFs with no provided *hue*
+    color : str, default='grey'
+        If *hue* not provided, colors all points on plot this color.
+    label_closeness : int>0, default=3
+        Closeness of TF labels to points on plot. When *label_closeness* is high,
+        labels are forced to be very close to points.
+    max_label_repeats : boolean, default=3
+        Some TFs have multiple ChIP samples or Motif PWMs. For these factors,
+        label the top *max_label_repeats* examples. This prevents clutter when
+        many samples for the same TF are close together. The rank of the sample
+        for each TF is shown in the label as "<TF name> (<rank>)".
+
+    Returns
+    -------
+
+    matplotlib.pyplot.axes
+
+    '''
 
     driver_test = partial(_driver_TF_test, background = background, alt_hypothesis = alt_hypothesis,
         isd_matrix = isd_matrix, genes = genes, factors = factors)
@@ -171,3 +249,5 @@ def compare_driver_TFs_plot(background = None, alt_hypothesis = 'greater', facto
             label_closeness = label_closeness, figsize = figsize,
             na_color = na_color, max_label_repeats = max_label_repeats,
             axlabels = axlabels, fontsize = fontsize, color = color)        
+
+    

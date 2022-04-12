@@ -21,8 +21,10 @@ import gc
 import matplotlib.pyplot as plt
 from scipy.cluster.hierarchy import linkage
 import mira.topic_model.ilr_tools as ilr
-from torch.utils.data import DataLoader, BatchSampler, SequentialSampler
+from torch.utils.data import DataLoader
+import time
 logger = logging.getLogger(__name__)
+
 
 class EarlyStopping:
 
@@ -300,6 +302,21 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.embedding_size = embedding_size
         self.kl_strategy = kl_strategy
 
+    @staticmethod
+    def _iterate_batch_idx(N, batch_size, bar = False, desc = None):
+        
+        num_batches = N//batch_size + int(N % batch_size > 0)
+
+        for i in range(num_batches) if not bar else tqdm(range(num_batches), desc = desc):
+
+            start, end = i * batch_size, (i + 1) * batch_size
+
+            if N - end == 1:
+                yield start, end + 1
+                raise StopIteration()
+            else:
+                yield start, end
+
     def _set_seeds(self):
         if self.seed is None:
             self.seed = int(time.time() * 1e7)%(2**32-1)
@@ -431,16 +448,13 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     def _preprocess_read_depth(self,*,endog_features, exog_features):
         
-        X = exog_features.sum(-1).toarray().reshape((-1,1))
-
-        print('rd')
+        X = np.array(exog_features.sum(-1)).reshape((-1,1)).astype(np.float32)
         return torch.tensor(X, requires_grad = False).to(self.device)
 
 
     def transform_batch(self, data_loader, bar = True, desc = ''):
 
         for batch in tqdm(data_loader, desc = desc) if bar else data_loader:
-            print('yeet')
             yield dict(
                 endog_features = self._preprocess_endog(**batch),
                 exog_features = self._preprocess_exog(**batch),
@@ -467,7 +481,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         n_cycles = 3
         tau = ((step_num+1) % (total_steps/n_cycles))/(total_steps/n_cycles)
 
-        if tau > 0.5 or step_num > total_steps:
+        if tau > 0.5 or step_num >= (0.95 * total_steps):
             return 1.
         else:
             return max(tau/0.5, n_cycles/total_steps)
@@ -516,9 +530,10 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     def _step(self, batch, anneal_factor):
 
-        return float(
-            self.svi.step(**batch, anneal_factor = anneal_factor)
-        )
+        return {
+            'loss' : float(self.svi.step(**batch, anneal_factor = anneal_factor))/self.batch_size,
+            'anneal_factor' : anneal_factor
+            }
 
     @adi.wraps_modelfunc(fetch = tmi.fit_adata, 
         fill_kwargs=['features','highly_variable','dataset'])
@@ -564,8 +579,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             Learning rate range test: 100%|██████████| 85/85 [00:17<00:00,  4.73it/s]
             (4.619921114045972e-06, 0.1800121741235493)
         '''
-
-        print('A')
         self._instantiate_model(
             features = features, highly_variable = highly_variable
         )
@@ -597,24 +610,17 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         batches_complete, step_loss = 0,0
         learning_rate_losses = []
         
-        print('BC')
         try:
 
             t = trange(eval_steps-2, desc = 'Learning rate range test', leave = True)
-            print('D')
             _t = iter(t)
 
-            print('CA')
             for epoch in range(num_epochs + 1):
 
-                #train step
-                print('C')
                 self.train()
                 for batch in self.transform_batch(data_loader, bar = False):
 
-                    print(batch)
-
-                    step_loss += self._step(batch, 1.)
+                    step_loss += self._step(batch, 1.)['loss']
                     batches_complete+=1
                     
                     if batches_complete % eval_every == 0 and batches_complete > 0:
@@ -625,8 +631,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                             next(_t)
                         except StopIteration:
                             break
-
-                    print('here')
 
         except ValueError:
             logger.error('\nGradient overflow from too high learning rate, stopping test early.')
@@ -831,7 +835,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def _fit(self, writer = None, training_bar = True, reinit = True,*,
             dataset, features, highly_variable):
         
-        print('0')
         if reinit:
             self._instantiate_model(
                 features = features, highly_variable = highly_variable, 
@@ -842,7 +845,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         early_stopper = EarlyStopping(tolerance=3, patience=1e-4, convergence_check=False)
 
         n_batches = len(dataset)//self.batch_size
-        n_observations = len(dataset)
+        n_observations = len(dataset)//self.batch_size
         data_loader = self.get_dataloader(dataset, training=True)
 
         scheduler = self._get_1cycle_scheduler(n_batches)
@@ -852,60 +855,55 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         anneal_fn = partial(self._get_cyclic_KL_factor if self.kl_strategy == 'cyclic' else self._get_monotonic_kl_factor, 
             n_epochs = self.num_epochs, n_batches_per_epoch = n_batches)
 
-        print('1')
         step_count = 0
-        try:
-
-            t = trange(self.num_epochs, desc = 'Epoch 0', leave = True) if training_bar else range(self.num_epochs)
-            _t = iter(t)
-            epoch = 0
-            while True:
+        t = trange(self.num_epochs, desc = 'Epoch 0', leave = True) if training_bar else range(self.num_epochs)
+        _t = iter(t)
+        epoch = 0
+        while True:
+            
+            self.train()
+            running_loss = 0.0
+            for batch in self.transform_batch(data_loader, bar = False):
                 
-                self.train()
-                running_loss = 0.0
-                for batch in self.transform_batch(data_loader, bar = False):
-                    
-                    anneal_factor = anneal_fn(step_count)
-
-                    try:
-                        metrics = self._step(batch, anneal_factor)
-
-                        if not writer is None:
-                            writer.add_scalars('batch_metrics', metrics)
-
-                        running_loss+=metrics['batch_loss']
-                        step_count+=1
-
-                    except ValueError:
-                        raise ModelParamError('Gradient overflow caused parameter values that were too large to evaluate. Try setting a lower learning rate.')
-
-                    if epoch < self.num_epochs:
-                        scheduler.step()
-                
-                epoch_loss = running_loss/(n_observations * self.num_exog_features)
-                self.training_loss.append(epoch_loss)
-                recent_losses = self.training_loss[-5:]
-
-                if training_bar:
-                    t.set_description("Epoch {} done. Recent losses: {}".format(
-                        str(epoch + 1),
-                        ' --> '.join('{:.3e}'.format(loss) for loss in recent_losses)
-                    ))
+                anneal_factor = anneal_fn(step_count)
 
                 try:
-                    next(_t)
-                except StopIteration:
-                    pass
+                    metrics = self._step(batch, anneal_factor)
 
-                if early_stopper(recent_losses[-1]) and epoch > self.num_epochs:
-                    break
+                    if not writer is None:
+                        for k, v in metrics.items():
+                            writer.add_scalar(k, v, step_count)
 
-                epoch+=1
+                    running_loss+=metrics['loss']
+                    step_count+=1
 
-                yield epoch, epoch_loss
+                except ValueError:
+                    raise ModelParamError('Gradient overflow caused parameter values that were too large to evaluate. Try setting a lower learning rate.')
 
-        except KeyboardInterrupt:
-            logger.warn('Interrupted training.')
+                if epoch < self.num_epochs:
+                    scheduler.step()
+            
+            epoch_loss = running_loss/(n_observations * self.num_exog_features)
+            self.training_loss.append(epoch_loss)
+            recent_losses = self.training_loss[-5:]
+
+            if training_bar:
+                t.set_description("Epoch {} done. Recent losses: {}".format(
+                    str(epoch + 1),
+                    ' --> '.join('{:.3e}'.format(loss) for loss in recent_losses)
+                ))
+
+            try:
+                next(_t)
+            except StopIteration:
+                pass
+
+            if early_stopper(recent_losses[-1]) and epoch > self.num_epochs:
+                break
+
+            epoch+=1
+
+            yield epoch, epoch_loss
 
         self.set_device('cpu')
         self.eval()
@@ -993,7 +991,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @adi.wraps_modelfunc(tmi.fetch_features, tmi.add_topic_comps,
         fill_kwargs=['dataset'])
-    def predict(self, batch_size = 512, *, dataset):
+    def predict(self, batch_size = 512,*, dataset):
         '''
         Predict the topic compositions of cells in the data. Adds the 
         topic compositions to the `.obsm` field of the adata object.
@@ -1203,14 +1201,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         assert(isinstance(batch_size, int) and batch_size > 0)
         
         self.eval()
-        logger.info('Predicting latent variables ...')
 
-        latent_iter = BatchSampler(SequentialSampler(len(latent_composition)), batch_size=batch_size)
-
-        for idx in tqdm(latent_iter, desc = desc) if bar else latent_iter:
+        for start, end in self._iterate_batch_idx(len(latent_composition), batch_size, bar = True, desc = desc):
 
             yield fn(
-                    torch.tensor(latent_composition[idx], requires_grad = False).to(self.device)
+                    torch.tensor(latent_composition[start:end], requires_grad = False).to(self.device)
                 ).detach().cpu().numpy()
 
 

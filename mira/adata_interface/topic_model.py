@@ -91,12 +91,12 @@ def fit_adata(self, adata):
 
 def fetch_features(self, adata):
 
-    return InMemoryDataset(
-        features = self.features,
-        highly_variable = self.highly_variable,
-        counts_layer = self.counts_layer,
-        adata = adata
-    )
+    return {'dataset' : InMemoryDataset(
+                features = self.features,
+                highly_variable = self.highly_variable,
+                counts_layer = self.counts_layer,
+                adata = adata)
+            }
 
 
 def fetch_topic_comps(self, adata, key = 'X_topic_compositions'):
