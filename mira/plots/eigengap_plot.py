@@ -24,6 +24,7 @@ def plot_eigengap(
 
     Parameters
     ----------
+
     adata : anndata.AnnData
         Adata with diffusion map in `.obsm["X_diffmap"]` and 
         eigenvalues in `.uns["diffmap_evals"]`
@@ -44,12 +45,43 @@ def plot_eigengap(
         onto UMAP plots.
     plots_per_row : int > 0, default = 5
         Number of UMAP plots per row
+
+    Examples
+    --------
+
+    Following calculation and normalization of the diffusion map representation
+    of the data using `sc.tl.diffmap` and :ref:`mira.time.normalize_diffmap`,
+    respectively, one may use this function to estimate the number of diffusion
+    components to use to calculate a new KNN graph based on diffusion distances.
+
+    This new KNN graph represents a de-noised version of the joint-KNN graph
+    defined from topic compositions.
+
+    The estimate of the number of components is given by the component which
+    has the largest *Eigengap*, of difference between successive components. For
+    the hair follicle system, this was **5**. 
+
+    .. code-block:: python
+
+        >>> mira.pl.plot_eigengap(data, palette='magma')
+        >>> plt.show()
+
+    .. image:: /_static/pseudotime/mira.pl.plot_eigengap.png
+        :width: 1400
+
+    .. warning::
+
+        The Eigengap heuristic may not always recommend the best number of components.
+        For example, it may recommend fewer components than is needed to describe some
+        subtypes of cells. In this case, select the fewest number of components that has a
+        large Eigengap **and** includes components that describe all cell types in
+        your system (as given by components projected to the UMAP basis).
     
     '''
 
     fig1,ax = plt.subplots(2,1,figsize=(7,4), sharex = True, 
                         gridspec_kw={'height_ratios' : [3,2]})
-    ax[0].plot(range(len(eigvals)-1), eigvals[1:], '--bo', c = 'black')
+    ax[0].plot(range(len(eigvals)-1), eigvals[1:], '--o', c = 'black')
     ax[0].set(ylabel = 'Eigenvalues')
     ax[1].bar(range(len(eigen_gap)), eigen_gap, color = 'lightgrey', edgecolor = 'black', linewidth = 0.5)
     ax[1].set(ylabel = 'Eigen Gap', xlabel = 'Num Components')

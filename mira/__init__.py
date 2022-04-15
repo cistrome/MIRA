@@ -5,6 +5,7 @@ import mira.adata_interface.utils as utils
 import mira.preferences as pref
 import mira.rp_model as rp
 import mira.plots as pl
+import mira.datasets as datasets
 
 import logging
 logging.basicConfig(level= logging.INFO)

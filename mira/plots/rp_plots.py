@@ -19,14 +19,12 @@ def _plot_rp_model_tails(ax, start_pos, left_decay, right_decay, color = 'lightg
     ax.fill_between(x, y, y2 = 0, color = color, alpha = alpha)
     ax.plot(x, y, color = linecolor, linewidth = linewidth)
     
-    
 
 def _plot_rp_models(ax, color = 'lightgrey', linecolor = 'black', 
         linewidth = 1, alpha = 0.25, bin_size = 50, *, 
         interval_chrom, interval_start, interval_end, rp_models, 
         gene_id, chrom, start, end, strand):
     
-
     TSS_data = {
         gene : tuple(data)
         for gene, data in zip(gene_id, zip(chrom, start, end, strand))

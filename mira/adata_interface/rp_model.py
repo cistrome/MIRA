@@ -5,9 +5,11 @@ import numpy as np
 from scipy.sparse import isspmatrix
 from mira.adata_interface.core import fetch_layer,project_matrix, add_layer
 from mira.adata_interface.regulators import fetch_peaks, fetch_factor_hits
-from tqdm.notebook import tqdm
+from tqdm.auto import tqdm
 from scipy import sparse
 from joblib import Parallel, delayed
+import pandas as pd
+import anndata
 logger = logging.getLogger(__name__)
 
 def add_predictions(adata, output, model_type = 'LITE', sparse = True):
@@ -24,22 +26,31 @@ def add_predictions(adata, output, model_type = 'LITE', sparse = True):
 
 
 def get_peak_and_tss_data(self, adata, tss_data = None, peak_chrom = 'chr', peak_start = 'start', peak_end = 'end', 
-        gene_id = 'geneSymbol', gene_chrom = 'chrom', gene_start = 'txStart', gene_end = 'txEnd', gene_strand = 'strand'):
+        gene_id = 'geneSymbol', gene_chrom = 'chrom', gene_start = 'txStart', gene_end = 'txEnd', gene_strand = 'strand',
+        sep = '\t'):
 
     if tss_data is None:
         raise Exception('User must provide dataframe of tss data to "tss_data" parameter.')
 
-    return_dict = fetch_peaks(self, adata, chrom = peak_chrom, start = peak_start, end = peak_end)
+    if isinstance(tss_data, str):
+        tss_data = pd.read_csv(tss_data, sep = sep)
+        tss_data.columns = tss_data.columns.str.strip('#')
 
-    return_dict.update(
-        {
-            'gene_id' : tss_data[gene_id].values,
-            'chrom' : tss_data[gene_chrom].values,
-            'start' : tss_data[gene_start].values,
-            'end' : tss_data[gene_end].values,
-            'strand' : tss_data[gene_strand].values
-        }
-    )
+    return_dict = fetch_peaks(self, adata, chrom = peak_chrom, start = peak_start, end = peak_end)
+    
+    try:
+        return_dict.update(
+            {
+                'gene_id' : tss_data[gene_id].values,
+                'chrom' : tss_data[gene_chrom].values,
+                'start' : tss_data[gene_start].values,
+                'end' : tss_data[gene_end].values,
+                'strand' : tss_data[gene_strand].values
+            }
+        )
+    except KeyError as err:
+        raise KeyError('Missing column in TSS annotation. Please make sure you indicate the correct names for columns through the keyword arguments.')
+
 
     return return_dict
 
@@ -60,14 +71,14 @@ def add_peak_gene_distances(adata, output):
     logger.info('Added key to uns: distance_to_TSS_genes')
 
 
-def fetch_TSS_from_adata(self, adata):
-    
+def fetch_TSS_data(self, adata):
+
     try:
         tss_metadata = adata.uns['TSS_metadata']
     except KeyError:
         raise KeyError('Adata does not have .uns["TSS_metadata"], user must run mira.tl.get_distance_to_TSS first.')
 
-    tss_metadata = {
+    return {
         gene : {
             'gene_chrom' : chrom, 'gene_start' : start, 'gene_end' : end, 'gene_strand' : strand
         }
@@ -76,6 +87,11 @@ def fetch_TSS_from_adata(self, adata):
             tss_metadata['txStart'], tss_metadata['txEnd'], tss_metadata['strand']
         ))
     }
+
+
+def fetch_TSS_from_adata(self, adata):
+    
+    tss_metadata = fetch_TSS_data(self, adata)
 
     try:
         return tss_metadata[self.gene]
@@ -128,10 +144,10 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
 
     def wrap_fn(func):
 
-        def rp_signature(*, expr_adata, atac_adata, n_jobs = 1, atac_topic_comps_key = 'X_topic_compositions'):
+        def rp_signature(*, expr_adata, atac_adata, n_workers = 1, atac_topic_comps_key = 'X_topic_compositions'):
             pass
 
-        def isd_signature(*, expr_adata, atac_adata, n_jobs = 1, checkpoint = None, 
+        def isd_signature(*, expr_adata, atac_adata, n_workers = 1, checkpoint = None, 
             atac_topic_comps_key = 'X_topic_compositions', factor_type = 'motifs'):
             pass
 
@@ -140,18 +156,18 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
         func_signature.pop('features')
         
         if include_factor_data:
-            rp_signature = isd_signature
-
-        mock = inspect.signature(rp_signature).parameters.copy()
+            mock = inspect.signature(isd_signature).parameters.copy()
+        else:
+            mock = inspect.signature(rp_signature).parameters.copy()
 
         func_signature.update(mock)
         func.__signature__ = inspect.Signature(list(func_signature.values()))
         
         @wraps(func)
         def get_RP_model_features(self,*, expr_adata, atac_adata, atac_topic_comps_key = 'X_topic_compositions', 
-            factor_type = 'motifs', checkpoint = None, n_jobs = 1, **kwargs):
+            factor_type = 'motifs', checkpoint = None, n_workers = 1, **kwargs):
 
-            assert(isinstance(n_jobs, int) and (n_jobs >= 1 or n_jobs == -1))
+            assert(isinstance(n_workers, int) and (n_workers >= 1 or n_workers == -1))
 
             unannotated_genes = np.setdiff1d(self.genes, atac_adata.uns['distance_to_TSS_genes'])
             if len(unannotated_genes) > 0:
@@ -197,7 +213,7 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
                 atac_softmax_denom = atac_softmax_denom, include_factor_data = include_factor_data,
                 self = self)
 
-            if n_jobs == 1:
+            if n_workers == 1:
                 
                 results = [
                     func(self, model, get_model_features_function(model.gene), **hits_data, **kwargs)
@@ -210,7 +226,7 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
                     for model in self.models:
                         yield model, get_model_features_function(model.gene)
 
-                results = Parallel(n_jobs=n_jobs, verbose=0, pre_dispatch='2*n_jobs')\
+                results = Parallel(n_jobs=n_workers, verbose=0, pre_dispatch='2*n_jobs', max_nbytes = None)\
                     (delayed(func)(self, model, features, **hits_data, **kwargs) 
                     for model, features in tqdm(feature_producer(), desc = bar_desc, total = len(self.models)))
 
@@ -249,3 +265,33 @@ def add_isd_results(self, expr_adata, atac_adata, output, factor_type = 'motifs'
     logger.info('Added key to uns: {}'.format(factor_type))
 
     #return f_Z, expression, logp_data
+
+
+
+def fetch_get_influential_local_peaks(self, adata):
+
+    try:
+        gene_idx = np.argwhere(np.array(adata.uns['distance_to_TSS_genes']) == self.gene)[0,0]
+    except IndexError:
+        raise IndexError('Gene {} does not appear in peak annotation'.format(self.gene))
+
+    if not 'distance_to_TSS' in adata.varm:
+        raise Exception('Peaks have not been annotated with TSS locations. Run "get_distance_to_TSS" before proceeding.')
+
+    distance_matrix = adata.varm['distance_to_TSS'].T #genes, #regions
+
+    return {
+        'peak_idx' : distance_matrix[gene_idx, :].indices,
+        'tss_distance' : distance_matrix[gene_idx, :].data
+    }
+
+
+def return_peaks_by_idx(adata, output):
+
+    idx, dist = output
+
+    proximal_peaks = adata.var.iloc[idx]
+    proximal_peaks['distance_to_TSS'] = np.abs(dist)
+    proximal_peaks['is_upstream'] = dist <= 0
+
+    return proximal_peaks

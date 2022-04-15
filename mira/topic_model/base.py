@@ -1,5 +1,4 @@
 from functools import partial
-from os import link
 from scipy import interpolate
 import pyro
 import pyro.distributions as dist
@@ -8,8 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import Adam
 from pyro.infer import SVI, TraceMeanField_ELBO
-from tqdm.notebook import tqdm, trange
-from pyro.nn import PyroModule, PyroParam
+from tqdm.auto import tqdm, trange
 import numpy as np
 import torch.distributions.constraints as constraints
 import logging
@@ -23,8 +21,10 @@ import gc
 import matplotlib.pyplot as plt
 from scipy.cluster.hierarchy import linkage
 import mira.topic_model.ilr_tools as ilr
-import typing as tp
+from torch.utils.data import DataLoader
+import time
 logger = logging.getLogger(__name__)
+
 
 class EarlyStopping:
 
@@ -99,28 +99,6 @@ def get_fc_stack(layer_dims = [256, 128, 128, 128], dropout = 0.2, skip_nonlin =
 
 
 class BaseModel(torch.nn.Module, BaseEstimator):
-    '''
-    Learns regulatory "topics" from single-cell multiomics data. Topics capture 
-    patterns of covariance between gene or cis-regulatory elements. 
-    Each cell is represented by a composition over topics, and each 
-    topic corresponds with activations of co-regulated elements.
-
-    One may use enrichment analysis of the topics to understand signaling 
-    and transcription factor drivers of cell states, and embedding of 
-    cell-topic distributions to visualize and cluster cells, 
-    and to perform pseudotime trajectory inference.
-
-    Examples
-    --------
-    >>> rna_model = mira.topics.ExpressionTopicModel(
-                exogenous_key = 'predict_expression', 
-                endogenous_key = 'highly_variable',
-                counts_layer = 'rawcounts',
-                num_topics = 15,
-            )
-    >>> rna_model.fit(adata)
-    >>> rna_model.predict(adata)
-    '''
 
     I = 50
 
@@ -160,8 +138,10 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         Examples
         --------
-        >>> rna_model = mira.topics.ExpressionTopicModel('rna_model.pth')
-        >>> atac_model = mira.topics.AccessibilityTopicModel('atac_model.pth')
+
+        .. code-block:: python
+
+            >>> model = mira.topics.ExpressionTopicModel('model.pth')
 
         '''
 
@@ -194,7 +174,15 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             kl_strategy = 'monotonic',
             ):
         '''
-        Initialize a new MIRA topic model.
+        Learns regulatory "topics" from single-cell multiomics data. Topics capture 
+        patterns of covariance between gene or cis-regulatory elements. 
+        Each cell is represented by a composition over topics, and each 
+        topic corresponds with activations of co-regulated elements.
+
+        One may use enrichment analysis of the topics to understand signaling 
+        and transcription factor drivers of cell states, and embedding of 
+        cell-topic distributions to visualize and cluster cells, 
+        and to perform pseudotime trajectory inference.
 
         Parameters
         ----------
@@ -251,15 +239,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             Whether to anneal KL term using monotonic or cyclic strategies. Cyclic
             may produce slightly better models.
 
-        Examples
-        --------
-        >>> rna_model = mira.topics.ExpressionTopicModel(
-                exogenous_key = 'predict_expression', 
-                endogenous_key = 'highly_variable',
-                counts_layer = 'rawcounts',
-                num_topics = 15,
-            )
-
         Attributes
         ----------
         features : np.ndarray[str]
@@ -285,6 +264,21 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             The names of the columns for the topics added by the
             `predict` method to an anndata object. Useful for quickly accessing
             topic columns for plotting.
+
+        Examples
+        --------
+
+        .. code-block:: python
+
+            >>> model = mira.topics.ExpressionTopicModel(
+            ...    exogenous_key = 'exog', 
+            ...     endogenous_key = 'endog',
+            ...     counts_layer = 'rawcounts',
+            ...     num_topics = 15,
+            ... )
+            >>> model.fit(adata)
+            >>> model.predict(adata)
+                
         '''
         super().__init__()
 
@@ -308,6 +302,21 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.embedding_size = embedding_size
         self.kl_strategy = kl_strategy
 
+    @staticmethod
+    def _iterate_batch_idx(N, batch_size, bar = False, desc = None):
+        
+        num_batches = N//batch_size + int(N % batch_size > 0)
+
+        for i in range(num_batches) if not bar else tqdm(range(num_batches), desc = desc):
+
+            start, end = i * batch_size, (i + 1) * batch_size
+
+            if N - end == 1:
+                yield start, end + 1
+                raise StopIteration()
+            else:
+                yield start, end
+
     def _set_seeds(self):
         if self.seed is None:
             self.seed = int(time.time() * 1e7)%(2**32-1)
@@ -316,7 +325,16 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         pyro.set_rng_seed(self.seed)
         np.random.seed(self.seed)
 
-    def _get_dataset_statistics(self, endog_features, exog_features):
+    def get_dataloader(self, dataset, training = False):
+        return DataLoader(
+            dataset, 
+            batch_size=self.batch_size, 
+            shuffle = training, 
+            drop_last=training,
+            collate_fn=tmi.collate_batch
+        )
+
+    def _get_dataset_statistics(self, dataset):
         pass
 
     def _get_weights(self, on_gpu = True, inference_mode = False):
@@ -421,45 +439,26 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def _get_prior_std(a, K):
         return torch.sqrt(1/a * (1-2/K) + 1/(K * a))
 
-    @staticmethod
-    def get_num_batches(N, batch_size):
-        return N//batch_size + int(N % batch_size > 0)
 
-    @staticmethod
-    def _iterate_batch_idx(N, batch_size, bar = False, desc = None):
+    def _preprocess_endog(self,*,endog_features, exog_features):
+        raise NotImplementedError()
+
+    def _preprocess_exog(self,*,endog_features, exog_features):
+        raise NotImplementedError()
+
+    def _preprocess_read_depth(self,*,endog_features, exog_features):
         
-        num_batches = N//batch_size + int(N % batch_size > 0)
-
-        for i in range(num_batches) if not bar else tqdm(range(num_batches), desc = desc):
-
-            start, end = i * batch_size, (i + 1) * batch_size
-
-            if N - end == 1:
-                yield start, end + 1
-                raise StopIteration()
-            else:
-                yield start, end
-
-
-    def _preprocess_endog(self, X):
-        raise NotImplementedError()
-
-    def _preprocess_exog(self, X):
-        raise NotImplementedError()
-
-    def _preprocess_read_depth(self, X):
+        X = np.array(exog_features.sum(-1)).reshape((-1,1)).astype(np.float32)
         return torch.tensor(X, requires_grad = False).to(self.device)
 
-    def _iterate_batches(self, endog_features, exog_features, batch_size = 32, bar = True, desc = None):
-        
-        N = endog_features.shape[0]
-        read_depth = np.array(exog_features.sum(-1)).reshape((-1,1))
 
-        for start, end in self._iterate_batch_idx(N, batch_size=batch_size, bar = bar, desc = desc):
+    def transform_batch(self, data_loader, bar = True, desc = ''):
+
+        for batch in tqdm(data_loader, desc = desc) if bar else data_loader:
             yield dict(
-                endog_features = self._preprocess_endog(endog_features[start:end], read_depth[start : end]),
-                exog_features = self._preprocess_exog(exog_features[start:end]),
-                read_depth = self._preprocess_read_depth(read_depth[start:end]),
+                endog_features = self._preprocess_endog(**batch),
+                exog_features = self._preprocess_exog(**batch),
+                read_depth = self._preprocess_read_depth(**batch),
             )
 
     def _get_1cycle_scheduler(self, n_batches_per_epoch):
@@ -482,7 +481,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         n_cycles = 3
         tau = ((step_num+1) % (total_steps/n_cycles))/(total_steps/n_cycles)
 
-        if tau > 0.5 or step_num > total_steps:
+        if tau > 0.5 or step_num >= (0.95 * total_steps):
             return 1.
         else:
             return max(tau/0.5, n_cycles/total_steps)
@@ -511,8 +510,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         assert(len(f) == self.num_exog_features)
         self._features = f
 
-    def _instantiate_model(self,*, features, highly_variable,
-        endog_features, exog_features):
+    def _instantiate_model(self,*, features, highly_variable):
 
         assert(isinstance(self.num_epochs, int) and self.num_epochs > 0)
         assert(isinstance(self.batch_size, int) and self.batch_size > 0)
@@ -523,18 +521,25 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             assert(isinstance(self.max_learning_rate, float) and self.max_learning_rate > 0)
 
         self.enrichments = {}
-        self.num_endog_features = endog_features.shape[-1]
-        self.num_exog_features = exog_features.shape[-1]
+        self.num_endog_features = highly_variable.sum()
+        self.num_exog_features = len(features)
         self.features = features
         self.highly_variable = highly_variable
         
         self._get_weights()
 
+    def _step(self, batch, anneal_factor):
+
+        return {
+            'loss' : float(self.svi.step(**batch, anneal_factor = anneal_factor))/self.batch_size,
+            'anneal_factor' : anneal_factor
+            }
+
     @adi.wraps_modelfunc(fetch = tmi.fit_adata, 
-        fill_kwargs=['features','highly_variable','endog_features','exog_features'])
+        fill_kwargs=['features','highly_variable','dataset'])
     def get_learning_rate_bounds(self, num_epochs = 6, eval_every = 10, 
         lower_bound_lr = 1e-6, upper_bound_lr = 1,*,
-        features, highly_variable, endog_features, exog_features):
+        features, highly_variable, dataset):
         '''
         Use the learning rate range test (LRRT) to determine minimum and maximum learning
         rates that enable the model to traverse the gradient of the loss. 
@@ -567,26 +572,29 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         Examples
         --------
-        >>> rna_model.get_learning_rate_bounds(rna_data, num_epochs = 3)
-        Learning rate range test: 100%|██████████| 85/85 [00:17<00:00,  4.73it/s]
-        (4.619921114045972e-06, 0.1800121741235493)
-        '''
 
+        .. code-block:: python
+
+            >>> model.get_learning_rate_bounds(rna_data, num_epochs = 3)
+            Learning rate range test: 100%|██████████| 85/85 [00:17<00:00,  4.73it/s]
+            (4.619921114045972e-06, 0.1800121741235493)
+        '''
         self._instantiate_model(
-            features = features, highly_variable = highly_variable, 
-            endog_features = endog_features, exog_features = exog_features,
+            features = features, highly_variable = highly_variable
         )
 
-        self._get_dataset_statistics(endog_features, exog_features)
+        data_loader = self.get_dataloader(dataset, training=True)
 
-        n_batches = self.get_num_batches(endog_features.shape[0], self.batch_size)
+        self._get_dataset_statistics(dataset)
 
+        n_batches = len(dataset)//self.batch_size
         eval_steps = ceil((n_batches * num_epochs)/eval_every)
 
         learning_rates = np.exp(
                 np.linspace(np.log(lower_bound_lr), 
                 np.log(upper_bound_lr), 
-                eval_steps+1))
+                eval_steps+1)
+            )
 
         self.learning_rates = learning_rates
 
@@ -598,30 +606,27 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             'lr_lambda' : lr_function})
 
         self.svi = SVI(self.model, self.guide, scheduler, loss=TraceMeanField_ELBO())
-        batches_complete, steps_complete, step_loss, samples_seen = 0,0,0,0
+
+        batches_complete, step_loss = 0,0
         learning_rate_losses = []
         
         try:
+
             t = trange(eval_steps-2, desc = 'Learning rate range test', leave = True)
             _t = iter(t)
 
             for epoch in range(num_epochs + 1):
 
-                #train step
                 self.train()
-                for batch in self._iterate_batches(endog_features = endog_features, 
-                        exog_features = exog_features, 
-                        batch_size = self.batch_size, bar = False):
+                for batch in self.transform_batch(data_loader, bar = False):
 
-                    step_loss += float(self.svi.step(**batch, anneal_factor = 1.))
+                    step_loss += self._step(batch, 1.)['loss']
                     batches_complete+=1
-                    samples_seen += batch['endog_features'].shape[0]
                     
                     if batches_complete % eval_every == 0 and batches_complete > 0:
-                        steps_complete+=1
                         scheduler.step()
-                        learning_rate_losses.append(step_loss/(samples_seen * self.num_exog_features))
-                        step_loss, samples_seen = 0.0, 0
+                        learning_rate_losses.append(step_loss/(self.batch_size * self.num_exog_features))
+                        step_loss = 0.0
                         try:
                             next(_t)
                         except StopIteration:
@@ -711,8 +716,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         Examples
         --------
-        >>> rna_model.trim_learning_rate_bounds(2, 1)
-        (4.619921114045972e-04, 0.1800121741235493e-1)
+
+        .. code-block:: python
+
+            >>> model.trim_learning_rate_bounds(2, 1)
+            (4.619921114045972e-04, 0.1800121741235493e-1)
         '''
 
         try:
@@ -750,6 +758,28 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         Returns
         -------
         ax : matplotlib.pyplot.axes
+
+        Examples
+        --------
+
+        When setting the learning rate bounds for the topic model, first
+        run the LLRT test with `get_learning_rate_bounds`. Then,
+        set the bounds on their respective ends of the part of the LRRT
+        plot with the greatest slope, like below.
+
+        .. code-block:: python
+            
+            >>> model.trim_learning_rate_bounds(5,1) # adjust the bounds
+            >>> model.plot_learning_rate_bounds()
+
+        .. image:: /_static/mira.topics.plot_learning_rate_bounds.svg
+            :width: 400
+
+        *If the LRRT line appears to vary cyclically*, that means your 
+        batches may be not be independent of each other (perhaps batches
+        later in the epoch are more similar to eachother and more difficult than
+        earlier batches. If this happens, randomize the order of your
+        input data using.
         '''
 
         try:
@@ -780,8 +810,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     @adi.wraps_modelfunc(tmi.fit_adata, adi.return_output,
-        fill_kwargs=['features','highly_variable','endog_features','exog_features'])
-    def instantiate_model(self,*, features, highly_variable, endog_features, exog_features):
+        fill_kwargs=['features','highly_variable','dataset'])
+    def instantiate_model(self,*, features, highly_variable, dataset):
         '''
         Given the exogenous and enxogenous features provided, instantiate weights
         of neural network. Called internally by `fit`.
@@ -797,86 +827,83 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         '''
         self._instantiate_model(
                 features = features, highly_variable = highly_variable, 
-                endog_features = endog_features, exog_features = exog_features,
             )
 
         return self
 
 
-    def _fit(self,*,training_bar = True, reinit = True,
-            features, highly_variable, endog_features, exog_features):
+    def _fit(self, writer = None, training_bar = True, reinit = True,*,
+            dataset, features, highly_variable):
         
         if reinit:
             self._instantiate_model(
                 features = features, highly_variable = highly_variable, 
-                endog_features = endog_features, exog_features = exog_features,
             )
 
-        self._get_dataset_statistics(endog_features, exog_features)
-
-        n_observations = endog_features.shape[0]
-        n_batches = self.get_num_batches(n_observations, self.batch_size)
+        self._get_dataset_statistics(dataset)
 
         early_stopper = EarlyStopping(tolerance=3, patience=1e-4, convergence_check=False)
 
+        n_batches = len(dataset)//self.batch_size
+        n_observations = len(dataset)//self.batch_size
+        data_loader = self.get_dataloader(dataset, training=True)
+
         scheduler = self._get_1cycle_scheduler(n_batches)
         self.svi = SVI(self.model, self.guide, scheduler, loss=TraceMeanField_ELBO())
-
-        self.training_loss, self.testing_loss, self.num_epochs_trained = [],[],0
+        self.training_loss = []
         
-        anneal_fn = partial(self._get_cyclic_KL_factor if self.kl_strategy == 'cyclic' else self._get_monotonic_kl_factor, n_epochs = self.num_epochs, 
-            n_batches_per_epoch = n_batches)
+        anneal_fn = partial(self._get_cyclic_KL_factor if self.kl_strategy == 'cyclic' else self._get_monotonic_kl_factor, 
+            n_epochs = self.num_epochs, n_batches_per_epoch = n_batches)
 
         step_count = 0
-        self.anneal_factors = []
-        try:
-
-            t = trange(self.num_epochs, desc = 'Epoch 0', leave = True) if training_bar else range(self.num_epochs)
-            _t = iter(t)
-            epoch = 0
-            while True:
+        t = trange(self.num_epochs, desc = 'Epoch 0', leave = True) if training_bar else range(self.num_epochs)
+        _t = iter(t)
+        epoch = 0
+        while True:
+            
+            self.train()
+            running_loss = 0.0
+            for batch in self.transform_batch(data_loader, bar = False):
                 
-                self.train()
-                running_loss = 0.0
-                for batch in self._iterate_batches(endog_features = endog_features, exog_features = exog_features, 
-                        batch_size = self.batch_size, bar = False):
-                    
-                    anneal_factor = anneal_fn(step_count)
-                    self.anneal_factors.append(anneal_factor)
-                    #if batch[0].shape[0] > 1:
-                    try:
-                        running_loss += float(self.svi.step(**batch, anneal_factor = anneal_factor))
-                        step_count+=1
-                    except ValueError:
-                        raise ModelParamError('Gradient overflow caused parameter values that were too large to evaluate. Try setting a lower learning rate.')
-
-                    if epoch < self.num_epochs:
-                        scheduler.step()
-                
-                #epoch cleanup
-                epoch_loss = running_loss/(n_observations * self.num_exog_features)
-                self.training_loss.append(epoch_loss)
-                recent_losses = self.training_loss[-5:]
-
-                if training_bar:
-                    t.set_description("Epoch {} done. Recent losses: {}".format(
-                        str(epoch + 1),
-                        ' --> '.join('{:.3e}'.format(loss) for loss in recent_losses)
-                    ))
+                anneal_factor = anneal_fn(step_count)
 
                 try:
-                    next(_t)
-                except StopIteration:
-                    pass
+                    metrics = self._step(batch, anneal_factor)
 
-                if early_stopper(recent_losses[-1]) and epoch > self.num_epochs:
-                    break
+                    if not writer is None:
+                        for k, v in metrics.items():
+                            writer.add_scalar(k, v, step_count)
 
-                epoch+=1
-                yield epoch, epoch_loss
+                    running_loss+=metrics['loss']
+                    step_count+=1
 
-        except KeyboardInterrupt:
-            logger.warn('Interrupted training.')
+                except ValueError:
+                    raise ModelParamError('Gradient overflow caused parameter values that were too large to evaluate. Try setting a lower learning rate.')
+
+                if epoch < self.num_epochs:
+                    scheduler.step()
+            
+            epoch_loss = running_loss/(n_observations * self.num_exog_features)
+            self.training_loss.append(epoch_loss)
+            recent_losses = self.training_loss[-5:]
+
+            if training_bar:
+                t.set_description("Epoch {} done. Recent losses: {}".format(
+                    str(epoch + 1),
+                    ' --> '.join('{:.3e}'.format(loss) for loss in recent_losses)
+                ))
+
+            try:
+                next(_t)
+            except StopIteration:
+                pass
+
+            if early_stopper(recent_losses[-1]) and epoch > self.num_epochs:
+                break
+
+            epoch+=1
+
+            yield epoch, epoch_loss
 
         self.set_device('cpu')
         self.eval()
@@ -884,8 +911,9 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     @adi.wraps_modelfunc(tmi.fit_adata, adi.return_output,
-        fill_kwargs=['features','highly_variable','endog_features','exog_features'])
-    def fit(self, reinit = True,*,features, highly_variable, endog_features, exog_features):
+        fill_kwargs=['features','highly_variable','dataset'])
+    def fit(self, writer = None, reinit = True,*,
+        features, highly_variable, dataset):
         '''
         Initializes new weights, then fits model to data.
 
@@ -898,30 +926,48 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         -------
         self : object
             Fitted topic model
+
+        .. note::
+
+            Fitting a topic model usually takes a 2-5 minutes for the expression model
+            and 5-10 minutes for the accessibility model for a typical experiment
+            (5K to 40K cells).
+
+            Optimizing the topic model hyperparameters, however, can take much longer.
+            We recommend running topic model tuners overnight, which is usually sufficient
+            training time. Finding the best number of topics significantly increases
+            the interpretability of the model and its faithfullness to the underlying
+            biology and is well worth the wait.
+
+            To learn about topic model tuning, see :ref:`mira.topics.TopicModelTuner`.
         '''
-        for _ in self._fit(reinit = reinit, features = features, highly_variable = highly_variable, 
-            endog_features = endog_features, exog_features = exog_features):
+        for _ in self._fit(writer = writer, reinit = reinit, 
+            features = features, highly_variable = highly_variable, dataset = dataset):
             pass
 
         return self
 
     @adi.wraps_modelfunc(tmi.fit_adata, adi.return_output,
-        fill_kwargs=['features','highly_variable','endog_features','exog_features'])
-    def _internal_fit(self,*,features, highly_variable, endog_features, exog_features):
-        return self._fit(training_bar = False, 
+        fill_kwargs=['features','highly_variable','dataset'])
+    def _internal_fit(self, writer = None, *,features, highly_variable, dataset):
+
+        return self._fit(training_bar = False, writer = writer,
             features = features, highly_variable = highly_variable, 
-            endog_features = endog_features, exog_features = exog_features)
+            dataset=dataset)
 
 
-    def _run_encoder_fn(self, fn, batch_size = 512, bar = True, desc = 'Predicting latent vars', **features):
+    def _run_encoder_fn(self, fn, dataset, batch_size = 512, bar = True, desc = 'Predicting latent vars'):
 
         assert(isinstance(batch_size, int) and batch_size > 0)
         
         self.eval()
         logger.debug('Predicting latent variables ...')
+
+        data_loader = self.get_dataloader(dataset, training=False)
+
         results = []
-        for batch in self._iterate_batches(**features,
-                batch_size = batch_size, bar = bar,  desc = desc):
+        for batch in self.transform_batch(data_loader, bar = bar, desc = desc):
+
             results.append(fn(batch['endog_features'], batch['read_depth']))
 
         results = np.vstack(results)
@@ -944,10 +990,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     @adi.wraps_modelfunc(tmi.fetch_features, tmi.add_topic_comps,
-        fill_kwargs=['endog_features','exog_features'])
-    def predict(self, batch_size = 512, *,endog_features, exog_features):
+        fill_kwargs=['dataset'])
+    def predict(self, batch_size = 512,*, dataset):
         '''
-        Predict the topic compositions of cells in the data.
+        Predict the topic compositions of cells in the data. Adds the 
+        topic compositions to the `.obsm` field of the adata object.
 
         Parameters
         ----------
@@ -964,12 +1011,29 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             `.obsm['X_topic_compositions']` : np.ndarray[float] of shape (n_cells, n_topics)
                 Topic compositions of cells
             `.obs['topic_1'] ... .obs['topic_N']` : np.ndarray[float] of shape (n_cells,)
-                Columns for the activation of each topic.            
+                Columns for the activation of each topic.
+
+        Examples
+        --------
+
+        .. code-block:: python
+
+            >>> model.predict(adata)
+            Predicting latent vars: 100%|█████████████████████████| 36/36 [00:03<00:00,  9.29it/s]
+            INFO:mira.adata_interface.topic_model:Added key to obsm: X_topic_compositions
+            INFO:mira.adata_interface.topic_model:Added cols: topic_1, topic_2, topic_3, 
+            topic_4, topic_5
+            >>> scanpy.pp.neighbors(adata, metric = "manhattan", use_rep = "X_umap_features")
+            >>> scanpy.tl.umap(adata, min_dist 0.1)
+            >>> scanpy.pl.umap(adata, color = model.topic_cols, **mira.pref.topic_umap(ncols = 3))
+
+        .. image:: /_static/mira.topics.predict.png
+            :width: 1200
+
         '''
 
         return dict(
-            cell_topic_dists = self._run_encoder_fn(self.encoder.topic_comps, batch_size = batch_size, 
-                endog_features = endog_features, exog_features = exog_features),
+            cell_topic_dists = self._run_encoder_fn(self.encoder.topic_comps, dataset, batch_size = batch_size),
             topic_feature_dists = self.get_topic_feature_distribution(),
             topic_feature_activations = self._score_features(),
             feature_names = self.features,
@@ -987,6 +1051,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         function `get_umap_features` uses an arbitrary balance matrix that 
         does not account for the relationship between topics.
 
+        The "UMAP features" are the transformation of the topic compositions that
+        encode biological similarity in the high-dimensional space. Use those
+        features to produce a joint KNN graph for downstream analysis using UMAP, 
+        clustering, and pseudotime inference.
+
         Parameters
         ----------
         adata : anndata.AnnData
@@ -1003,6 +1072,18 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 linkage matrix given by scipy.cluster.hierarchy.linkage of
                 hiearchical relationship between topic-feature distributions.
                 Hierarchy calculated by hellinger distance and ward linkage.
+
+        Examples
+        --------
+
+        .. code-block:: python
+
+            >>> model.get_hierarchical_umap_features(adata) # to make features
+            INFO:mira.adata_interface.topic_model:Fetching key X_topic_compositions from obsm
+            INFO:mira.adata_interface.core:Added key to obsm: X_umap_features
+            INFO:mira.adata_interface.topic_model:Added key to uns: topic_dendogram
+            >>> scanpy.pp.neighbors(adata, metric = "manhattan", use_rep = "X_umap_features") # to make KNN graph
+
         '''
 
         g_matrix = ilr.get_hierarchical_gram_schmidt_basis(
@@ -1020,6 +1101,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         neighbors graph. Projects topic compositions to orthonormal space using
         isometric logratio transformation.
 
+        The "UMAP features" are the transformation of the topic compositions that
+        encode biological similarity in the high-dimensional space. Use those
+        features to produce a joint KNN graph for downstream analysis using UMAP, 
+        clustering, and pseudotime inference.
+
         Parameters
         ----------
         adata : anndata.AnnData
@@ -1032,29 +1118,42 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         adata : anndata.AnnData
             `.obsm['X_umap_features']` : np.ndarray[float] of shape (n_cells, n_topics)
                 Transformed topic compositions of cells
+
+        Examples
+        --------
+
+        .. code-block:: python
+
+            >>> model.get_umap_features(adata) # to make features
+            INFO:mira.adata_interface.topic_model:Fetching key X_topic_compositions from obsm
+            INFO:mira.adata_interface.core:Added key to obsm: X_umap_features
+            >>> scanpy.pp.neighbors(adata, metric = "manhattan", use_rep = "X_umap_features") # to make KNN graph
         '''
         
-        #compositions = self._run_encoder_fn(self.encoder.topic_comps, endog_features = endog_features, exog_features = exog_features, batch_size=batch_size)
         basis = ilr.gram_schmidt_basis(topic_compositions.shape[-1])
         return ilr.centered_boxcox_transform(topic_compositions, a = box_cox).dot(basis)
 
 
-    def _get_elbo_loss(self, batch_size = 512, *,endog_features, exog_features):
+    def _get_elbo_loss(self, batch_size = 512, *, dataset):
+
+        try:
+            self.svi
+        except AttributeError:
+            raise AttributeError('This function only works after training, not before training or after loading from disk.')
 
         self.eval()
         running_loss = 0
-        #self.eps.device(self.device)
-        for batch in self._iterate_batches(endog_features = endog_features, 
-                        exog_features = exog_features, 
-                        batch_size = batch_size, bar = False):
-                    
+        
+        data_loader = self.get_dataloader(dataset, training=False)
+
+        for batch in self.transform_batch(data_loader, bar = False):
             running_loss += float(self.svi.evaluate_loss(**batch, anneal_factor = 1.0))
 
         return running_loss
     
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
-        fill_kwargs=['endog_features','exog_features'])
-    def score(self, batch_size = 512, *,endog_features, exog_features):
+        fill_kwargs=['dataset'])
+    def score(self, batch_size = 512, *, dataset):
         '''
         Get normalized ELBO loss for data. This method is only available on
         topic models that have not been loaded from disk.
@@ -1074,14 +1173,27 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         Examples
         --------
-        >>> rna_model.score(rna_data)
-        0.11564
+
+        .. code-block:: python
+
+            >>> model.score(rna_data)
+            0.11564
+
+        Notes
+        -----
+        The `score` method is only available after training a topic model. After
+        saving and writing to disk, this function will no longer work.
+
+        Raises
+        ------
+        AttributeError
+            If attempting to run after loading from disk or before training.
+
         '''
         self.eval()
         return self._get_elbo_loss(
-            endog_features = endog_features, exog_features = exog_features,
-            batch_size = batch_size)\
-            /(endog_features.shape[0] * self.num_exog_features)
+                dataset=dataset, batch_size = batch_size
+            )/(len(dataset) * self.num_exog_features)
 
     
     def _run_decoder_fn(self, fn, latent_composition, batch_size = 512, bar = True, desc = 'Imputing features'):
@@ -1089,11 +1201,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         assert(isinstance(batch_size, int) and batch_size > 0)
         
         self.eval()
-        logger.info('Predicting latent variables ...')
 
-        for start, end in self._iterate_batch_idx(latent_composition.shape[0], batch_size = batch_size, bar = bar, desc = desc):
+        for start, end in self._iterate_batch_idx(len(latent_composition), batch_size, bar = True, desc = desc):
+
             yield fn(
-                    torch.tensor(latent_composition[start : end], requires_grad = False).to(self.device)
+                    torch.tensor(latent_composition[start:end], requires_grad = False).to(self.device)
                 ).detach().cpu().numpy()
 
 
@@ -1127,10 +1239,13 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         Examples
         --------
-        >>> rna_model.impute(rna_data)
-        >>> rna_data
-        View of AnnData object with n_obs × n_vars = 18482 × 22293
-            layers: 'imputed'
+
+        .. code-block::
+
+            >>> model.impute(rna_data)
+            >>> rna_data
+            View of AnnData object with n_obs × n_vars = 18482 × 22293
+                layers: 'imputed'
         '''
         return self.features, np.vstack([
             x for x  in self._batched_impute(topic_compositions, batch_size = batch_size, bar = bar)
@@ -1240,11 +1355,14 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         Examples
         --------
-        >>> model.num_topics
-        5
-        >>> model.topic_cols
-        ['topic_0', 'topic_1','topic_2','topic_3','topic_4']
-        >>> sc.pl.umap(adata, color = model.topic_cols, **mira.pref.topic_umap())
+
+        .. code-block::
+
+            >>> model.num_topics
+            5
+            >>> model.topic_cols
+            ['topic_0', 'topic_1','topic_2','topic_3','topic_4']
+            >>> sc.pl.umap(adata, color = model.topic_cols, **mira.pref.topic_umap())
 
         '''
         return ['topic_' + str(i) for i in range(self.num_topics)]

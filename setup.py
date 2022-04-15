@@ -62,19 +62,7 @@ To use the environment in a jupyter notebook, start the notebook server, then go
 
 ## Dependencies
 
-* pytorch
-* pyro-ppl
-* tqdm
-* moods
-* pyfaidx
-* matplotlib
-* lisa2
-* requests
-* networkx
-* numpy
-* scipy
-* optuna
-* anndata
+{dependencies}
 
 See [environment.yaml]({github}/blob/main/environment.yaml) for versioning details.
 '''.format(**info)
@@ -105,8 +93,6 @@ setup(name='mira-multiome',
         'requests>=2,<3',
         'pyro-ppl>=1.5.2,<2',
         'networkx>=2.3,<3',
-        'numpy>=1.19.0,<2',
-        'scipy>=1.5,<2',
         'optuna>=2.8,<3',
         'anndata>=0.7.6,<1',
       ],

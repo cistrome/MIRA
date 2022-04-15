@@ -24,7 +24,7 @@ from scipy.stats import entropy, pearsonr, norm
 from copy import deepcopy
 from scipy.sparse.linalg import eigs
 import logging
-from tqdm.notebook import tqdm, trange
+from tqdm.auto import tqdm, trange
 import mira.adata_interface.core as adi
 import mira.adata_interface.pseudotime as pti
 from functools import partial
@@ -278,6 +278,8 @@ def get_pseudotime(max_iterations = 25, n_waypoints = 3000, n_jobs = 1,*, start_
 
         if converged:
             break
+    
+    t.reset(t.n)
 
     pseudotime = pseudotime - pseudotime.min() #make 0 minimum
     waypoint_weights = W
@@ -377,7 +379,7 @@ def get_transport_map(ka = 5, n_jobs = 1,*, start_cell = None, distance_matrix, 
             Pseudotime of cells
         `.obsp["transport_map"]` : scipy.spmatrix[float] of shape (n_cells, n_cells)
             Sparse matrix of transition probabilities between cells.
-        `.uns["iroot"]` : str
+        `.uns["start_cell"]` : str
             name/id of start cell
     '''
     
@@ -423,6 +425,9 @@ def find_terminal_cells(iterations = 1, max_termini = 15, threshold = 1e-3,
         Treshold includes eigenvectors that are greater than 1 - `threshold`.
         To loosen the definition of terminal states and identify more cells,
         increase `threshold`, e.g. 1e-2.
+    seed : int, default = None
+        Seed for terminal state calling. Seed initializes SVD decomposition
+        of transport map.
 
     Returns
     -------
@@ -444,11 +449,13 @@ def find_terminal_cells(iterations = 1, max_termini = 15, threshold = 1e-3,
 
     .. code-block:: python
 
-        >>> fig, ax = plt.subplots(1,1, figsize=(5,3))
-        >>> sc.pl.umap(data, color = 'mira_pseudotime', frameon = False, 
-        ... show = False, ax = ax)
-        >>> sc.pl.umap(data[terminal_cells], na_color = 'Red', frameon = False,
-        ... show = False, ax = ax, size = 25)
+        >>> ax = sc.pl.umap(data, color = 'mira_pseudotime', show = False,
+        ...   **umap_kwargs, color_map = 'magma')
+        >>> sc.pl.umap(data[terminal_cells], na_color = 'black', show = False, ax = ax, 
+        ...   size = 200, title = 'Terminal Cells')
+
+    .. image:: /_static/pseudotime/mira.time.find_terminal_cells.png
+        :width: 400
 
     '''
 
@@ -517,8 +524,13 @@ def get_branch_probabilities(*, transport_map, terminal_cells):
     .. code-block:: python
 
         >>> mira.time.get_branch_probabilities(adata, terminal_cells = {
-            "A" : "TATGCGCATCGCGCGC", "B" : "GCGTGGCATCGCGCGC"
-        })
+        ...    "A" : "TATGCGCATCGCGCGC", "B" : "GCGTGGCATCGCGCGC"
+        ... })
+        >>> sc.pl.umap(data, color = [x + '_prob' for x in data.uns['lineage_names']], 
+        ... color_map='magma')
+
+    .. image:: /_static/pseudotime/mira.time.get_branch_probabilities.png
+        :width: 1200
     
     '''
 
@@ -615,6 +627,12 @@ def get_tree_structure(threshold = 0.1,*, lineage_names, branch_probs, pseudotim
         thresholds are more sensitive to divergence events. Try multiple values
         for threshold to find best value to parse lineage tree. Typically, 0.1 is a
         very sensitive value, while 1.0-2.0 are very tolerant.
+    cellrank : boolean, default=False
+        If using cellrank to assign terminal states and lineage probabilities,
+        set this option to **True**.
+    start_cell : int or barcode, default=None
+        Cell representing start state of differentiation. *Only needed if 
+        cellrank is True*.
 
     Returns
     -------
@@ -639,6 +657,18 @@ def get_tree_structure(threshold = 0.1,*, lineage_names, branch_probs, pseudotim
 
             `.uns["tree_state_names"] : np.ndarray[str] of shape (2*num_lineages - 1,)
                 Tree state labels for columns and rows of `connectivities_tree`
+
+    Examples
+    --------
+
+    .. code-block:: python
+
+        >>> mira.time.get_tree_structure(data, threshold = 1)
+        >>> sc.pl.umap(data, color = 'tree_states', palette = 'Set2', 
+        ...   **umap_kwargs, title = '', legend_loc='on data')
+
+    .. image:: /_static/pseudotime/mira.time.get_tree_structure.png
+        :width: 400
 
     '''
     def get_all_leaves_from_node(edge):

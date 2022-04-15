@@ -41,30 +41,6 @@ def fetch_diffmap_distances(self, adata, diffmap_distances_key = 'X_diffmap_dist
         distance_matrix = adata.obsp[diffmap_distances_key]
         diffmap = adata.obsm[diffmap_coordinates_key]
 
-        if diffmap_distances_key == 'X_diffmap_distances':
-            try:
-                adata.uns['X_diffmap']['params']['n_pcs']
-            except KeyError:
-                logger.warning('''
-    Number of diffusion components (n_pcs) to use while calculating diffusion KNN graph was not set.
-    This is new as of version 0.1.1. When calculating a diffusion KNN graph following 
-        
-        sc.tl.diffmap(adata)
-        mira.time.normalize_diffmap(adata)
-
-    You can check for the optimal number of diffusion components to use by:
-
-        mira.pl.plot_eigengap(adata)
-
-    The optimal number of components is the where the eigengap hueristic (y-axis)
-    peaks. Or the minimum number of components that describes your cells' populations
-    as per the UMAPS.
-
-    You must then specify that number of components in the next step:
-
-        sc.pp.neighbors(adata, n_pcs = HERE!, use_rep = "X_diffmap", key_added = "X_diffmap")
-    ''')
-
     except KeyError:
         raise KeyError(
             '''
