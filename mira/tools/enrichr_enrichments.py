@@ -119,6 +119,8 @@ def fetch_ontology(list_id, ontology = 'WikiPathways_2019_Human'):
 
     '''
 
+    charset_normalizer.logging.getLogger().setLevel(logging.WARN)
+
     url = ENRICHR_URL + GET_ENDPOINT.format(
         list_id = str(list_id),
         ontology = str(ontology)

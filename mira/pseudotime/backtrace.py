@@ -207,9 +207,11 @@ def trace_differentiation(
         **plot_args)
 
     if num_preview_frames > 0:
-
-        preview_interval = num_frames//num_preview_frames
-        test_frames = [1] + list(range(preview_interval, num_frames - preview_interval, preview_interval)) + [num_frames-1]
+        
+        num_partitions = num_preview_frames - 1
+        preview_interval = num_frames//num_partitions
+        test_frames = [1] +  list(np.arange(1, num_partitions)*preview_interval)\
+            + [num_frames-1]
 
         map_plot(lambda ax, framenum, x : plot_umap(basis, x, **plot_kwargs, 
             ax = ax, vmax = np.quantile(x, vmax_quantile), title = 'Frame ' + str(framenum)), 

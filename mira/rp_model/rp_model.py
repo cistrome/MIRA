@@ -15,6 +15,7 @@ from mira.rp_model.optim import LBFGS as stochastic_LBFGS
 from scipy.stats import nbinom
 from scipy.sparse import isspmatrix
 from mira.adata_interface.rp_model import wraps_rp_func, add_isd_results, add_predictions, fetch_TSS_from_adata
+import mira.adata_interface.rp_model as rpi
 from mira.adata_interface.core import add_layer, wraps_modelfunc
 import mira.adata_interface.core as adi
 from collections.abc import Sequence
@@ -1145,7 +1146,7 @@ class GeneModel:
         ), samples_mask
 
 
-    def _get_RP_model_coordinates(self, scale_height = True, bin_size = 50,
+    def _get_RP_model_coordinates(self, scale_height = False, bin_size = 50,
         decay_periods = 20, promoter_width = 3000, *,
         gene_chrom, gene_start, gene_end, gene_strand):
 
@@ -1201,6 +1202,9 @@ class GeneModel:
         params['a_promoter'] = norm_params['a'][1]
         params['a_downstream'] = norm_params['a'][2]
 
+        params['distance_upstream'] = norm_params['distance'][0]
+        params['distance_downstream'] = norm_params['distance'][1]
+
         if self.use_NITE_features:
             params.update({
                 'a-NITE_' + str(i) : v
@@ -1211,7 +1215,7 @@ class GeneModel:
 
     @adi.wraps_modelfunc(fetch_TSS_from_adata, 
         fill_kwargs = ['gene_chrom','gene_start','gene_end','gene_strand'])
-    def write_bedgraph(self, scale_height = True, bin_size = 50,
+    def write_bedgraph(self, scale_height = False, bin_size = 50,
         decay_periods = 20, promoter_width = 3000,*, save_name,
         gene_chrom, gene_start, gene_end, gene_strand):
         '''
@@ -1225,7 +1229,7 @@ class GeneModel:
             AnnData object with TSS data annotated by `mira.tl.get_distance_to_TSS`.
         save_name : str
             Path to saved bedgraph file.
-        scale_height : boolean, default = True
+        scale_height : boolean, default = False
             Write RP model tails proportional in height to their respective
             multiplicative coeffecient. Useful for evaluating not only the distance
             of predicted regulatory influence, but the weighted importance of regions 
@@ -1234,6 +1238,12 @@ class GeneModel:
             Number of decay periods to write.
         promoter_width : int>0, default = 0
             Width of flat region at promoter of gene in base pairs (bp). MIRA default is 3000 bp.
+
+        Returns
+        -------
+
+        None
+
         '''
 
         coord, value = self._get_RP_model_coordinates(scale_height = scale_height, bin_size = bin_size,
@@ -1243,3 +1253,50 @@ class GeneModel:
         with open(save_name, 'w') as f:
             for start, end, val in zip(coord[:-1], coord[1:], value):
                 print(gene_chrom, start, end, val, sep = '\t', end = '\n', file = f)
+
+
+    @adi.wraps_modelfunc(rpi.fetch_get_influential_local_peaks, rpi.return_peaks_by_idx,
+        fill_kwargs=['peak_idx','tss_distance'])
+    def get_influential_local_peaks(self, peak_idx, tss_distance, decay_periods = 5):
+        '''
+        Returns the `.var` field of the adata, but subset for only peaks within 
+        the local chromatin neighborhood of a gene. The local chromatin neighborhood
+        is defined by the decay distance parameter for that gene's RP model.
+
+        Parameters
+        ----------
+
+        adata : anndata.AnnData
+            AnnData object with ATAC features and TSS annotations.
+        decay_periods : int > 0, default = 5
+            Return peaks that are within `decay_periods*upstream_decay_distance` upstream
+            of gene and `decay_periods*downstream_decay_distance` downstream of gene,
+            where upstream and downstream decay distances are given by the parameters
+            of the RP model.
+
+        Returns
+        -------
+
+        pd.DataFrame : 
+            
+            subset from `adata.var` to include only features/peaks within
+            the gene's local chromatin neighborhood. This function adds two columns:
+
+            `distance_to_TSS` : int
+                Distance, in base pairs, from the gene's TSS
+            `is_upstream` : boolean
+                If peak is upstream or downstream of gene
+
+        '''
+
+        assert isinstance(decay_periods, (int, float)) and decay_periods > 0
+
+        downstream_mask = (tss_distance >= 0) \
+                & (tss_distance < (decay_periods * 1e3 * self.parameters_['distance_downstream']))
+
+        upstream_mask = (tss_distance < 0) \
+                & (np.abs(tss_distance) < (decay_periods * 1e3 * self.parameters_['distance_upstream']))
+
+        combined_mask = upstream_mask | downstream_mask
+
+        return peak_idx[combined_mask], tss_distance[combined_mask]

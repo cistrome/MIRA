@@ -13,6 +13,10 @@ System Requirements
 Data
 ----
 
+.. image :: /_static/data_example.png
+    :width: 350
+    :align: center
+
 MIRA takes scRNA-seq and scATAC-seq count matrices from a single-cell multiomics experiment,
 where each cell is measured using both assays, and measurements are linked by a shared cell
 barcode. We demonstrated MIRA using SHARE-seq data and commercial 10X genomics multiome data, 
@@ -60,3 +64,18 @@ Installing with GPU support
 Training on a GPU reduces the training time of MIRA topic models.
 To install MIRA with PyTorch compiled with GPU support, first install MIRA, as above. Then, follow instructions 
 at `pytorch.org <https://pytorch.org/get-started/locally/>`_ to find the version of PyTorch that suits your system.
+
+Learning Curve
+--------------
+
+.. image:: /_static/code_example.png
+    :width: 600
+    :align: center
+
+If you have experience with Scanpy, we structured MIRA to follow similar conventions 
+so that it would feel familiar and intuitive. In fact, most MIRA analyses
+seamlessly weave between MIRA and Scanpy functionalities for cleaning, slicing,
+and plotting the data. In general, the first positional argument of a MIRA 
+function is an AnnData object, and the following keyword arguments change 
+how the function transforms that object. 
+

@@ -33,17 +33,8 @@ version = '1.0.0'
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-doctest_global_setup = '''
-try:
-    import mira
-except ImportError:
-    mira = None
-
-run_model = False
-'''
 
 extensions = [
-    'matplotlib.sphinxext.plot_directive',
     'sphinx.ext.duration',
     'sphinx.ext.doctest',
     'sphinx.ext.autodoc',
@@ -53,7 +44,10 @@ extensions = [
     'IPython.sphinxext.ipython_console_highlighting',
     'sphinx_copybutton',
     'sphinx_panels',
+    'sphinx.ext.viewcode',
 ]
+
+
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -104,13 +98,6 @@ html_sidebars = {
 }
 
 html_css_files = ['style.css']
-
-plot_pre_code = '''
-import mira
-import anndata
-import matplotlib.pyplot as plt
-adata = anndata.read_h5ad('/Users/alynch/projects/multiomics/mira/mira/data/shareseq/hf_minimal.h5ad')
-'''
 
 autoclass_content = "both"
 

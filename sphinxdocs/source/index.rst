@@ -10,83 +10,89 @@
 
 ------------
 
-.. _home:
+.. container :: home-content
 
-.. code-block :: bash
-   
-   conda install -c conda-forge -c bioconda -c pytorch mira-multiome
+     .. code-block :: bash
+     
+          conda install -c conda-forge -c bioconda -c pytorch mira-multiome
 
-**Multimodal models for Integrated Regulatory Analysis**, or MIRA,  is a python package for analyzing
-the dynamic processes of gene regulation using single-cell multiomics datasets. 
+     **Multimodal models for Integrated Regulatory Analysis**, or MIRA,  is a python package for analyzing
+     the dynamic processes of gene regulation using single-cell multiomics datasets. 
 
-MIRA works on top of `Scanpy <https://scanpy.readthedocs.io/en/stable/>`_ and `Anndata <https://anndata.readthedocs.io/en/latest/>`_
-to provide a rich, comprehensive framework integrating accessibility and expression data for more insights
-into your data. MIRA includes methods for:
+     MIRA works on top of `Scanpy <https://scanpy.readthedocs.io/en/stable/>`_ and `Anndata <https://anndata.readthedocs.io/en/latest/>`_
+     to provide a rich, comprehensive framework integrating accessibility and expression data for more insights
+     into your data. MIRA includes methods for:
 
-.. panels::
-   :card: + text-center
-   
-   ---
-   :img-top: _static/tensorboard_hparams.png
+     .. panels::
+          :card: + text-center
+          :img-top-cls: panel-height
+          :body: p-0
 
-   .. link-button:: notebooks/tutorial_topic_model_tuning_full
-        :type: ref
-        :text: Multimodel Topic Modeling
-        :classes: btn-link stretched-link font-weight-bold
+          ---
+          :img-top: _static/topic_model_pictograph.svg
+          
+          +++
+          .. link-button:: notebooks/tutorial_topic_model_tuning_full
+               :type: ref
+               :text: Multimodel Topic Modeling
+               :classes: btn-link stretched-link font-weight-bold
+          ---
+          :img-top: _static/joint_representation.png
 
-   ---
-   :img-top: _static/pseudotime/mira.time.trace_differentiation.gif
+          +++
+          .. link-button:: notebooks/tutorial_joint_representation
+               :type: ref
+               :text: Constructing a Joint Representation
+               :classes: btn-link stretched-link font-weight-bold
 
-   .. link-button:: notebooks/tutorial_mira.time
-        :type: ref
-        :text: Constructing a Joint Representation
-        :classes: btn-link stretched-link font-weight-bold
+          ---
+          :img-top: _static/enrichment_example.png
+          
+          +++
+          .. link-button:: notebooks/tutorial_topic_analysis
+               :type: ref
+               :text: Regulator and Functional Enrichment
+               :classes: btn-link stretched-link font-weight-bold
 
-   ---
-   :img-top: _static/mira.topics.AccessibilityModel.plot_compare_topic_enrichments.svg
+          ---
+          :img-top: _static/stream_example.png
+          +++
+          .. link-button:: notebooks/tutorial_mira.time
+               :type: ref
+               :text: Pseudotime Trajectory inference
+               :classes: btn-link stretched-link font-weight-bold
 
-   .. link-button:: notebooks/tutorial_mira.time
-        :type: ref
-        :text: Regulator and Functional Enrichment
-        :classes: btn-link stretched-link font-weight-bold
+          ---
+          :img-top:  _static/rp_model_plot.png
+          +++
+          .. link-button:: notebooks/tutorial_cisregulatory_modeling
+               :type: ref
+               :text: Regulatory Potential Modeling
+               :classes: btn-link stretched-link font-weight-bold
 
-   ---
-   :img-top: _static/pseudotime/mira.time.trace_differentiation.gif
+          ---
+          :img-top:  _static/chromatin_differential.png
+          +++
+          .. link-button:: notebooks/tutorial_NITE_LITE_modeling
+               :type: ref
+               :text: Finding NITE regulation
+               :classes: btn-link stretched-link font-weight-bold
 
-   .. link-button:: notebooks/tutorial_mira.time
-        :type: ref
-        :text: Pseudotime Trajectory inference
-        :classes: btn-link stretched-link font-weight-bold
-
-   ---
-   :img-top:  _static/mira.pl.plot_chromatin_differential.png
-
-   .. link-button:: notebooks/tutorial_mira.time
-        :type: ref
-        :text: Regulatory Potential Modeling
-        :classes: btn-link stretched-link font-weight-bold
-
-   ---
-   :img-top:  _static/mira.pl.plot_chromatin_differential.png
-
-   .. link-button:: notebooks/tutorial_mira.time
-        :type: ref
-        :text: Finding NITE regulation: Divergent Cis-Accessibility and Gene Expression
-        :classes: btn-link stretched-link font-weight-bold
-
-\.\.\. And more! Check out the `MIRA preprint <https://www.biorxiv.org/content/10.1101/2021.12.06.471401v1.full.pdf>`_ on bioarxiv. 
-Also, see :doc:`getting_started` for installation and data preparation instructions.
+     \.\.\. And more! Check out the `MIRA preprint <https://www.biorxiv.org/content/10.1101/2021.12.06.471401v1.full.pdf>`_ on bioarxiv. 
+     Also, see :doc:`getting_started` for installation and data preparation instructions.
 
 ------------
 
-Docs
-----
+.. container :: hidden
 
-.. toctree::
-   :maxdepth: 2
+     Docs
+     ----
 
-   home
-   getting_started
-   tutorials
-   api
-   faq
+     .. toctree::
+          :maxdepth: 2
+
+          home
+          getting_started
+          tutorials
+          api
+          faq

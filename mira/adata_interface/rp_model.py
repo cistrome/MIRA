@@ -5,10 +5,11 @@ import numpy as np
 from scipy.sparse import isspmatrix
 from mira.adata_interface.core import fetch_layer,project_matrix, add_layer
 from mira.adata_interface.regulators import fetch_peaks, fetch_factor_hits
-from tqdm.notebook import tqdm
+from tqdm.auto import tqdm
 from scipy import sparse
 from joblib import Parallel, delayed
 import pandas as pd
+import anndata
 logger = logging.getLogger(__name__)
 
 def add_predictions(adata, output, model_type = 'LITE', sparse = True):
@@ -264,3 +265,33 @@ def add_isd_results(self, expr_adata, atac_adata, output, factor_type = 'motifs'
     logger.info('Added key to uns: {}'.format(factor_type))
 
     #return f_Z, expression, logp_data
+
+
+
+def fetch_get_influential_local_peaks(self, adata):
+
+    try:
+        gene_idx = np.argwhere(np.array(adata.uns['distance_to_TSS_genes']) == self.gene)[0,0]
+    except IndexError:
+        raise IndexError('Gene {} does not appear in peak annotation'.format(self.gene))
+
+    if not 'distance_to_TSS' in adata.varm:
+        raise Exception('Peaks have not been annotated with TSS locations. Run "get_distance_to_TSS" before proceeding.')
+
+    distance_matrix = adata.varm['distance_to_TSS'].T #genes, #regions
+
+    return {
+        'peak_idx' : distance_matrix[gene_idx, :].indices,
+        'tss_distance' : distance_matrix[gene_idx, :].data
+    }
+
+
+def return_peaks_by_idx(adata, output):
+
+    idx, dist = output
+
+    proximal_peaks = adata.var.iloc[idx]
+    proximal_peaks['distance_to_TSS'] = np.abs(dist)
+    proximal_peaks['is_upstream'] = dist <= 0
+
+    return proximal_peaks

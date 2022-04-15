@@ -104,6 +104,22 @@ Utils/Accessors
    mira.utils.pretty_stderr
    mira.utils.subset_factors
    mira.utils.fetch_TSS_data
+   mira.utils.fetch_gene_TSS_distances
    mira.utils.fetch_factor_meta
    mira.utils.fetch_factor_hits
+   mira.utils.fetch_binding_sites
    mira.utils.show_gif
+
+
+Datasets
+~~~~~~~~
+
+.. autosummary::
+   :toctree: datasets
+
+   mira.datasets.ShareseqSkin_Ma2020
+   mira.datasets.FrankenCell_RNA
+   mira.datasets.mm10_chrom_sizes
+   mira.datasets.mm10_tss_data
+   mira.datasets.hg38_chrom_sizes
+   mira.datasets.hg38_tss_data

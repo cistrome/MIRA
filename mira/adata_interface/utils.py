@@ -214,7 +214,11 @@ def fetch_factor_hits(atac_adata, factor_type = 'motifs', mask_factors = False):
     metadata, mask = ri.fetch_factor_meta(None, atac_adata, 
         factor_type = factor_type, mask_factors = mask_factors)
 
-    hits_matrix = atac_adata.varm[factor_type + '_hits'].T.tocsr()
+    try:
+        hits_matrix = atac_adata.varm[factor_type + '_hits'].T.tocsr()
+    except KeyError:
+        raise KeyError('Factor binding predictions for {} not yet calculated.'.format(factor_type))
+
     hits_matrix = hits_matrix[mask, :]
 
     return anndata.AnnData(
@@ -222,6 +226,63 @@ def fetch_factor_hits(atac_adata, factor_type = 'motifs', mask_factors = False):
         var = atac_adata.var,
         X = hits_matrix,
     )
+
+def fetch_gene_TSS_distances(atac_adata):
+    '''
+    Returns matrix of distances between gene transcription
+    start sites and peaks.
+    '''
+    try:
+        atac_adata.varm['distance_to_TSS']
+    except KeyError:
+        raise KeyError('TSS annotations not found. Run "mira.tl.get_distance_to_TSS" before running this function.')
+
+    return anndata.AnnData(
+                X = atac_adata.varm['distance_to_TSS'].T,
+                var = atac_adata.var,
+                obs = pd.DataFrame(
+                    atac_adata.uns['TSS_metadata'], 
+                    index = atac_adata.uns['distance_to_TSS_genes'])
+               )
+
+
+def fetch_binding_sites(atac_adata, factor_type = 'motifs',*, id):
+    '''
+    Returns `.var` field of `atac_adata`, but subset to only contain
+    peaks which are predicted to bind a certain transcription factor.
+
+    Parameters
+    ----------
+
+    atac_adata : anndata.AnnData
+        AnnData object with accessibility features, annotated with
+        factor binding predictions
+    factor_type : {"motifs", "chip"}, default = "motifs"
+        Which type of factor to look for `id`.
+    id : str
+        Unique identifier for transcription factor binding. JASPAR
+        ID in the case of motifs, or cistrome ID for ChIP samples.
+
+    Returns
+    -------
+
+    pd.DataFrame : subset of `atac_adata.var`
+    
+    '''
+
+    factor_hits = fetch_factor_hits(atac_adata, 
+            factor_type = factor_type, 
+            mask_factors = False)
+
+    factor_hits.obs = factor_hits.obs.set_index('id')
+    
+    try:
+        factor_hits = factor_hits[id]
+    except KeyError:
+        raise KeyError('Factor id {} not found in dataset. To see factor meta and find valid IDs, use "mira.utils.fetch_factor_meta".'.format(id))
+
+    return factor_hits[:, factor_hits.X.tocsr().indices].var
+
 
 def fetch_TSS_data(adata):
     '''
@@ -243,3 +304,5 @@ def fetch_ISD_matrix(expr_adata, factor_type = 'motifs', mask_factors = True,
         )
     except KeyError:
         raise KeyError('{} column is not associated with {} factor metadata')
+
+

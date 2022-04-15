@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import Adam
 from pyro.infer import SVI, TraceMeanField_ELBO
-from tqdm.notebook import tqdm, trange
+from tqdm.auto import tqdm, trange
 import numpy as np
 import torch.distributions.constraints as constraints
 import logging

@@ -33,7 +33,7 @@ def add_factor_hits_data(adata, output,*, factor_type):
 def add_factor_mask(adata, mask,*,factor_type):
 
     if not factor_type in adata.uns:
-        raise KeyError('No metadata for factor type {}. User must run "find_motifs" to add motif data.'.format(factor_type))
+        raise KeyError('No metadata for factor type {}. User must run "mira.tl.get_motif_hits_in_peaks" to add motif data.'.format(factor_type))
 
     assert(isinstance(mask, (list, np.ndarray)))
 
@@ -51,10 +51,9 @@ def fetch_factor_meta(self, adata, factor_type = 'motifs', mask_factors = True):
     try:
         meta_dict = adata.uns[factor_type]
     except KeyError:
-        raise KeyError('No metadata for factor type {}. User must run "find_motifs" to add motif data.'.format(factor_type))
+        raise KeyError('No data for factor type {}. User must run "mira.tl.get_motif_hits_in_peaks" to add motif data.'.format(factor_type))
 
     mask = np.array(meta_dict['in_expr_data'])
-    col_len = len(mask)
 
     if not mask_factors:
         mask = np.ones_like(mask).astype(bool)
@@ -83,7 +82,7 @@ def fetch_factor_hits(self, adata, factor_type = 'motifs', mask_factors = True, 
             hits_matrix.data = np.ones_like(hits_matrix.data)
     
     except KeyError:
-        raise KeyError('User must run "find_motifs" or "find_ChIP_hits" to add binding data before running this function')
+        raise KeyError('User must run "mira.tl.get_motif_hits_in_peaks" or "mira.tl.get_ChIP_hits_in_peaks" to add binding data before running this function')
 
     return dict(
         hits_matrix = hits_matrix,
@@ -127,10 +126,7 @@ def fetch_ISD_results(self, adata, factor_type = 'motifs', mask_factors=False,
     except KeyError:
         raise KeyError('User must run "lite_model.probabalistic_ISD" function.')
 
-    try:
-        factors = fetch_factor_meta(None, adata, factor_type = factor_type, mask_factors = False)[0]
-    except KeyError:
-        raise KeyError('Metadata column {} is not associated with factor type {}.'.format(str(id_column), str(factor_type)))
+    factors = fetch_factor_meta(None, adata, factor_type = factor_type, mask_factors = False)[0]
 
     rows = adata.var_names
 

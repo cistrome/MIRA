@@ -124,7 +124,7 @@ def plot_factor_influence(
     factor_list_1, factor_list_2, label_factors = None, hue = None, palette = 'coolwarm', hue_order = None, 
     figsize = (8,8), legend_label = '', show_legend = True, fontsize = 13, 
     pval_threshold = (1e-50, 1e-50), na_color = 'lightgrey',
-    color = 'grey', label_closeness = 3, max_label_repeats = 3, show_factor_ids = False,
+    color = 'lightgrey', label_closeness = 3, max_label_repeats = 3, show_factor_ids = False,
     ax = None, axlabels = ('list1', 'list2'), pval_pseudocount = 1e-300,
 ):
 
@@ -157,7 +157,7 @@ def compare_driver_TFs_plot(background = None, alt_hypothesis = 'greater', facto
     hue = None, palette = 'coolwarm', hue_order = None, ax = None, 
     figsize = (8,8), legend_label = '', show_legend = True, fontsize = 13, 
     pval_threshold = (1e-3, 1e-3), na_color = 'lightgrey', show_factor_ids = False,
-    color = 'grey', label_closeness = 3, max_label_repeats = 3,*,
+    color = 'lightgrey', label_closeness = 3, max_label_repeats = 3,*,
     geneset1, geneset2, isd_matrix, genes, factors):
     '''
     Use pISD (probabilistic *insilico* deletion) association scores between 
@@ -246,8 +246,9 @@ def compare_driver_TFs_plot(background = None, alt_hypothesis = 'greater', facto
     return plot_factor_influence(m1, m2, ax = ax, label_factors = label_factors,
             pval_threshold = pval_threshold, hue = hue, hue_order = hue_order, 
             palette = palette, legend_label = legend_label, show_legend = show_legend, 
-            label_closeness = label_closeness, figsize = figsize,
-            na_color = na_color, max_label_repeats = max_label_repeats,
-            axlabels = axlabels, fontsize = fontsize, color = color)        
+            label_closeness = label_closeness, figsize = figsize, 
+            show_factor_ids = show_factor_ids, na_color = na_color, 
+            max_label_repeats = max_label_repeats, axlabels = axlabels, 
+            fontsize = fontsize, color = color)        
 
     

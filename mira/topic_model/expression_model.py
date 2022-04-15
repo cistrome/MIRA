@@ -545,5 +545,5 @@ class ExpressionTopicModel(BaseModel):
 
         return mira_plot_enrichments(results, text_color = text_color, label_genes = label_genes,
             show_top = show_top, barcolor = barcolor, show_genes = show_genes, max_genes = max_genes,
-            enrichments_per_row = plots_per_row, height = height, aspect = aspect, pval_threshold = pval_threshold,
+            plots_per_row = plots_per_row, height = height, aspect = aspect, pval_threshold = pval_threshold,
             palette = palette, color_by_adj = color_by_adj, gene_fontsize = gene_fontsize)

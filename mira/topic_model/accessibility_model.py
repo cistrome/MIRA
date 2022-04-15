@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributions.constraints as constraints
-from tqdm.notebook import tqdm
+from tqdm.auto import tqdm
 import warnings
 from sklearn.preprocessing import scale
 from scipy import sparse
@@ -421,7 +421,7 @@ class AccessibilityTopicModel(BaseModel):
             ... )
 
         .. image:: /_static/mira.topics.AccessibilityModel.plot_compare_topic_enrichments.svg
-            :width: 1200
+            :width: 300
 
         '''
 

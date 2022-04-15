@@ -6,7 +6,7 @@ import mira.adata_interface.core as adi
 import mira.adata_interface.plots as pli
 
 def _plot_chromatin_differential_scatter(ax, 
-        title = 'LITE vs NITE Predictions',
+        title = 'NITE vs LITE Predictions',
         hue_label = 'Expression',
         size = 5,
         palette = 'Reds',
@@ -25,8 +25,8 @@ def _plot_chromatin_differential_scatter(ax,
 
     plot_order = hue.argsort()
     ax.scatter(
-        nite_prediction[plot_order],
         lite_prediction[plot_order],
+        nite_prediction[plot_order],
         s = size,
         c = map_colors(
             ax, hue[plot_order], palette = palette, add_legend = show_legend, 
@@ -40,8 +40,8 @@ def _plot_chromatin_differential_scatter(ax,
     ax.set(
         title = title,
         xscale = 'log', yscale = 'log',
-        xlabel = 'NITE Prediction',
-        ylabel = 'LITE Prediction',
+        xlabel = 'LITE Prediction',
+        ylabel = 'NITE Prediction',
         xticks = [], yticks = [],
     )
     
@@ -102,7 +102,7 @@ def _plot_chromatin_differential_panel(
         size = size, title = 'Local Prediction' if first_plot else '', add_legend = show_legend)
 
     _plot_chromatin_differential_scatter(ax[4], 
-            title = 'LITE vs. NITE Predictions' if first_plot else '',
+            title = 'NITE vs. LITE Predictions' if first_plot else '',
             plot_kwargs= dict(
                 edgecolor = 'lightgrey',
                 linewidths = 0.15,
@@ -156,8 +156,8 @@ def plot_scatter_chromatin_differential(
     .. code-block :: python
 
         >>> mira.pl.plot_scatter_chromatin_differential(
-        ...     data, gene='LEF1', color='Cell Type',
-        ...     palette='Set1', title = 'LEF1 LITE/NITE predictions')
+        ...     data, gene='KRT23', color='Cell Type',
+        ...     palette='viridis', title = 'KRT23 LITE/NITE predictions')
 
     .. image :: /_static/mira.pl.plot_scatter_chromatin_differential.png
     

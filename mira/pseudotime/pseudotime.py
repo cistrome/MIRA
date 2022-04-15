@@ -24,7 +24,7 @@ from scipy.stats import entropy, pearsonr, norm
 from copy import deepcopy
 from scipy.sparse.linalg import eigs
 import logging
-from tqdm.notebook import tqdm, trange
+from tqdm.auto import tqdm, trange
 import mira.adata_interface.core as adi
 import mira.adata_interface.pseudotime as pti
 from functools import partial
@@ -278,6 +278,8 @@ def get_pseudotime(max_iterations = 25, n_waypoints = 3000, n_jobs = 1,*, start_
 
         if converged:
             break
+    
+    t.reset(t.n)
 
     pseudotime = pseudotime - pseudotime.min() #make 0 minimum
     waypoint_weights = W

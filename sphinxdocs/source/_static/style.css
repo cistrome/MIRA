@@ -1,11 +1,27 @@
 
-
-.wy-nav-content {
-    max-width: 70% !important;
+.container-xl {
+    max-width: 1600px;
 }
 
-.a {
-    color : #E83D8C
+.panel-height {
+    padding: 8%;
+    max-height:325px;
+    height: 100%;
+    object-fit: contain;
+  }
+
+.panel-height-cover {
+    padding-left: 10%;
+    padding-right: 10%;
+    padding-top:5%;
+    padding-bottom: 5%;
+    max-height:325px;
+    height: 100%;
+    object-fit: cover;
+  }
+
+.home-content {
+    max-width: 75%;
 }
 
 .hidden { display: none }

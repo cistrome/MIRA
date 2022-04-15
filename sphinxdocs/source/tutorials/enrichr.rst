@@ -27,11 +27,13 @@ results:
     >>> results = mira.tl.fetch_ontologies(44149645, 
     ... ontologies=['WikiPathways_2019_Mouse','BioPlanet_2019'])
 
-The results are given as a python dictionary. They may be plotted using:
+You can manually provide ontologies of interest, or use MIRA's
+default: `mira.tl.LEGACY_ONTOLOGIES`. The results are given as a 
+python dictionary, and may be plotted using:
 
 .. code-block:: python
     
-    >>> mira.pl.plot_enrichments(results, enrichments_per_row = 1)
+    >>> mira.pl.plot_enrichments(results, plots_per_row = 1)
 
 .. image:: /_static/mira.topics.ExpressionTopicModel.plot_enrichments.svg
             :width: 1200
