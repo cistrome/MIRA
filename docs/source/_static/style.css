@@ -1,0 +1,31 @@
+
+.container-xl {
+    max-width: 1600px;
+}
+
+.panel-height {
+    padding: 8%;
+    max-height:325px;
+    height: 100%;
+    object-fit: contain;
+  }
+
+.panel-height-cover {
+    padding-left: 10%;
+    padding-right: 10%;
+    padding-top:5%;
+    padding-bottom: 5%;
+    max-height:325px;
+    height: 100%;
+    object-fit: cover;
+  }
+
+.home-content {
+    max-width: 75%;
+}
+
+.hidden { display: none }
+
+div.nboutput.container div.output_area.stderr {
+    background: #e6e7ed;
+}
