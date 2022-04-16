@@ -27,5 +27,5 @@
 .hidden { display: none }
 
 div.nboutput.container div.output_area.stderr {
-    background: #e6e7ed;
+  background: #d0d2dd;
 }

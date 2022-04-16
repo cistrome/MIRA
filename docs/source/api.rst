@@ -101,7 +101,7 @@ Utils/Accessors
 
    mira.utils.make_joint_representation
    mira.utils.wide_view
-   mira.utils.pretty_stderr
+   mira.utils.pretty_sderr
    mira.utils.subset_factors
    mira.utils.fetch_TSS_data
    mira.utils.fetch_gene_TSS_distances
