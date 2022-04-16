@@ -105,7 +105,7 @@ class ExpressionTopicModel(BaseModel):
         dispersion = dispersion.to(self.device)
 
         with pyro.plate("cells", endog_features.shape[0]):
-            with poutine.scale(None, anneal_factor):
+            with poutine.scale(None, anneal_factor/self.reconstruction_weight):
                 theta = pyro.sample(
                     "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1))
                 theta = theta/theta.sum(-1, keepdim = True)
@@ -131,7 +131,7 @@ class ExpressionTopicModel(BaseModel):
             
             theta_loc, theta_scale, rd_loc, rd_scale = self.encoder(endog_features, read_depth)
 
-            with poutine.scale(None, anneal_factor):
+            with poutine.scale(None, anneal_factor/self.reconstruction_weight):
                 theta = pyro.sample(
                     "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
                 )

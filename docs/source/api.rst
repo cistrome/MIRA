@@ -80,7 +80,7 @@ Tools
 ~~~~~
 
 .. autosummary::
-   :toctree: Tools
+   :toctree: tools
 
    mira.tl.get_motif_hits_in_peaks
    mira.tl.get_ChIP_hits_in_peaks

@@ -172,6 +172,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             nb_parameterize_logspace = True,
             embedding_size = None,
             kl_strategy = 'monotonic',
+            reconstruction_weight = 1.
             ):
         '''
         Learns regulatory "topics" from single-cell multiomics data. Topics capture 
@@ -301,6 +302,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.nb_parameterize_logspace = nb_parameterize_logspace
         self.embedding_size = embedding_size
         self.kl_strategy = kl_strategy
+        self.reconstruction_weight = reconstruction_weight
 
     @staticmethod
     def _iterate_batch_idx(N, batch_size, bar = False, desc = None):
@@ -352,6 +354,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         assert(isinstance(self.num_topics, int) and self.num_topics > 0)
         assert(isinstance(self.features, (list, np.ndarray)))
         assert(len(self.features) == self.num_exog_features)
+        assert isinstance(self.reconstruction_weight, (int, float)) and self.reconstruction_weight > 0
 
         use_cuda = torch.cuda.is_available() and self.use_cuda and on_gpu
         self.device = torch.device('cuda:0' if use_cuda else 'cpu')
