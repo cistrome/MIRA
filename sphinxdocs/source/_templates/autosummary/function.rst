@@ -1,4 +1,0 @@
-{{ fullname }}
-{{ underline }}
-
-.. autofunction:: {{ fullname }}
