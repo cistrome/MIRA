@@ -104,3 +104,15 @@ autosummary_generate_overwrite = True
 autodoc_default_options = {
     'member-order': 'bysource',
 }
+
+html_context = {
+    "display_github": True, # Integrate GitHub
+    "github_user": "AllenWLynch", # Username
+    "github_repo": "MIRA", # Repo name
+    "github_version": "main", # Version
+    "conf_py_path": "/source/", # Path in the checkout to the docs root
+}
+
+html_additional_pages = {
+    'index': 'landingpage.html',
+}

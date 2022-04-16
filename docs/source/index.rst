@@ -88,11 +88,11 @@
      Docs
      ----
 
-     .. toctree::
-          :maxdepth: 2
+.. toctree::
+     :maxdepth: 2
+     :hidden:
 
-          home
-          getting_started
-          tutorials
-          api
-          faq
+     getting_started
+     tutorials
+     api
+     faq

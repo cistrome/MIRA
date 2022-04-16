@@ -24,7 +24,7 @@
     max-width: 75%;
 }
 
-.hidden { display: none }
+.hidden { color: #FFFFFF }
 
 div.nboutput.container div.output_area.stderr {
   background: #d0d2dd;
