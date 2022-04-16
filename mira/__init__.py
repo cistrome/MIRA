@@ -5,7 +5,7 @@ import mira.adata_interface.utils as utils
 import mira.preferences as pref
 import mira.rp_model as rp
 import mira.plots as pl
-import mira.datasets as datasets
+from mira import datasets
 
 __version__ = "1.0.0"
 
