@@ -39,10 +39,14 @@ genes and cell states.
 Other Features
 --------------
 
+These tutorials cover functionalities of MIRA that are useful, but
+outside of the main analysis track. Learn how to make beautiful
+and informative streamgraphs and use MIRA plotting functions with velocity data.
+
 .. toctree::
    :maxdepth: 2
 
+   notebooks/tutorial_cellrank.ipynb
    plotting/mira.pl.plot_stream
    tutorials/enrichr.rst
-   notebooks/tutorial_cellrank.ipynb
    notebooks/tutorial_assemble_gene_annotations.ipynb

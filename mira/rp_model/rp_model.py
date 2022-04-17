@@ -23,7 +23,6 @@ import h5py as h5
 import tqdm
 import os
 import glob
-import pyBigWig
 
 logger = logging.getLogger(__name__)
 

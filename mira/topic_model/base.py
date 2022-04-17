@@ -141,7 +141,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         .. code-block:: python
 
-            >>> model = mira.topics.ExpressionTopicModel('model.pth')
+            >>> rna_model = mira.topics.ExpressionTopicModel.load('rna_model.pth')
+            >>> atac_model = mira.topics.AccessibilityTopicModel.load('atac_model.pth')
 
         '''
 
