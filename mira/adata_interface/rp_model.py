@@ -2,14 +2,12 @@ import logging
 import inspect
 from functools import partial, wraps
 import numpy as np
-from scipy.sparse import isspmatrix
-from mira.adata_interface.core import fetch_layer,project_matrix, add_layer
+from mira.adata_interface.core import project_matrix, add_layer
 from mira.adata_interface.regulators import fetch_peaks, fetch_factor_hits
 from tqdm.auto import tqdm
 from scipy import sparse
 from joblib import Parallel, delayed
 import pandas as pd
-import anndata
 logger = logging.getLogger(__name__)
 
 def add_predictions(adata, output, model_type = 'LITE', sparse = True):

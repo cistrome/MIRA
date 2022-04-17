@@ -3,7 +3,6 @@ import mira.adata_interface.core as adi
 import mira.adata_interface.regulators as ri
 from scipy.stats import mannwhitneyu
 from tqdm.notebook import tqdm
-from functools import partial
 import logging
 
 logger = logging.getLogger(__name__)

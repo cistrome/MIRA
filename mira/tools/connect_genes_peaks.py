@@ -4,7 +4,7 @@ from lisa.core.genome_tools import Region, RegionSet, Genome
 from collections import Counter
 import logging
 import numpy as np
-from scipy.sparse import spdiags, csr_matrix, coo_matrix
+from scipy.sparse import coo_matrix
 from mira.adata_interface.core import wraps_functional
 from mira.adata_interface.rp_model import get_peak_and_tss_data, add_peak_gene_distances
 

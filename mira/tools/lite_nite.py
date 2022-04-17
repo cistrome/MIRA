@@ -1,11 +1,7 @@
-from numpy.lib.function_base import median
 import mira.adata_interface.core as adi
 import mira.adata_interface.lite_nite as lni
-from scipy.stats import chi2, mannwhitneyu
 import numpy as np
-from scipy.sparse import isspmatrix
 from functools import partial
-from mira.plots.chromatin_differential_plot import plot_chromatin_differential
 
 
 def _get_NITE_score(gene_expr, lite_logp, nite_logp, median_nonzero_expression = None, axis = 0):

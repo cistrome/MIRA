@@ -1,4 +1,3 @@
-import matplotlib.pyplot as plt
 import numpy as np
 from lisa.core.genome_tools import Region
 import tqdm

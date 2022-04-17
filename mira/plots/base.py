@@ -1,5 +1,3 @@
-
-
 import numpy as np
 from matplotlib.colors import Normalize, ColorConverter
 from matplotlib import cm

@@ -3,7 +3,6 @@ import anndata
 import numpy as np
 import pandas as pd
 import logging
-import mira.adata_interface.core as adi
 import mira.adata_interface.regulators as ri
 import mira.adata_interface.rp_model as rpi
 logger = logging.getLogger(__name__)

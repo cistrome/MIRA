@@ -1,9 +1,7 @@
 
 import torch
-from torch._C import Value
 import torch.distributions.constraints as constraints
 import torch.nn.functional as F
-from pyro.nn import PyroParam
 import pyro.distributions as dist
 from mira.topic_model.base import BaseModel, get_fc_stack
 from pyro.contrib.autoname import scope
@@ -17,7 +15,6 @@ import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 import mira.tools.enrichr_enrichments as enrichr
 from mira.plots.enrichment_plot import plot_enrichments as mira_plot_enrichments
-from torch.distributions.utils import broadcast_all
 from pyro.distributions.torch_distribution import ExpandedDistribution
 import logging
 logger = logging.getLogger(__name__)

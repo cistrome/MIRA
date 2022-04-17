@@ -1,10 +1,5 @@
 import os
-import sys
-import configparser
 import subprocess
-import requests
-import zipfile
-import io
 import tempfile
 import pyfaidx
 import numpy as np
@@ -19,12 +14,6 @@ from mira.adata_interface.regulators import fetch_peaks, add_factor_hits_data
 from functools import partial
 
 logger = logging.getLogger(__name__)
-
-'''config = configparser.ConfigParser()
-configpath = __file__[:-3] + '_config.ini'
-config.read(configpath)
-assert(len(config.sections()) > 0), 'Did not read config file correctly.
-config.get('data','motifs')'''
 
 mira_dir = os.path.dirname(mira.__file__)
 PWM_DIR = os.path.join(mira_dir, 'package_data/motifs/')

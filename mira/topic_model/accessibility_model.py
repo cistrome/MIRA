@@ -1,12 +1,10 @@
 
 import numpy as np
-from numpy.core.numeric import ones
 import pyro
 import pyro.distributions as dist
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.distributions.constraints as constraints
 from tqdm.auto import tqdm
 import warnings
 from sklearn.preprocessing import scale
@@ -14,12 +12,10 @@ from scipy import sparse
 from scipy.stats import fisher_exact
 from scipy.sparse import isspmatrix
 from mira.topic_model.base import BaseModel, get_fc_stack
-import matplotlib.pyplot as plt
 from pyro.contrib.autoname import scope
 from pyro import poutine
 from sklearn.preprocessing import scale
 import mira.adata_interface.core as adi
-import mira.adata_interface.topic_model as tmi
 import mira.adata_interface.regulators as ri
 from mira.plots.factor_influence_plot import plot_factor_influence
 

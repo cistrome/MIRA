@@ -1,4 +1,3 @@
-import matplotlib.pyplot as plt
 from itertools import zip_longest
 import numpy as np
 from mira.plots.base import map_colors, map_plot

@@ -3,7 +3,7 @@ import torch
 import pyro
 import pyro.distributions as dist
 from pyro.infer.autoguide import AutoDelta
-from pyro.infer import SVI, TraceMeanField_ELBO
+from pyro.infer import TraceMeanField_ELBO
 from pyro.infer.autoguide.initialization import init_to_mean, init_to_value, init_to_sample
 from pyro import poutine
 import numpy as np
@@ -18,7 +18,6 @@ from mira.adata_interface.rp_model import wraps_rp_func, add_isd_results, add_pr
 import mira.adata_interface.rp_model as rpi
 from mira.adata_interface.core import add_layer, wraps_modelfunc
 import mira.adata_interface.core as adi
-from collections.abc import Sequence
 import h5py as h5
 import tqdm
 import os

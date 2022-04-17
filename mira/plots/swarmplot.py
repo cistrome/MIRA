@@ -1,9 +1,6 @@
-
-import matplotlib.pyplot as plt
 import numpy as np
 import warnings
 from mira.plots.base import map_colors
-from sklearn.preprocessing import minmax_scale
 
 class Beeswarm:
     """Modifies a scatterplot artist to show a beeswarm plot."""

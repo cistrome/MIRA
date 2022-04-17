@@ -1,11 +1,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.cm as cm
-import matplotlib.colors as pltcolors
 from mira.plots.base import map_colors
-from matplotlib.patches import Patch
-import warnings
 from scipy.signal import savgol_filter
 from sklearn.preprocessing import minmax_scale
 import networkx as nx

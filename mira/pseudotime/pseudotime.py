@@ -10,17 +10,14 @@ which eliminates biases, distortions, and compression of complex
 topologies replete in UMAP-based pseudotime trajectory inference algorithms.
 '''
 
-from networkx.algorithms import components
 import numpy as np
 import networkx as nx
 from scipy import sparse
 from scipy.sparse.base import isspmatrix
-from sklearn.neighbors import NearestNeighbors
-from numpy.linalg import inv, pinv
-from sklearn.linear_model import LogisticRegression
+from numpy.linalg import inv
 from joblib import Parallel, delayed
 from scipy.sparse import csgraph
-from scipy.stats import entropy, pearsonr, norm
+from scipy.stats import entropy, pearsonr
 from copy import deepcopy
 from scipy.sparse.linalg import eigs
 import logging

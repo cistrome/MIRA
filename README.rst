@@ -1,6 +1,6 @@
 
 
-.. image:: https://github.com/AllenWLynch/MIRA/blob/main/docs /source/_static/mira_logo.png
+.. image:: https://raw.githubusercontent.com/AllenWLynch/MIRA/main/docs/source/_static/mira_logo.png
   :width: 400
   :alt: MIRA
   :align: center
@@ -32,7 +32,7 @@ See `MIRA's website <https://mira-multiome.readthedocs.io/>`_ for tutorials and 
 Data
 ----
 
-.. image :: https://github.com/AllenWLynch/MIRA/blob/main/docs/source/_static/data_example.png
+.. image:: https://raw.githubusercontent.com/AllenWLynch/MIRA/main/docs/source/_static/data_example.png
     :width: 350
     :align: center
 
@@ -83,7 +83,7 @@ at `pytorch.org <https://pytorch.org/get-started/locally/>`_ to find the version
 Learning Curve
 --------------
 
-.. image:: https://github.com/AllenWLynch/MIRA/blob/main/docs/source/_static/code_example.png
+.. image:: https://raw.githubusercontent.com/AllenWLynch/MIRA/main/docs/source/_static/code_example.png
     :width: 600
     :align: center
 

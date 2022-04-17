@@ -1,5 +1,3 @@
-from tracemalloc import start
-from turtle import back
 from mira.pseudotime.pseudotime import prune_edges, make_markov_matrix, \
     get_adaptive_affinity_matrix, get_kernel_width
 

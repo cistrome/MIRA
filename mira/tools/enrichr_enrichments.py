@@ -1,6 +1,5 @@
 import requests
 import json
-from functools import partial
 from mira.plots.base import map_plot
 from collections.abc import Iterable
 import charset_normalizer

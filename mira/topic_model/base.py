@@ -13,7 +13,6 @@ import torch.distributions.constraints as constraints
 import logging
 from math import ceil
 import time
-from pyro.contrib.autoname import scope
 from sklearn.base import BaseEstimator
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi

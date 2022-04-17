@@ -1,8 +1,6 @@
-from os import link
-import anndata
+
 import numpy as np
 import logging
-from scipy.sparse import isspmatrix
 from scipy import sparse
 from mira.adata_interface.core import fetch_layer, add_obs_col, \
         add_obsm, project_matrix, add_varm

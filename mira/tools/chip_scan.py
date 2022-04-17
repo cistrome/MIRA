@@ -1,5 +1,4 @@
 from mira.tools.motif_scan import validate_peaks, _parse_motif_name
-from lisa.core.utils import indices_list_to_sparse_array
 from lisa import FromRegions
 import mira.adata_interface.core as adi
 import mira.adata_interface.regulators as ri
