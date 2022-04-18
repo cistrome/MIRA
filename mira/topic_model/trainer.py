@@ -63,15 +63,18 @@ def _print_study(study, trial):
     if study is None:
         raise ValueError('Cannot print study before running any trials.')
 
+    def get_batches_trained(trial):
+        return max(len(trial.intermediate_values) - 1, 0)
+
     def get_trial_desc(trial):
 
         if trial.state == ts.COMPLETE:
-            return 'Trial #{:<3} | completed, score: {:.4e} | params: {}'.format(str(trial.number), trial.values[-1], _format_params(trial.user_attrs['trial_params']))
+            return 'Trial #{:<3} | completed, score: {:.4e} | params: {}'.format(str(trial.number), trial.values[-1], _format_params(trial.params))
         elif trial.state == ts.PRUNED:
-            return 'Trial #{:<3} | pruned at step: {:<12} | params: {}'.format(str(trial.number), str(trial.user_attrs['batches_trained']), _format_params(trial.user_attrs['trial_params']))
+            return 'Trial #{:<3} | pruned at step: {:<12} | params: {}'.format(str(trial.number), str(get_batches_trained(trial)), _format_params(trial.params))
         elif trial.state == ts.FAIL:
             return 'Trial #{:<3} | ERROR                        | params: {}'\
-                .format(str(trial.number), str(trial.user_attrs['trial_params']))
+                .format(str(trial.number), str(trial.params))
 
     if NOTEBOOK_MODE:
         clear_output(wait=True)
@@ -90,7 +93,7 @@ def _print_study(study, trial):
     print('#Topics | Trials (number is #folds tested)', end = '')
 
     study_results = sorted([
-        (trial_.user_attrs['trial_params']['num_topics'], trial_.user_attrs['batches_trained'], trial_.number)
+        (trial_.params['num_topics'], get_batches_trained(trial_), trial_.number)
         for trial_ in study.trials
     ], key = lambda x : x[0])
 
@@ -342,10 +345,6 @@ class TopicModelTuner:
         }
 
         model.set_params(**params)
-
-        trial.set_user_attr('trial_params', params)
-        trial.set_user_attr('completed', False)
-        trial.set_user_attr('batches_trained', 0)
         cv_scores = []
 
         num_splits = cv.get_n_splits(data)
@@ -378,11 +377,8 @@ class TopicModelTuner:
                 trial.report(np.mean(cv_scores) + (prune_penalty * 0.5**step), step+1)
                     
                 if trial.should_prune() and step + 1 < num_splits:
-                    trial.set_user_attr('batches_trained', step+1)
                     raise optuna.TrialPruned()
 
-            trial.set_user_attr('batches_trained', step+1)
-            trial.set_user_attr('completed', True)
             trial_score = np.mean(cv_scores)
 
             metrics = {**{'cv_{}_score'.format(str(i)) : cv_score for i, cv_score in enumerate(cv_scores)}, 
@@ -529,7 +525,7 @@ class TopicModelTuner:
 
                     try:
                         self.study.optimize(
-                            trial_func, n_trials = self.iters//n_workers, 
+                            trial_func, n_trials = remaining_trials//n_workers, 
                             callbacks = [_print_study] if not parallel else [partial(_log_progress, worker_number = worker_number, num_trials = self.iters)],
                             catch = (RuntimeError,ValueError),
                         )
@@ -596,7 +592,7 @@ class TopicModelTuner:
             of format [{parameter combination 1}, ..., {parameter combination N}]
         '''
 
-        return [trial.user_attrs['trial_params'] for trial in self.get_best_trials(top_n_trials)]
+        return [trial.params for trial in self.get_best_trials(top_n_trials)]
 
 
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, adi.return_output, ['all_data', 'train_data', 'test_data'])
