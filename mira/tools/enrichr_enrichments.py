@@ -3,12 +3,6 @@ import json
 from collections.abc import Iterable
 import logging
 
-try:
-    import charset_normalizer
-    charset_normalizer.logging.getLogger().setLevel(logging.WARN)
-except ModuleNotFoundError:
-    pass
-
 
 ENRICHR_URL = 'http://maayanlab.cloud/Enrichr/'
 POST_ENDPOINT = 'addList'
@@ -121,7 +115,11 @@ def fetch_ontology(list_id, ontology = 'WikiPathways_2019_Human'):
 
     '''
 
-    charset_normalizer.logging.getLogger().setLevel(logging.WARN)
+    try:
+        import charset_normalizer
+        charset_normalizer.logging.getLogger().setLevel(logging.WARN)
+    except ModuleNotFoundError:
+        pass
 
     url = ENRICHR_URL + GET_ENDPOINT.format(
         list_id = str(list_id),
