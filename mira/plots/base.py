@@ -75,7 +75,7 @@ def map_colors(ax, c, palette, add_legend = True, hue_order = None, na_color = '
             dict(zip(c, range(len(c)))).keys()
         )[::-1] #set, order preserved
 
-        if isinstance(palette, list):
+        if isinstance(palette, (list, np.ndarray)):
             num_colors = len(palette)
             palette_obj = lambda i : np.array(palette)[i]
         else:

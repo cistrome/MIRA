@@ -675,9 +675,6 @@ def get_tree_structure(threshold = 0.1,*, lineage_names, branch_probs, pseudotim
         else:
             return [edge]
 
-    def get_node_name(self, node):
-        return ', '.join(map(str, self.lineage_names[self.get_all_leaves_from_node(node)]))
-
     def merge_rows(x, col1, col2):
         return np.hstack([
             (x[:,col1] + x[:, col2])[:, np.newaxis], #merge two lineages into superlineage
@@ -744,7 +741,7 @@ def get_tree_structure(threshold = 0.1,*, lineage_names, branch_probs, pseudotim
         if node == 'Root':
             return node
 
-        return ', '.join(set(get_all_leaves_from_node(node)))
+        return ', '.join(sorted(list(set(get_all_leaves_from_node(node)))))
             
     state_names = {
         edge[2]['state'] : get_node_name(edge[1])
