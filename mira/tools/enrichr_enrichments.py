@@ -1,10 +1,13 @@
 import requests
 import json
-from mira.plots.base import map_plot
 from collections.abc import Iterable
-import charset_normalizer
 import logging
-charset_normalizer.logging.getLogger().setLevel(logging.WARN)
+
+try:
+    import charset_normalizer
+    charset_normalizer.logging.getLogger().setLevel(logging.WARN)
+except ModuleNotFoundError:
+    pass
 
 
 ENRICHR_URL = 'http://maayanlab.cloud/Enrichr/'

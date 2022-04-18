@@ -5,19 +5,13 @@
 
 .panel-height {
     padding: 8%;
-    max-height:325px;
-    height: 100%;
+    max-height:300px;
     object-fit: contain;
-  }
-
-.panel-height-cover {
-    padding-left: 10%;
-    padding-right: 10%;
-    padding-top:5%;
-    padding-bottom: 5%;
-    max-height:325px;
     height: 100%;
-    object-fit: cover;
+    position: relative;
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
   }
 
 .home-content {

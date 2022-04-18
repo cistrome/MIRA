@@ -30,7 +30,7 @@
 
           ---
           :img-top: _static/topic_model_pictograph.svg
-          
+
           +++
           .. link-button:: notebooks/tutorial_topic_model_tuning_full
                :type: ref
