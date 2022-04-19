@@ -4,13 +4,6 @@ FAQ
 
 ------------
 
-.. toctree::
-    :maxdepth: 1
-
-    I have only one modality. Can I still use MIRA?
-    I have separate scATAC-seq and scRNA-seq data from the same sample. Can I use MIRA?
-    I am working with an different organism (not human or mouse). Can I use MIRA?
-
 I have only one modality. Can I still use MIRA?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -39,9 +32,9 @@ I am working with an different organism (not human or mouse). Can I use MIRA?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 MIRA has ready-to-use annotations for hg38 and mm10, but MIRA is flexible
-on the organism. The main annotations that one must provide are a:
+on the organism. The main annotations that one must provide are:
 
-* fasta file of the genome
+* a fasta file of the genome
 * gene TSS locations
 * chromosome sizes
 
@@ -49,3 +42,16 @@ If you can get these annotations for your organism, you can use MIRA. The one
 fixed aspect of the analysis for now is the motif database. MIRA uses the
 JASPAR 2020 vertabrates collection. In the future, we will allow users to
 download other databases or provide their own position weight matrices.
+
+I have data in separate batches. Does MIRA perform batch correction?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Not yet, but keep an eye out for this in the future. In the meantime, it could
+be worthwhile to model the data together with topic models, even knowing that the data
+may separate by batch. Alternatively, one could do analyses on individual batches.
+
+Does MIRA work with spatial or protein data?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+No, MIRA's models are built to compare chromatin accessibility and gene expression.
+Additional modalties pose interesting questions, but we do not address them. 

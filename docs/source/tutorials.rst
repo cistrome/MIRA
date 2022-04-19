@@ -46,7 +46,7 @@ and informative streamgraphs and use MIRA plotting functions with velocity data.
 .. toctree::
    :maxdepth: 2
 
+   notebooks/tutorial_streamgraphs.ipynb
    notebooks/tutorial_cellrank.ipynb
-   plotting/mira.pl.plot_stream
    tutorials/enrichr.rst
    notebooks/tutorial_assemble_gene_annotations.ipynb

@@ -358,7 +358,7 @@ def _normalize_numerical_features(features, enforce_max = None, *, clip, scale_f
 @adi.wraps_functional(pli.fetch_streamplot_data, adi.return_output,
     ['group_names','features','pseudotime','group','tree_graph', 'feature_labels']
 )
-def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_features = False, order = 'ascending',
+def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_features = False, order = None,
     title = None, show_legend = True, legend_cols = 5, max_bar_height = 0.6, size = None, max_swarm_density = 1e5, hide_feature_threshold = 0,
     palette = None, color = 'black', linecolor = 'black', linewidth = None, hue_order = None, pseudotime_triangle = True,
     scaffold_linecolor = 'lightgrey', scaffold_linewidth = 1, min_pseudotime = -1, orientation = 'h',
@@ -407,7 +407,7 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
         and line mode will plot multiple features on the same plot. Setting `split` to
         True will create a separate plot for each feature. This feature is not available
         for heatmaps, and is enforced behavior for swarms.
-    order : {"ascending", "descending", None}, default = "ascending"
+    order : {"ascending", "descending", None}, default = None
         Ascending order plots features in the order at which they peak in terms of 
         pseudotime, so feature that peak earlier will appear first on the plot. Vice-
         versa for descending order. Setting `order` to None will plot features in the
@@ -525,6 +525,11 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
 
     Examples
     --------
+
+    .. note::
+
+        Below, we provide a smattering of examples. For a more in-depth tutorial, 
+        see `the streamgraph tutorial <notebooks/tutorial_streamgraphs.ipynb>`_.
 
     **Plotting topics.** Plot the composition of topics along a differentiation.
     Here `hide_feature_threshold` hides topics which aren't contributing to the
