@@ -122,9 +122,14 @@ def ShareseqSkin_Ma2020(download_directory = 'mira-datasets'):
         download_directory=download_directory,
     )()
 
+#############
+# TUTORIALS #
+#############
+
+
 def StreamGraphTutorial(download_directory = 'mira-datasets'):
     '''
-    SHARE-seq skin dataset used in paper and tutorials.
+    Streamgraph tutorial data
     '''
 
     Dataset(
@@ -135,7 +140,7 @@ def StreamGraphTutorial(download_directory = 'mira-datasets'):
 
 def PseudotimeTrajectoryInferenceTutorial(download_directory = 'mira-datasets'):
     '''
-    SHARE-seq skin dataset used in paper and tutorials.
+    Pseudotime trajectory inference tutorial data
     '''
 
     Dataset(
@@ -155,6 +160,47 @@ def FrankenCell_RNA(download_directory = 'mira-datasets'):
         tar=False, is_directory=False,
         download_directory=download_directory,
     )()
+
+
+def ShareseqTopicModels(download_directory = 'mira-datasets'):
+    '''
+    Topic models trained on SHARE-seq dataset.
+    '''
+
+    Dataset(
+        remote_url='http://cistrome.org/~alynch/data/mira-data/tutorials/shareseq/shareseq_topic_models.tar.gz',
+        tar=True, is_directory=True,
+        download_directory=download_directory,
+    )()
+
+def ShareseqBaseData(download_directory = 'mira-datasets'):
+    '''
+    Raw count matrices for SHARE-seq skin dataset.
+    '''
+
+    Dataset(
+        remote_url='http://cistrome.org/~alynch/data/mira-data/tutorials/shareseq/shareseq_base_data.tar.gz',
+        tar=True, is_directory=True,
+        download_directory=download_directory,
+    )()
+
+
+def ShareseqAnnotatedData(download_directory = 'mira-datasets'):
+    '''
+    Annotated and modeled count matrices for SHARE-seq skin dataset.
+    '''
+
+    Dataset(
+        remote_url='http://cistrome.org/~alynch/data/mira-data/tutorials/shareseq/shareseq_annotated_data.tar.gz',
+        tar=True, is_directory=True,
+        download_directory=download_directory,
+    )()
+
+
+
+###############
+# ANNOTATIONS #
+###############
 
 def mm10_chrom_sizes(download_directory = 'mira-datasets'):
     '''

@@ -689,9 +689,11 @@ def plot_stream(style = 'stream', split = False, log_pseudotime = True, scale_fe
         pseudotime = np.log(pseudotime+ 1)
 
     if not order is None:
-        feature_order = np.argsort(
-            pseudotime[features.argmax(0)]
-        )
+        
+        pseudotime_order = np.argsort(pseudotime)
+
+        first_over_50_idx = (features[pseudotime_order].cumsum(0)/features.sum(0) > 0.5).argmax(0)
+        feature_order = np.argsort(pseudotime[pseudotime_order][first_over_50_idx])
 
         if order == 'descending':
             feature_order = feature_order[::-1]

@@ -166,6 +166,8 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
             factor_type = 'motifs', checkpoint = None, n_workers = 1, **kwargs):
 
             assert(isinstance(n_workers, int) and (n_workers >= 1 or n_workers == -1))
+            assert len(expr_adata) == len(atac_adata), 'Must pass adatas with same number of cells to this function'
+            assert np.all(expr_adata.obs_names == atac_adata.obs_names), 'To use RP models, cells must have same barcodes/obs_names'
 
             unannotated_genes = np.setdiff1d(self.genes, atac_adata.uns['distance_to_TSS_genes'])
             if len(unannotated_genes) > 0:

@@ -118,6 +118,11 @@ Datasets
    :toctree: datasets
 
    mira.datasets.ShareseqSkin_Ma2020
+   mira.datasets.StreamGraphTutorial
+   mira.datasets.PseudotimeTrajectoryInferenceTutorial
+   mira.datasets.ShareseqTopicModels
+   mira.datasets.ShareseqBaseData
+   mira.datasets.ShareseqAnnotatedData
    mira.datasets.FrankenCell_RNA
    mira.datasets.mm10_chrom_sizes
    mira.datasets.mm10_tss_data
