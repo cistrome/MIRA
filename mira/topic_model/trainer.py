@@ -23,6 +23,7 @@ from mira.adata_interface.topic_model import logger as interfacelogger
 from mira.adata_interface.core import logger as corelogger
 from torch.utils.tensorboard import SummaryWriter
 import torch
+from mira.topic_model.pruner import MemoryPercentileStepPruner
 
 
 class DisableLogger:
@@ -38,9 +39,14 @@ class DisableLogger:
 
 
 def _log_progress(study, trial,*, num_trials, worker_number):
-    logger.info('Worker {}: Finished trial {}/{}.'.format(
-        str(worker_number), str(trial.number+1), str(num_trials)
-    ))
+    if not trial.state == ts.FAIL:
+        logger.info('Worker {}: Finished trial {}/{}.'.format(
+            str(worker_number), str(trial.number+1), str(num_trials)
+        ))
+    else:
+        logger.warn('Worker {}: Trial {}/{} failed. Likely gradient overflow.'.format(
+            str(worker_number), str(trial.number+1), str(num_trials)
+        ))
     
 def _format_params(params):
 
@@ -64,7 +70,10 @@ def _print_study(study, trial):
         raise ValueError('Cannot print study before running any trials.')
 
     def get_batches_trained(trial):
-        return max(len(trial.intermediate_values) - 1, 0)
+        if not trial.state == ts.FAIL:
+            return max(len(trial.intermediate_values), 0)
+        else:
+            return 'E'
 
     def get_trial_desc(trial):
 
@@ -145,12 +154,13 @@ class TopicModelTuner:
         batch_sizes = [32,64,128],
         cv = 5, iters = 64,
         seed = 2556,
-        pruner = 'halving',
+        pruner = 'mira',
         sampler = 'tpe',
         tune_layers = True,
         tune_kl_strategy  = True,
         tensorboard_logdir = 'runs',
-        storage = 'sqlite:///mira-tuning.db',*,
+        storage = 'sqlite:///mira-tuning.db',
+        model_survival_rate=1/4,*,
         save_name,
     ):
         '''
@@ -210,10 +220,9 @@ class TopicModelTuner:
             resume that study. If study is provided, `save_name` need not be set.
         seed : int > 0, default = 2556
             Random seed for K-fold cross validator and optuna optimizer.
-        pruner : "halving", "median", or optuna.pruner.BasePruner, default = "halving"
-            If "halving", use SuccessiveHalving Bandit pruner. Works best with default
-            five folds of cross validation. If "median", use median pruner. Else pass
-            any object inheriting from optuna.runer.BasePruner
+        pruner : {"mira", optuna.pruner.BasePruner, or None}, default = "mira"
+            Default MIRA pruner is percentile pruner with memory. Pass None
+            for no pruning, else pass any object inheriting from optuna.runer.BasePruner
         sampler : None or optuna.pruner.BaseSampler, default = None
             If None, uses MIRA's default choice of the TPE sampler.
         tune_kl_strategy : boolean, default = True
@@ -225,6 +234,11 @@ class TopicModelTuner:
             Directory in which to save tensorboard log files.
         storage : str, default = 'sqlite:///mira-tuning.db'
             SQLite database name.
+        model_survival_rate : float >0, <1, default = 0.25
+            The rate at which a model is expected to proceed through all
+            folds of training, e.g., to "survive" the trial and be considered
+            in the end model selection scheme.
+        
 
         Returns
         -------
@@ -279,6 +293,7 @@ class TopicModelTuner:
         self.tune_layers = tune_layers
         self.tune_kl_strategy = tune_kl_strategy
         self.tensorboard_logdir = tensorboard_logdir
+        self.model_survival_rate = model_survival_rate
 
 
     @adi.wraps_modelfunc(adi.fetch_adata_shape, tmi.add_test_column, ['shape'])
@@ -371,10 +386,7 @@ class TopicModelTuner:
                     model.score(test_counts)
                 )
 
-                if step == 0:
-                    trial.report(1.0, 0)
-
-                trial.report(np.mean(cv_scores) + (prune_penalty * 0.5**step), step+1)
+                trial.report(np.mean(cv_scores) + (prune_penalty * 0.5**step), step)
                     
                 if trial.should_prune() and step + 1 < num_splits:
                     raise optuna.TrialPruned()
@@ -383,7 +395,8 @@ class TopicModelTuner:
 
             metrics = {**{'cv_{}_score'.format(str(i)) : cv_score for i, cv_score in enumerate(cv_scores)}, 
                                 'trial_score' : trial_score,
-                                'test_score' : 1.}
+                                'test_score' : 1.,
+                                'number' : trial.number}
 
             trial_writer.add_hparams(params, metrics, domains)
 
@@ -397,15 +410,30 @@ class TopicModelTuner:
         _print_study(self.study, None)
 
 
-    def get_pruner(self):
-        if self.pruner == 'halving':
+    def get_pruner(self,*,n_workers, num_splits):
+
+        if self.pruner == 'mira':
+
+            assert isinstance(self.model_survival_rate, float) and self.model_survival_rate > 0. and self.model_survival_rate < 1., 'Model success rate must be float between 0 and 1'
+            prune_rate = self.model_survival_rate**(1/(num_splits-1))
+
+            logger.info('Model pruning rate: {:.3f}'.format(prune_rate))
+            num_samples_before_prune = int(np.ceil(1/(1-prune_rate)))
+            
+            return MemoryPercentileStepPruner(
+                memory_length = num_samples_before_prune,
+                percentile = 100*prune_rate,
+                n_startup_trials = max(n_workers, num_samples_before_prune)
+            )
+
+        elif self.pruner == 'halving':
             return optuna.pruners.SuccessiveHalvingPruner(
                         min_resource=1.0, 
                         bootstrap_count=0, 
                         reduction_factor=3)
         elif self.pruner == 'median':
             return optuna.pruners.MedianPruner(
-                n_startup_trials=3,
+                n_startup_trials=max(n_workers, 2),
                 n_warmup_steps=0,
             )
         elif isinstance(self.pruner, optuna.pruners.BasePruner):
@@ -462,6 +490,9 @@ class TopicModelTuner:
             load_if_exists= True,
         )
 
+        if len(self.study.trials) > 0:
+            logger.warn('Resuming study with {} trials.'.format(len(self.study.trials)))
+
         tune_func = partial(
                 self._tune, adata, parallel = n_workers>1, n_workers = n_workers,
             )
@@ -479,15 +510,6 @@ class TopicModelTuner:
         fill_kwargs = ['all_data', 'train_data', 'test_data'])
     def _tune(self, worker_number = 0, n_workers = 1, parallel = False,*, 
         all_data, train_data, test_data):
-        
-        self.study = optuna.create_study(
-            direction = 'minimize',
-            pruner = self.get_pruner(),
-            sampler = self.get_tuner(worker_number = worker_number, parallel=parallel),
-            study_name = self.study_name,
-            storage = self.storage,
-            load_if_exists= True,
-        )
 
         if isinstance(self.cv, int):
             self.cv = KFold(self.cv, random_state = self.seed + worker_number, shuffle= True)
@@ -495,7 +517,15 @@ class TopicModelTuner:
             assert isinstance(self.cv, BaseCrossValidator)
             self.cv.seed+=worker_number
         
-
+        self.study = optuna.create_study(
+            direction = 'minimize',
+            pruner = self.get_pruner(n_workers = n_workers, num_splits = self.cv.get_n_splits()),
+            sampler = self.get_tuner(worker_number = worker_number, parallel=parallel),
+            study_name = self.study_name,
+            storage = self.storage,
+            load_if_exists= True,
+        )
+        
         trial_func = partial(
             self._trial,
             model = self.model, data = train_data,
@@ -513,6 +543,11 @@ class TopicModelTuner:
         if not torch.cuda.is_available():
             logger.warn('Worker {}: GPU is not available, will not speed up training.'.format(str(worker_number)))
 
+        if parallel:
+            optuna.logging.set_verbosity(optuna.logging.ERROR)
+        else:
+            optuna.logging.set_verbosity(optuna.logging.CRITICAL)
+
         remaining_trials = self.iters - len(self.study.trials)
         if remaining_trials > 0:
 
@@ -527,7 +562,7 @@ class TopicModelTuner:
                         self.study.optimize(
                             trial_func, n_trials = remaining_trials//n_workers, 
                             callbacks = [_print_study] if not parallel else [partial(_log_progress, worker_number = worker_number, num_trials = self.iters)],
-                            catch = (RuntimeError,ValueError),
+                            catch = (ValueError, RuntimeError),
                         )
                     except KeyboardInterrupt:
                         pass
