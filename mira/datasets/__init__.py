@@ -3,4 +3,5 @@ from .datasets import ShareseqSkin_Ma2020, FrankenCell_RNA, \
     hg38_chrom_sizes, hg38_tss_data, \
     test_download, \
     StreamGraphTutorial, PseudotimeTrajectoryInferenceTutorial, \
-    ShareseqTopicModels, ShareseqBaseData, ShareseqAnnotatedData
+    ShareseqTopicModels, ShareseqBaseData, ShareseqAnnotatedData, \
+    ShareseqRPModels, MouseBrainDataset

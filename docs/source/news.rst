@@ -16,6 +16,7 @@ and represents a comprehensive base of features on which users can
 build multiomics analyses. The biggest changes with this release are:
 
 * Multiprocessing and tensorboard support for topic model training
+* New topic model trial pruner which saves time and improves results
 * Multiprocessing for RP model training
 * Facilities for visualizing regulatory potential models
 * Bug fixes and tweaks to streamplot functions

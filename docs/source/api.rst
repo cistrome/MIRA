@@ -123,6 +123,8 @@ Datasets
    mira.datasets.ShareseqTopicModels
    mira.datasets.ShareseqBaseData
    mira.datasets.ShareseqAnnotatedData
+   mira.datasets.ShareseqRPModels
+   mira.datasets.MouseBrainDataset
    mira.datasets.FrankenCell_RNA
    mira.datasets.mm10_chrom_sizes
    mira.datasets.mm10_tss_data

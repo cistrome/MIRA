@@ -19,6 +19,8 @@
 .. image:: https://zenodo.org/badge/DOI/10.1101/2021.12.06.471401.svg
     :target: https://www.biorxiv.org/content/10.1101/2021.12.06.471401v1
 
+`Github <https://github.com/cistrome/MIRA>`_ | `Website <https://mira-multiome.readthedocs.io/en/latest/>`_ | `Paper <https://www.biorxiv.org/content/10.1101/2021.12.06.471401v1.full.pdf>`_
+
 Introduction
 ------------
 

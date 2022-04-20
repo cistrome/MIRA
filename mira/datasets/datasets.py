@@ -105,7 +105,7 @@ class Dataset:
 
         if self.is_directory:
             logger.info(
-                'Dataset contents:\n\t* ' + '\n\t* '.join(os.listdir(self.uncompressed_name))
+                'Dataset contents:\n\t* ' + self.uncompressed_name + '\n\t\t* ' + '\n\t\t* '.join(os.listdir(self.uncompressed_name))
             )
         else:
             logger.info('Dataset contents:\n\t* ' + self.local_filename)
@@ -196,6 +196,27 @@ def ShareseqAnnotatedData(download_directory = 'mira-datasets'):
         download_directory=download_directory,
     )()
 
+def ShareseqRPModels(download_directory = 'mira-datasets'):
+    '''
+    Example RP models for tutorial
+    '''
+
+    Dataset(
+        remote_url='http://cistrome.org/~alynch/data/mira-data/tutorials/shareseq/shareseq_example_rp_models.tar.gz',
+        tar=True, is_directory=True,
+        download_directory=download_directory,
+    )()
+
+def MouseBrainDataset(download_directory = 'mira-datasets'):
+    '''
+    Count matrix and topic models for mouse brain dataset
+    '''
+
+    Dataset(
+        remote_url='http://cistrome.org/~alynch/data/mira-data/tutorials/e18_10X_brain_dataset.tar.gz',
+        tar=True, is_directory=True,
+        download_directory=download_directory,
+    )()
 
 
 ###############

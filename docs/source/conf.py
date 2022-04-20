@@ -89,6 +89,7 @@ html_theme_options = {
             "icon": "fab fa-github-square",
         }
     ],
+    "use_edit_page_button": False,
 }
 
 html_sidebars = {
@@ -110,7 +111,8 @@ html_context = {
     "github_user": "AllenWLynch", # Username
     "github_repo": "MIRA", # Repo name
     "github_version": "main", # Version
-    "conf_py_path": "/source/", # Path in the checkout to the docs root
+    "conf_py_path": "/docs/source/", # Path in the checkout to the docs root
+    "pygment_light_style": "tango"
 }
 
 html_additional_pages = {

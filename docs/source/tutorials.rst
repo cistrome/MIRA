@@ -15,7 +15,7 @@ These tutorials also depend on `scanpy`. To install:
 
 .. code-block :: bash
 
-   $ conda install -c conda-forge scanpy leidenalg
+   $ conda install -c conda-forge -c bioconda scanpy
 
 
 Tutorials

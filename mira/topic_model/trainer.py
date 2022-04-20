@@ -220,9 +220,11 @@ class TopicModelTuner:
             resume that study. If study is provided, `save_name` need not be set.
         seed : int > 0, default = 2556
             Random seed for K-fold cross validator and optuna optimizer.
-        pruner : {"mira", optuna.pruner.BasePruner, or None}, default = "mira"
+        pruner : {"mira", "original", optuna.pruner.BasePruner, or None}, default = "mira"
             Default MIRA pruner is percentile pruner with memory. Pass None
-            for no pruning, else pass any object inheriting from optuna.runer.BasePruner
+            for no pruning, else pass any object inheriting from optuna.runer.BasePruner.
+            "original" specifies pruner described in MIRA manuscript, which has
+            since been improved.
         sampler : None or optuna.pruner.BaseSampler, default = None
             If None, uses MIRA's default choice of the TPE sampler.
         tune_kl_strategy : boolean, default = True
@@ -426,16 +428,15 @@ class TopicModelTuner:
                 n_startup_trials = max(n_workers, num_samples_before_prune)
             )
 
-        elif self.pruner == 'halving':
-            return optuna.pruners.SuccessiveHalvingPruner(
-                        min_resource=1.0, 
-                        bootstrap_count=0, 
-                        reduction_factor=3)
-        elif self.pruner == 'median':
-            return optuna.pruners.MedianPruner(
-                n_startup_trials=max(n_workers, 2),
-                n_warmup_steps=0,
+        elif self.pruner == 'original':
+
+            return MemoryPercentileStepPruner(
+                memory_length = self.iters,
+                percentile = 100/3,
+                n_startup_trials = 1,
+                interval_steps = 2,
             )
+        
         elif isinstance(self.pruner, optuna.pruners.BasePruner) or self.pruner is None:
             return self.pruner
         else:
@@ -631,7 +632,7 @@ class TopicModelTuner:
 
 
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, adi.return_output, ['all_data', 'train_data', 'test_data'])
-    def select_best_model(self, top_n_trials = 5, color_col = 'leiden', record_umaps = True,*,
+    def select_best_model(self, top_n_trials = 5, color_col = 'leiden', record_umaps = False,*,
         all_data, train_data, test_data):
         '''
         Retrain best parameter combinations on all training data, then 
@@ -646,7 +647,7 @@ class TopicModelTuner:
             `tuner.train_test_split`.
         top_n_trials : int > 0, default = 5
             Number of top parameter combinations to test on validation data.
-        record_umaps : boolean, default = True,
+        record_umaps : boolean, default = False,
             Record ILR-transformed topics as cell embeddings in tensorboard
             embedding projector. Enables exploration of manifold for each
             trained topic model.
