@@ -19,7 +19,7 @@ import mira.adata_interface.rp_model as rpi
 from mira.adata_interface.core import add_layer, wraps_modelfunc
 import mira.adata_interface.core as adi
 import h5py as h5
-import tqdm
+from tqdm.auto import tqdm
 import os
 import glob
 
@@ -110,7 +110,7 @@ class BaseModel:
         if len(paths) == 0:
             raise ValueError('No models found at {}'.format(str(prefix)))
 
-        for path in tqdm.tqdm(paths, desc = 'Reformatting models'):
+        for path in tqdm(paths, desc = 'Reformatting models'):
             old_model = torch.load(path)
             old_model['guide'] = {
                 old_key.replace(cls.old_prefix, cls.prefix).replace('logdistance','distance') : v

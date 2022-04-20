@@ -5,6 +5,7 @@ import numpy as np
 import logging
 from scipy.sparse import isspmatrix
 from scipy import sparse
+from anndata import AnnData
 logger = logging.getLogger(__name__)
 
 def return_output(adata, output):
@@ -36,7 +37,13 @@ def wraps_functional(
         func.__signature__ = inspect.Signature(list(getter_signature.values()))
         
         @wraps(func)
-        def _run(adata, **kwargs):
+        def _run(adata, *args, **kwargs):
+            
+            if not isinstance(adata, AnnData):
+                raise TypeError('First argument of this function must be an AnnData object')
+
+            if not len(args) == 0:
+                raise TypeError('Positional arguments are not allowed for this function')
 
             getter_kwargs = {
                 arg : kwargs[arg]
@@ -98,7 +105,13 @@ def wraps_modelfunc(
         func.__signature__ = inspect.Signature(list(getter_signature.values()))
         
         @wraps(func)
-        def _run(self, adata, **kwargs):
+        def _run(self, adata, *args, **kwargs):
+
+            if not isinstance(adata, AnnData):
+                raise TypeError('First argument of this function must be an AnnData object')
+
+            if not len(args) == 0:
+                raise TypeError('Positional arguments are not allowed for this function')
 
             getter_kwargs = {
                 arg : kwargs[arg]

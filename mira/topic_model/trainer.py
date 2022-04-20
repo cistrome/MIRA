@@ -436,7 +436,7 @@ class TopicModelTuner:
                 n_startup_trials=max(n_workers, 2),
                 n_warmup_steps=0,
             )
-        elif isinstance(self.pruner, optuna.pruners.BasePruner):
+        elif isinstance(self.pruner, optuna.pruners.BasePruner) or self.pruner is None:
             return self.pruner
         else:
             raise ValueError('Pruner {} is not an option'.format(str(self.pruner)))

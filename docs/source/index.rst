@@ -96,3 +96,4 @@
      tutorials
      api
      faq
+     news

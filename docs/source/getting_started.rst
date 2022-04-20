@@ -3,6 +3,22 @@ Getting Started
 
 ------------
 
+.. image:: https://badge.fury.io/py/mira-multiome.svg
+          :target: https://badge.fury.io/py/mira-multiome
+
+.. image:: https://readthedocs.org/projects/mira-multiome/badge/?version=latest&style=plastic
+
+.. image:: https://codeocean.com/codeocean-assets/badge/open-in-code-ocean.svg
+    :target: https://codeocean.com/capsule/6761625/tree
+
+.. image:: https://img.shields.io/conda/pn/liulab-dfci/mira-multiome
+    :target: https://anaconda.org/bioconda/mira-multiome
+
+.. image:: https://zenodo.org/badge/DOI/10.1101/2021.12.06.471401.svg
+    :target: https://www.biorxiv.org/content/10.1101/2021.12.06.471401v1
+
+
+
 System Requirements
 -------------------
 

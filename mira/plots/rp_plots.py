@@ -35,7 +35,7 @@ def _plot_rp_models(ax, color = 'lightgrey', linecolor = 'black',
         if model.gene in TSS_data.keys():
             
             gene_chrom, gene_start, gene_end, gene_strand = TSS_data[model.gene]
-            rp_params = model.get_normalized_params()
+            rp_params = model._get_normalized_params()
             
             upstream, downstream = 1e3 * rp_params['distance']
 

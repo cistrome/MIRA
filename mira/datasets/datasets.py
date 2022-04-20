@@ -122,6 +122,28 @@ def ShareseqSkin_Ma2020(download_directory = 'mira-datasets'):
         download_directory=download_directory,
     )()
 
+def StreamGraphTutorial(download_directory = 'mira-datasets'):
+    '''
+    SHARE-seq skin dataset used in paper and tutorials.
+    '''
+
+    Dataset(
+        remote_url='http://cistrome.org/~alynch/data/mira-data/tutorials/shareseq/shareseq.hair_follicle.joint_representation.lineage_inference.h5ad',
+        tar=False, is_directory=False,
+        download_directory=download_directory,
+    )()
+
+def PseudotimeTrajectoryInferenceTutorial(download_directory = 'mira-datasets'):
+    '''
+    SHARE-seq skin dataset used in paper and tutorials.
+    '''
+
+    Dataset(
+        remote_url='http://cistrome.org/~alynch/data/mira-data/tutorials/shareseq/shareseq.hair_follicle.joint_representation.h5ad',
+        tar=False, is_directory=False,
+        download_directory=download_directory,
+    )()
+
 
 def FrankenCell_RNA(download_directory = 'mira-datasets'):
     '''
