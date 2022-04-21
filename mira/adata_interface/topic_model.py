@@ -6,12 +6,18 @@ from mira.adata_interface.core import fetch_layer, add_obs_col, \
         add_obsm, project_matrix, add_varm
 from torch.utils.data import Dataset
 
-def collate_batch(batch):
+def collate_batch(batch,*,
+    preprocess_endog, 
+    preprocess_exog, 
+    preprocess_read_depth):
+
     endog, exog = list(zip(*batch))
+    endog, exog = sparse.vstack(endog), sparse.vstack(exog)
 
     return {
-        'endog_features' : sparse.vstack(endog), 
-        'exog_features' : sparse.vstack(exog)
+        'endog_features' : preprocess_endog(endog),
+        'exog_features' : preprocess_exog(exog),
+        'read_depth' : preprocess_read_depth(exog)
     }
 
 
@@ -25,8 +31,8 @@ class InMemoryDataset(Dataset):
 
         adata = adata[:, self.features]
 
-        self.exog_features = fetch_layer(self, adata, counts_layer).copy()
-        self.endog_features = fetch_layer(self, adata[:, highly_variable], counts_layer).copy()
+        self.exog_features = fetch_layer(self, adata, counts_layer)
+        self.endog_features = fetch_layer(self, adata[:, highly_variable], counts_layer)
 
         assert isinstance(self.exog_features, sparse.spmatrix)
         assert isinstance(self.exog_features, sparse.spmatrix)
