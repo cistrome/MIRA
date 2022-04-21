@@ -50,3 +50,15 @@ and informative streamgraphs and use MIRA plotting functions with velocity data.
    notebooks/tutorial_cellrank.ipynb
    tutorials/enrichr.rst
    notebooks/tutorial_assemble_gene_annotations.ipynb
+
+
+Examples
+--------
+
+We will add more examples of MIRA analyses in the future! These examples
+may be run in Google Colab for an interactive experience.
+
+.. toctree::
+   :maxdepth: 1
+
+   notebooks/tutorial_mouse_brain.ipynb
