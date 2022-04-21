@@ -38,16 +38,6 @@ class DisableLogger:
         self.logger.setLevel(self.level)
 
 
-def _log_progress(study, trial,*, num_trials, worker_number):
-    if not trial.state == ts.FAIL:
-        logger.info('Worker {}: Finished trial {}/{}.'.format(
-            str(worker_number), str(trial.number+1), str(num_trials)
-        ))
-    else:
-        logger.warn('Worker {}: Trial {}/{} failed. Likely gradient overflow.'.format(
-            str(worker_number), str(trial.number+1), str(num_trials)
-        ))
-    
 def _format_params(params):
 
     def _format_param_value(value):
@@ -64,26 +54,35 @@ def _format_params(params):
         for param, value in params.items()]) \
     + '}'
 
-def _print_study(study, trial):
-
-    if study is None:
-        raise ValueError('Cannot print study before running any trials.')
-
-    def get_batches_trained(trial):
+def _get_batches_trained(trial):
         if not trial.state == ts.FAIL:
             return max(len(trial.intermediate_values), 0)
         else:
             return 'E'
 
-    def get_trial_desc(trial):
+def _get_trial_desc(trial):
 
         if trial.state == ts.COMPLETE:
             return 'Trial #{:<3} | completed, score: {:.4e} | params: {}'.format(str(trial.number), trial.values[-1], _format_params(trial.params))
         elif trial.state == ts.PRUNED:
-            return 'Trial #{:<3} | pruned at step: {:<12} | params: {}'.format(str(trial.number), str(get_batches_trained(trial)), _format_params(trial.params))
+            return 'Trial #{:<3} | pruned at step: {:<12} | params: {}'.format(str(trial.number), str(_get_batches_trained(trial)), _format_params(trial.params))
         elif trial.state == ts.FAIL:
             return 'Trial #{:<3} | ERROR                        | params: {}'\
                 .format(str(trial.number), str(trial.params))
+
+
+def _log_progress(study, trial,*, num_trials, worker_number):
+    
+    logger.info('Worker {}: '.format(worker_number) + _get_trial_desc(trial))
+
+    if study.best_trial.number == trial.number:
+        logger.info('New best!')
+
+
+def _print_study(study, trial):
+
+    if study is None:
+        raise ValueError('Cannot print study before running any trials.')
 
     if NOTEBOOK_MODE:
         clear_output(wait=True)
@@ -102,7 +101,7 @@ def _print_study(study, trial):
     print('#Topics | Trials (number is #folds tested)', end = '')
 
     study_results = sorted([
-        (trial_.params['num_topics'], get_batches_trained(trial_), trial_.number)
+        (trial_.params['num_topics'], _get_batches_trained(trial_), trial_.number)
         for trial_ in study.trials
     ], key = lambda x : x[0])
 
@@ -119,7 +118,7 @@ def _print_study(study, trial):
     print('', end = '\n\n')
     print('Trial Information:')
     for trial in study.trials:
-        print(get_trial_desc(trial))
+        print(_get_trial_desc(trial))
 
     print('\n')
 
@@ -329,7 +328,7 @@ class TopicModelTuner:
     @staticmethod
     def _trial(
             trial,
-            prune_penalty = 0.01,
+            base_seed = 0,
             parallel = False,*,
             tensorboard_logdir,
             model, data, cv, batch_sizes,
@@ -340,13 +339,13 @@ class TopicModelTuner:
             tune_layers,
             study_name,
         ):
+            
         params = dict(
             num_topics = trial.suggest_int('num_topics', min_topics, max_topics, log=True),
             batch_size = trial.suggest_categorical('batch_size', batch_sizes),
             encoder_dropout = trial.suggest_float('encoder_dropout', min_dropout, max_dropout),
             num_epochs = trial.suggest_int('num_epochs', min_epochs, max_epochs, log = True),
             beta = trial.suggest_float('beta', 0.90, 0.99, log = True),
-            seed = np.random.randint(0, 2**32 - 1),
         )
 
         if tune_kl_strategy:
@@ -361,11 +360,12 @@ class TopicModelTuner:
             'num_layers' : [2,3],
         }
 
-        model.set_params(**params)
+        model.set_params(**params, seed = base_seed + trial.number)
         cv_scores = []
 
         num_splits = cv.get_n_splits(data)
         cv_scores = []
+        must_prune = False
 
         with SummaryWriter(log_dir=os.path.join(tensorboard_logdir, study_name, str(trial.number))) as trial_writer:
             
@@ -387,20 +387,25 @@ class TopicModelTuner:
                 cv_scores.append(
                     model.score(test_counts)
                 )
-
-                trial.report(np.mean(cv_scores) + (prune_penalty * 0.5**step), step)
+                
+                trial.report(np.mean(cv_scores), step)
                     
                 if trial.should_prune() and step + 1 < num_splits:
-                    raise optuna.TrialPruned()
+                    must_prune = True
+                    break
 
             trial_score = np.mean(cv_scores)
 
             metrics = {**{'cv_{}_score'.format(str(i)) : cv_score for i, cv_score in enumerate(cv_scores)}, 
                                 'trial_score' : trial_score,
                                 'test_score' : 1.,
+                                'num_folds_tested' : len(cv_scores),
                                 'number' : trial.number}
 
             trial_writer.add_hparams(params, metrics, domains)
+
+            if must_prune:
+                raise optuna.TrialPruned()
 
         return trial_score
 
@@ -419,7 +424,6 @@ class TopicModelTuner:
             assert isinstance(self.model_survival_rate, float) and self.model_survival_rate > 0. and self.model_survival_rate < 1., 'Model success rate must be float between 0 and 1'
             prune_rate = self.model_survival_rate**(1/(num_splits-1))
 
-            logger.info('Model pruning rate: {:.3f}'.format(prune_rate))
             num_samples_before_prune = int(np.ceil(1/(1-prune_rate)))
             
             return MemoryPercentileStepPruner(
@@ -513,10 +517,13 @@ class TopicModelTuner:
         all_data, train_data, test_data):
 
         if isinstance(self.cv, int):
-            self.cv = KFold(self.cv, random_state = self.seed + worker_number, shuffle= True)
+            self.cv = KFold(self.cv, random_state = self.seed, shuffle= True)
         else:
             assert isinstance(self.cv, BaseCrossValidator)
-            self.cv.seed+=worker_number
+
+        if parallel and self.model.dataset_loader_workers > 0:
+            logger.warn('Worker {}: Parrallelized tuning on one node with muliprocessed data loading is not permitted. Setting "dataset_loader_workers" to zero.'.format(str(worker_number)))
+            self.model.dataset_loader_workers = 0
         
         self.study = optuna.create_study(
             direction = 'minimize',
@@ -529,6 +536,7 @@ class TopicModelTuner:
         
         trial_func = partial(
             self._trial,
+            base_seed = self.seed,
             model = self.model, data = train_data,
             cv = self.cv, batch_sizes = self.batch_sizes,
             min_dropout = self.min_dropout, max_dropout = self.max_dropout,
@@ -543,11 +551,6 @@ class TopicModelTuner:
 
         if not torch.cuda.is_available():
             logger.warn('Worker {}: GPU is not available, will not speed up training.'.format(str(worker_number)))
-
-        if parallel:
-            optuna.logging.set_verbosity(optuna.logging.ERROR)
-        else:
-            optuna.logging.set_verbosity(optuna.logging.CRITICAL)
 
         remaining_trials = self.iters - len(self.study.trials)
         if remaining_trials > 0:
@@ -630,6 +633,10 @@ class TopicModelTuner:
 
         return [trial.params for trial in self.get_best_trials(top_n_trials)]
 
+    def _get_best_params(self, top_n_trials = 5):
+
+        return {trial.number : trial.params for trial in self.get_best_trials(top_n_trials)}
+
 
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, adi.return_output, ['all_data', 'train_data', 'test_data'])
     def select_best_model(self, top_n_trials = 5, color_col = 'leiden', record_umaps = False,*,
@@ -669,18 +676,21 @@ class TopicModelTuner:
         }
 
         scores = []
-        best_params = self.get_best_params(top_n_trials)
+        best_params = self._get_best_params(top_n_trials)
 
-        for i, params in enumerate(best_params):
-            logger.info('Training model with parameters: ' + str(params))
+        for trial_num, params in best_params.items():
+            logger.info('Training model with parameters: ' + _format_params(params))
 
             try:
             
-                with SummaryWriter(log_dir=os.path.join(self.tensorboard_logdir, self.study_name, 'eval_' + str(i))) as writer:
+                with SummaryWriter(log_dir=os.path.join(self.tensorboard_logdir, self.study_name, 'eval_' + str(trial_num))) as writer:
 
                     with DisableLogger(baselogger), DisableLogger(interfacelogger), DisableLogger(corelogger):
                     
-                        test_score = self.model.set_params(**params).fit(train_data, writer = writer).score(test_data)
+                        test_score = self.model.set_params(**params, seed = self.seed + trial_num)\
+                            .fit(train_data, writer = writer)\
+                            .score(test_data)
+
                         scores.append(test_score)
 
                         logger.info('Score: {:.5e}'.format(test_score))
@@ -705,8 +715,8 @@ class TopicModelTuner:
                 logger.error('Error occured while training, skipping model.')
                 scores.append(np.inf)
 
-        final_choice = best_params[np.argmin(scores)]
-        logger.info('Set parameters to best combination: ' + str(final_choice))
+        final_choice = best_params[list(best_params.keys())[np.argmin(scores)]]
+        logger.info('Set parameters to best combination: ' + _format_params(final_choice))
         self.model.set_params(**final_choice)
         
         logger.info('Training model with all data.')

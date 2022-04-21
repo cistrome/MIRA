@@ -99,8 +99,6 @@ def get_fc_stack(layer_dims = [256, 128, 128, 128], dropout = 0.2, skip_nonlin =
 
 class BaseModel(torch.nn.Module, BaseEstimator):
 
-    I = 50
-
     @classmethod
     def _load_old_model(cls, filename):
 
@@ -163,7 +161,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             decoder_dropout = 0.2,
             encoder_dropout = 0.1,
             use_cuda = True,
-            seed = None,
+            seed = 0,
             min_learning_rate = 1e-6,
             max_learning_rate = 1e-1,
             beta = 0.95,
@@ -172,7 +170,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             nb_parameterize_logspace = True,
             embedding_size = None,
             kl_strategy = 'monotonic',
-            reconstruction_weight = 1.
+            reconstruction_weight = 1.,
+            dataset_loader_workers = 0,
             ):
         '''
         Learns regulatory "topics" from single-cell multiomics data. Topics capture 
@@ -217,6 +216,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         seed : int, default=None
             Random seed for weight initialization. 
             Enables reproduceable initialization of model.
+        dataset_loader_workers : int>=0, default = 0
+            Number of workers to use for dataset loading and preprocessing of each batch.
+            Batches are loaded and transformed as a stream from the in-memory AnnData object.
+            For 0, transformation occurs in the main process. For the accessibility topic model,
+            three workers is recommended.**
         min_learning_rate : float, default=1e-6
             Start learning rate for One-cycle learning rate policy.
         max_learning_rate : float, default=1e-1
@@ -303,6 +307,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.embedding_size = embedding_size
         self.kl_strategy = kl_strategy
         self.reconstruction_weight = reconstruction_weight
+        self.dataset_loader_workers = dataset_loader_workers
 
     @staticmethod
     def _iterate_batch_idx(N, batch_size, bar = False, desc = None):
@@ -327,13 +332,47 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         pyro.set_rng_seed(self.seed)
         np.random.seed(self.seed)
 
+    def get_endog_fn(self):
+        raise NotImplementedError()
+                   
+    def get_exog_fn(self):
+        raise NotImplementedError()
+
+    def get_rd_fn(self):
+        
+        def preprocess_read_depth(X):
+            return np.array(X.sum(-1)).reshape((-1,1)).astype(np.float32)
+        
+        return preprocess_read_depth
+
+    def get_training_sampler(self):
+        
+        return dict(batch_size = self.batch_size, 
+            shuffle = True, drop_last=True,)
+        
     def get_dataloader(self, dataset, training = False):
+
+        if training:
+            extra_kwargs = dict(
+                shuffle = True, drop_last = True,
+            )
+            if self.dataset_loader_workers > 0:
+                extra_kwargs.update(dict(
+                    num_workers = self.dataset_loader_workers,
+                    prefetch_factor = 5
+                ))
+        else:
+            extra_kwargs = {}
+
         return DataLoader(
             dataset, 
-            batch_size=self.batch_size, 
-            shuffle = training, 
-            drop_last=training,
-            collate_fn=tmi.collate_batch
+            batch_size = self.batch_size, 
+            **extra_kwargs,
+            collate_fn= partial(tmi.collate_batch,
+                preprocess_endog = self.get_endog_fn(), 
+                preprocess_exog = self.get_exog_fn(), 
+                preprocess_read_depth = self.get_rd_fn(),
+            )
         )
 
     def _get_dataset_statistics(self, dataset):
@@ -442,27 +481,12 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def _get_prior_std(a, K):
         return torch.sqrt(1/a * (1-2/K) + 1/(K * a))
 
-
-    def _preprocess_endog(self,*,endog_features, exog_features):
-        raise NotImplementedError()
-
-    def _preprocess_exog(self,*,endog_features, exog_features):
-        raise NotImplementedError()
-
-    def _preprocess_read_depth(self,*,endog_features, exog_features):
-        
-        X = np.array(exog_features.sum(-1)).reshape((-1,1)).astype(np.float32)
-        return torch.tensor(X, requires_grad = False).to(self.device)
-
-
+    
     def transform_batch(self, data_loader, bar = True, desc = ''):
 
         for batch in tqdm(data_loader, desc = desc) if bar else data_loader:
-            yield dict(
-                endog_features = self._preprocess_endog(**batch),
-                exog_features = self._preprocess_exog(**batch),
-                read_depth = self._preprocess_read_depth(**batch),
-            )
+            yield {k : torch.tensor(v, requires_grad = False).to(self.device)
+                for k, v in batch.items()}
 
     def _get_1cycle_scheduler(self, n_batches_per_epoch):
         

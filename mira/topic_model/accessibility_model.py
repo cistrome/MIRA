@@ -11,7 +11,7 @@ from sklearn.preprocessing import scale
 from scipy import sparse
 from scipy.stats import fisher_exact
 from scipy.sparse import isspmatrix
-from mira.topic_model.base import BaseModel, get_fc_stack
+from mira.topic_model.base import BaseModel, get_fc_stack, logger
 from pyro.contrib.autoname import scope
 from pyro import poutine
 from sklearn.preprocessing import scale
@@ -138,7 +138,7 @@ class AccessibilityTopicModel(BaseModel):
         assert(len(X.shape) == 2)
         assert(X.shape[1] == expected_width)
         
-        assert(np.isclose(X.data.astype(np.int64), X.data, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
+        assert(np.isclose(X.data.astype(np.uint16), X.data, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
 
         X.data = np.ones_like(X.data)
 
@@ -159,29 +159,38 @@ class AccessibilityTopicModel(BaseModel):
 
         dense_matrix = np.vstack(dense_matrix)
         
-        return dense_matrix.astype(np.int64)
+        return dense_matrix
 
-    
-    def _preprocess_endog(self,*, endog_features, exog_features):
+
+    def get_endog_fn(self):
+
+        def preprocess_endog(X):
         
-        return torch.tensor(
-            self._get_padded_idx_matrix(self._binarize_matrix(endog_features, self.num_endog_features)), 
-            requires_grad = False
-        ).to(self.device)
+            return self._get_padded_idx_matrix(
+                    self._binarize_matrix(X, self.num_endog_features)).astype(np.int32)
 
-
-    def _preprocess_exog(self,*, endog_features, exog_features):
+        return preprocess_endog
+                   
+    def get_exog_fn(self):
         
-        return torch.tensor(
-            self._get_padded_idx_matrix(self._binarize_matrix(exog_features, self.num_exog_features)), 
-            requires_grad = False
-        ).to(self.device)
+        def preprocess_exog(X):
 
+            return self._get_padded_idx_matrix(
+                    self._binarize_matrix(X, self.num_exog_features)
+                    ).astype(np.int64)
+
+        return preprocess_exog
+
+    def get_dataloader(self, dataset, training = False):
+        
+        if self.dataset_loader_workers == 0:
+            logger.warn('Dataset loader allocated no extra workers. This will slow down training by ~50%.')
+
+        return super().get_dataloader(dataset, training = training)
 
     def _argsort_peaks(self, topic_num):
         assert(isinstance(topic_num, int) and topic_num < self.num_topics and topic_num >= 0)
         return np.argsort(self._score_features()[topic_num, :])
-
 
     def rank_peaks(self, topic_num):
         return self.peaks[self._argsort_peaks(topic_num)]
