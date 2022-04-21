@@ -16,6 +16,7 @@ logger.setLevel(logging.INFO)  # Setup the root logger.
 
 optuna.logging.set_verbosity(optuna.logging.CRITICAL)
 from mira.topic_model.base import logger as baselogger
+from mira.topic_model.base import ModelParamError
 from optuna.exceptions import ExperimentalWarning
 import warnings
 warnings.filterwarnings("ignore", category=ExperimentalWarning, module="optuna")
@@ -566,7 +567,7 @@ class TopicModelTuner:
                         self.study.optimize(
                             trial_func, n_trials = remaining_trials//n_workers, 
                             callbacks = [_print_study] if not parallel else [partial(_log_progress, worker_number = worker_number, num_trials = self.iters)],
-                            catch = (ValueError, RuntimeError),
+                            catch = (ValueError),
                         )
                     except KeyboardInterrupt:
                         pass
