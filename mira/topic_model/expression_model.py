@@ -155,39 +155,45 @@ class ExpressionTopicModel(BaseModel):
 
         return self._run_encoder_fn(self.encoder.read_depth, dataset, 
             batch_size =batch_size, bar = False, desc = 'Calculating reads scale')
+
+
+    def get_endog_fn(self):
+
+        def preprocess_endog(X):
         
+            assert(isinstance(X, np.ndarray) or isspmatrix(X))
+            
+            if isspmatrix(X):
+                X = X.toarray()
 
-    def _preprocess_endog(self,*, endog_features, exog_features):
+            assert(len(X.shape) == 2)
+            assert(X.shape[1] == self.num_endog_features)
+            
+            assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
+
+            X = self._residual_transform(X, self.residual_pi).astype(np.float32)
+
+            return X
+
+        return preprocess_endog
+
+
+    def get_exog_fn(self):
         
-        X = endog_features
-        assert(isinstance(X, np.ndarray) or isspmatrix(X))
-        
-        if isspmatrix(X):
-            X = X.toarray()
+        def preprocess_exog(X):
 
-        assert(len(X.shape) == 2)
-        assert(X.shape[1] == self.num_endog_features)
-        
-        assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
+            assert(isinstance(X, np.ndarray) or isspmatrix(X))
+            if isspmatrix(X):
+                X = X.toarray()
 
-        X = self._residual_transform(X, self.residual_pi).astype(np.float32)
+            assert(len(X.shape) == 2)
+            assert(X.shape[1] == self.num_exog_features)
+            
+            assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
 
-        return torch.tensor(X, requires_grad = False).to(self.device)
+            return X.astype(np.float32)
 
-
-    def _preprocess_exog(self,*, endog_features, exog_features):
-        X = exog_features
-
-        assert(isinstance(X, np.ndarray) or isspmatrix(X))
-        if isspmatrix(X):
-            X = X.toarray()
-
-        assert(len(X.shape) == 2)
-        assert(X.shape[1] == self.num_exog_features)
-        
-        assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
-
-        return torch.tensor(X.astype(np.float32), requires_grad = False).to(self.device)
+        return preprocess_exog
 
 
     def _get_save_data(self):
