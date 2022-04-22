@@ -503,18 +503,28 @@ class TopicModelTuner:
                 self._tune, adata, parallel = n_workers>1, n_workers = n_workers,
             )
 
-        Parallel(n_jobs=n_workers, verbose = 0)\
-            (delayed(tune_func)(worker_number = i) for i in range(n_workers))
+        remaining_trials = self.iters - len(self.study.trials)
+        if remaining_trials > 0:
 
-        self.print()
-        time.sleep(0.05)
+            worker_iters = np.array([remaining_trials//n_workers]*n_workers)
+            remaining_iters = self.iters % n_workers
+            if remaining_iters > 0:
+                worker_iters[np.arange(remaining_iters)]+=1
+
+            worker_iters = worker_iters[worker_iters > 0]
+
+            Parallel(n_jobs=len(worker_iters), verbose = 0)\
+                (delayed(tune_func)(worker_number = i, iters = n_iters) for i, n_iters in enumerate(worker_iters))
+
+            self.print()
+            time.sleep(0.05)
 
         return self.study
 
 
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, 
         fill_kwargs = ['all_data', 'train_data', 'test_data'])
-    def _tune(self, worker_number = 0, n_workers = 1, parallel = False,*, 
+    def _tune(self, worker_number = 0, iters = 5, n_workers = 1, parallel = False,*, 
         all_data, train_data, test_data):
 
         if isinstance(self.cv, int):
@@ -553,27 +563,24 @@ class TopicModelTuner:
         if not torch.cuda.is_available():
             logger.warn('Worker {}: GPU is not available, will not speed up training.'.format(str(worker_number)))
 
-        remaining_trials = self.iters - len(self.study.trials)
-        if remaining_trials > 0:
+        with DisableLogger(baselogger), DisableLogger(interfacelogger), DisableLogger(corelogger):
 
-            with DisableLogger(baselogger), DisableLogger(interfacelogger), DisableLogger(corelogger):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+            
+                np.random.seed(self.seed + worker_number)
 
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                
-                    np.random.seed(self.seed + worker_number)
+                try:
+                    self.study.optimize(
+                        trial_func, n_trials = iters, 
+                        callbacks = [_print_study] if not parallel else [partial(_log_progress, worker_number = worker_number, num_trials = self.iters)],
+                        catch = (ModelParamError,),
+                    )
+                except KeyboardInterrupt:
+                    pass
 
-                    try:
-                        self.study.optimize(
-                            trial_func, n_trials = remaining_trials//n_workers, 
-                            callbacks = [_print_study] if not parallel else [partial(_log_progress, worker_number = worker_number, num_trials = self.iters)],
-                            catch = (ValueError),
-                        )
-                    except KeyboardInterrupt:
-                        pass
-
-            if not parallel:
-                self.print()
+        if not parallel:
+            self.print()
 
         return self.study
 

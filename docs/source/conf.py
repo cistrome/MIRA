@@ -118,3 +118,13 @@ html_context = {
 html_additional_pages = {
     'index': 'landingpage.html',
 }
+
+nbsphinx_prolog = """
+.. raw:: html
+
+    <style>
+        div.nboutput.container div.output_area.stderr {
+            background: #ebebf0;
+        }
+    </style>
+"""

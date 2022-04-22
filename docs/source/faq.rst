@@ -55,3 +55,17 @@ Does MIRA work with spatial or protein data?
 
 No, MIRA's models are built to compare chromatin accessibility and gene expression.
 Additional modalties pose interesting questions, but we do not address them. 
+
+
+I want to make streamgraphs but I don't have multiome data. Can I do this?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Yes! See the first question on this page. Additionally, MIRA's stream graph 
+can be used with upstream processing by `CellRank` or MIRA's own pseudotime 
+trajectory inference API. In turn, these workflows only need some form of 
+nearest-neighbors graph over cells. 
+
+If you have an ongoing project and you don't want to start from scatch
+with topic modeling (though we think you'll find topic models elucidate
+quite a lot about your data), you can install MIRA and immediately
+proceed to making streams.

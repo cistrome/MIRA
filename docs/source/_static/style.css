@@ -3,6 +3,15 @@
     max-width: 1600px;
 }
 
+:root {
+  --pst-color-h1: #000;
+  --pst-color-h2: #000;
+  --pst-font-size-h1: 42px;
+  --pst-font-size-h1: 38px;
+  --pst-color-background: #fffff8;
+}
+
+
 .panel-height {
     padding: 8%;
     max-height:300px;
@@ -18,7 +27,3 @@
 }
 
 .hidden { color: #FFFFFF }
-
-div.nboutput.container div.output_area.stderr {
-  background: #d0d2dd;
-}

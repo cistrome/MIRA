@@ -66,7 +66,7 @@ or  `PyPI <https://pypi.org/project/mira-multiome>`_:
 
 .. code-block:: bash
     
-    conda install -c conda-forge -c bioconda -c pytorch mira-multiome
+    conda install -c conda-forge -c bioconda mira-multiome
 
 or
 
