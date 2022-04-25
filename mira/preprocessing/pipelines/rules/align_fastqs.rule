@@ -1,0 +1,41 @@
+
+
+from functools import partial
+
+def get_reads_file(wildcards,*,read_no):
+    return config['data'][wildcards.batch][wildcards.sample]['fastqs']['R' + str(read_no)]
+
+rule scatac_chromap:
+    input:
+        r1 = partial(get_reads_file, read_no = 1),
+        r3 = partial(get_reads_file, read_no = 3),
+        barcode = partial(get_reads_file, read_no = 2)
+    output:
+        temp('{directory}/{batch}.{sample}.fragments.bed')
+    threads: config['chromap_threads'] if 'chromap_threads' in config else 8
+    params:
+        index = config["genome"]["index"],
+        fasta = config["genome"]["fasta"],
+        whitelist = config['barcode']["whitelist"],
+        barcode_start = config["barcode"]["barcode_start"],
+        barcode_end = config["barcode"]["barcode_end"],
+        whitelist_match = config["barcode"]["whitelist_match"],
+        strand = '-' if config['barcode']['reversed'] else '+'
+    shell:
+        """
+chromap \
+--preset atac -x {params.index} \
+-r {params.fasta} -1 {input.r1} -2 {input.r3} \
+-o {output} -b {input.barcode} \
+--read-format bc:{params.barcode_start}:{params.barcode_end}:{params.strand} \
+--barcode-translate {params.whitelist_match} \
+-t {threads} --barcode-whitelist {params.whitelist}
+        """
+
+rule compress_bedfile:
+    input:
+        rules.scatac_chromap.output
+    output:
+        '{directory}/{batch}.{sample}.fragments.bed.gz'
+    shell:
+        'gzip -d -c {input} > {output}'

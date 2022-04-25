@@ -1,0 +1,100 @@
+
+from functools import partial
+
+include: "filter_fragment_file.rule"
+
+def get_call_peaks_input(wildcards):
+
+    if 'filter_by_barcode' in config and config['filter_by_barcode']:
+        return rules.filter_barcodes.output
+    elif 'short_fragments' in config and config['short_fragments']:
+        return rules.filter_short_fragments.output
+    else:
+        return rules.filter_chromosomes.output
+
+
+rule call_peaks:
+    input: 
+        get_call_peaks_input
+    output: 
+        '{directory}/peakcall/{batch}.{sample}_summits.bed'
+    params:
+        outdir = lambda w : '{directory}/peakcall/'.format(directory = w.directory),
+        name = lambda w : '{batch}.{sample}'.format(batch = w.batch, sample = w.sample),
+        genome_size = config['genome_size'],
+    shell:
+        "mira-preprocess call-peaks -i {input} -d {params.outdir} -n {params.name} "
+        "-g {params.genome_size}"
+
+
+rule slop_peaks:
+    input : 
+        rules.call_peaks.output
+    output : 
+        '{directory}/peakcall/{batch}.{sample}_summits-slopped.bed'
+    params :
+        genome_file = config['genome_file'],
+        slop_distance = config['slop_distance']
+    shell :
+        "bedtools slop -i {input} -g {params.genome_file} -b {params.slop_distance} > {output}"
+
+
+def merge_batches_samples(wildcards,*,upstream_rule):
+
+    return [upstream_rule[0].format(
+                directory = wildcards.directory, 
+                batch = batch, sample = sample)
+            for batch, samples in config['data'].items() for sample in samples.keys()
+            ]
+
+rule merge_peaks:
+    input: 
+        partial(merge_batches_samples, upstream_rule = rules.slop_peaks.output)
+    output:
+        '{directory}/bulk.bulk.merged-peakset.bed'
+    params:
+        genome_file = config['genome_file'],
+        slop_distance = config['slop_distance']
+    shell:
+        "mira-preprocess merge-peaks -s {input} -d {params.slop_distance} "
+        "-g {params.genome_file} -o {output}"
+        
+
+rule merge_fragment_file:
+    input: 
+        partial(merge_batches_samples, upstream_rule = rules.filter_chromosomes.output)
+    output:
+        '{directory}/bulk.bulk.merged-fragments.bed.gz'
+    shell:
+        "mira-preprocess interleave-fragments {input} --gzipped | gzip > {output}"
+
+
+def get_matrix_peakset(wildcards):
+    if wildcards.batch == 'bulk':
+        return rules.merge_peaks.output
+    else:
+        return rules.slop_peaks.output
+
+
+def get_matrix_fragments(wildcards):
+
+    if wildcards.batch == 'bulk':
+        return rules.merge_fragment_file.output
+    else:
+        return rules.filter_chromosomes.output
+
+
+rule aggregate_peakcounts:
+    input : 
+        peaks = get_matrix_peakset,
+        fragments = get_matrix_fragments
+    output:
+        '{directory}/{batch}.{sample}.peakcounts.h5ad'
+    params :
+        genome_file = config['genome_file'],
+    shell:
+        "mira-preprocess agg-countmatrix --fragments {input.fragments} "
+        "--peaks {input.peaks} "
+        "--genome-file {params.genome_file} -o {output}"
+
+

@@ -110,6 +110,7 @@ def add_arguments(parser):
     parser.add_argument('--outfile','-o',required=True, type = str,
         help = 'Output filename for adata object.')
 
+
 def main(args):
 
     data = format_adata(
