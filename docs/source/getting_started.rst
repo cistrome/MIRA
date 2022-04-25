@@ -49,9 +49,9 @@ Installation
 MIRA can be installed from either `Conda <https://anaconda.org/liulab-dfci/mira-multiome>`_ 
 or  `PyPI <https://pypi.org/project/mira-multiome>`_:
 
-.. code-block :: bash
+.. code-block:: bash
     
-    conda install -c conda-forge -c bioconda mira-multiome
+    conda install -c conda-forge -c bioconda -c liulab-dfci mira-multiome
 
 or
 

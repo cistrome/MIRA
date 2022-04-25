@@ -3,7 +3,7 @@ News
 
 ----
 
-MIRA version 1.0.0 - 03/15/2022
+MIRA version 1.0 - 03/15/2022
 -------------------------------
 
 This documentation website will be launched alongside the first 

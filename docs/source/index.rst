@@ -14,7 +14,7 @@
 
      .. code-block :: bash
      
-          conda install -c conda-forge -c bioconda mira-multiome
+          conda install -c conda-forge -c bioconda -c liulab-dfci mira-multiome
 
      **Multimodal models for Integrated Regulatory Analysis**, or MIRA,  is a python package for analyzing
      the dynamic processes of gene regulation using single-cell multiomics datasets. 

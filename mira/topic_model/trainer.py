@@ -425,7 +425,7 @@ class TopicModelTuner:
             assert isinstance(self.model_survival_rate, float) and self.model_survival_rate > 0. and self.model_survival_rate < 1., 'Model success rate must be float between 0 and 1'
             prune_rate = self.model_survival_rate**(1/(num_splits-1))
 
-            num_samples_before_prune = int(np.ceil(1/(1-prune_rate)))
+            num_samples_before_prune = max(int(np.ceil(1/(1-prune_rate))), 5)
             
             return MemoryPercentileStepPruner(
                 memory_length = num_samples_before_prune,
@@ -507,7 +507,7 @@ class TopicModelTuner:
         if remaining_trials > 0:
 
             worker_iters = np.array([remaining_trials//n_workers]*n_workers)
-            remaining_iters = self.iters % n_workers
+            remaining_iters = remaining_trials % n_workers
             if remaining_iters > 0:
                 worker_iters[np.arange(remaining_iters)]+=1
 
@@ -529,8 +529,6 @@ class TopicModelTuner:
 
         if isinstance(self.cv, int):
             self.cv = KFold(self.cv, random_state = self.seed, shuffle= True)
-        else:
-            assert isinstance(self.cv, BaseCrossValidator)
 
         if parallel and self.model.dataset_loader_workers > 0:
             logger.warn('Worker {}: Parrallelized tuning on one node with muliprocessed data loading is not permitted. Setting "dataset_loader_workers" to zero.'.format(str(worker_number)))
