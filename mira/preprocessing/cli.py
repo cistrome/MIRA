@@ -5,7 +5,7 @@ import subprocess
 
 from mira.preprocessing import iterative_merge, aggregate_countmatrix, \
         callpeaks, filter_fragment_barcodes, cluster_cells, \
-        filter_chromosomes
+        filter_chromosomes, label_fragments, interleave_fragments
 
 parser = argparse.ArgumentParser()
 subparsers = parser.add_subparsers(help = 'commands')
@@ -22,15 +22,10 @@ add_subcommand(iterative_merge, 'merge-peaks')
 add_subcommand(aggregate_countmatrix, 'agg-countmatrix')
 add_subcommand(cluster_cells, 'cluster-cells')
 add_subcommand(filter_chromosomes, 'filter-chroms')
+add_subcommand(label_fragments, 'label-fragments')
+add_subcommand(interleave_fragments, 'interleave-fragments')
 
 def run_snakemake_pipeline(args):
-
-    try:
-        import snakemake
-        import leidenalg
-        import scanpy
-    except ModuleNotFoundError as err:
-        raise ModuleNotFoundError('To run the pipeline, user must also install snakemake, leiden-alg, and scanpy packages.')
 
     snakefile_path = os.path.join(
         os.path.dirname(__file__), 'Snakefile'

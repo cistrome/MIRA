@@ -1,5 +1,6 @@
 
 
+include: "make_countmatrix.rule"
 
 def get_fragment_gzipped_name(wildcards):
     # code for starting from fragments here
@@ -32,9 +33,17 @@ rule filter_chromosomes:
         "| gzip > {output}"
 
 
+def get_shortfrags_input(wildcards):
+
+    if wildcards.sample == 'bulk':
+        return rules.merge_fragment_file.output
+    else:
+        return rules.filter_chromosomes.output
+
+
 rule filter_short_fragments:
     input:
-        rules.filter_chromosomes.output
+        get_shortfrags_input
     output:
         '{directory}/{batch}.{sample}.fragments-short.bed.gz'
     params:
