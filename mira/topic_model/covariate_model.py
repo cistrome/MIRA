@@ -13,7 +13,7 @@ from math import ceil
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 logger = logging.getLogger(__name__)
-from mira.topic_model.mine import WassersteinDual as DependencyModel
+from mira.topic_model.mine import Wasserstein as DependencyModel
 from pyro import poutine
 from functools import partial
 
@@ -53,7 +53,7 @@ class CovariateModelMixin(BaseModel):
         return loss.item()
 
 
-    def dependence_step(self, batch, opt):
+    def dependence_step(self, opt):
 
         opt.zero_grad()
         loss = self.dependence_network(
@@ -77,14 +77,14 @@ class CovariateModelMixin(BaseModel):
         
         return {
             'topic_model_loss' : self.model_step(batch, model_optimizer, anneal_factor = anneal_factor),
-            'dependence_loss' : self.dependence_step(batch, dependence_optimizer),
+            'dependence_loss' : self.dependence_step(dependence_optimizer),
             'anneal_factor' : anneal_factor,
         }
 
 
     def get_model_parameters(self, data_loader):
 
-        batch = next(iter(data_loader))
+        batch = next(iter(self.transform_batch([next(iter(data_loader))], bar=False)))
 
         with poutine.trace(param_only=True) as param_capture:
             
@@ -123,7 +123,7 @@ class CovariateModelMixin(BaseModel):
         def lr_function(e):
             return learning_rates[e]/learning_rates[0]
 
-        topic_model_params, dependence_model_params = self._get_model_parameters(data_loader)
+        topic_model_params, dependence_model_params = self.get_model_parameters(data_loader)
 
         model_optimizer = Adam(topic_model_params, lr = learning_rates[0], betas = (0.90, 0.999))
         scheduler = torch.optim.lr_scheduler.LambdaLR(model_optimizer, lr_function)
@@ -165,106 +165,85 @@ class CovariateModelMixin(BaseModel):
         return self.trim_learning_rate_bounds()
 
 
-    def _fit(self,*,training_bar = True, reinit = True,
-            features, highly_variable, endog_features, exog_features, covariates,
-            extra_features):
+    def _fit(self, writer = None, training_bar = True, reinit = True,*,
+            dataset, features, highly_variable):
         
         if reinit:
             self._instantiate_model(
                 features = features, highly_variable = highly_variable, 
-                endog_features = endog_features, exog_features = exog_features,
-                covariates = covariates, extra_features = extra_features,
             )
 
-        self._get_dataset_statistics(endog_features, exog_features, 
-            covariates, extra_features)
-
-        n_observations = endog_features.shape[0]
-        n_batches = self.get_num_batches(n_observations, self.batch_size)
+        self._get_dataset_statistics(dataset)
 
         early_stopper = EarlyStopping(tolerance=3, patience=1e-4, convergence_check=False)
 
-        #scheduler = self._get_1cycle_scheduler(n_batches)
-        #self.svi = SVI(self.model, self.guide, scheduler, loss=TraceMeanField_ELBO())
+        n_batches = len(dataset)//self.batch_size
+        n_observations = len(dataset)//self.batch_size
+        data_loader = self.get_dataloader(dataset, training=True)
 
-        self.training_loss, self.testing_loss, self.num_epochs_trained = [],[],0
+        topic_model_params, dependence_model_params = self.get_model_parameters(data_loader)
+
+        model_optimizer = Adam(topic_model_params, lr = self.min_learning_rate, betas = (self.beta, 0.999))
+        scheduler = self._get_1cycle_scheduler(model_optimizer, n_batches)
+
+        dependence_optimizer = Adam(dependence_model_params, lr = DependencyModel.lr)
+
+        self.training_loss = []
         
-        anneal_fn = partial(self._get_cyclic_KL_factor if self.kl_strategy == 'cyclic' else self._get_monotonic_kl_factor, n_epochs = self.num_epochs, 
-            n_batches_per_epoch = n_batches)
+        anneal_fn = partial(self._get_cyclic_KL_factor if self.kl_strategy == 'cyclic' else self._get_monotonic_kl_factor, 
+            n_epochs = self.num_epochs, n_batches_per_epoch = n_batches)
 
         step_count = 0
-        self.anneal_factors, self.dependence_losses = [],[]
-        self.mine_norms, self.model_norms = [],[]
-        try:
+        t = trange(self.num_epochs, desc = 'Epoch 0', leave = True) if training_bar else range(self.num_epochs)
+        _t = iter(t)
+        epoch = 0
 
-            t = trange(self.num_epochs, desc = 'Epoch 0', leave = True) if training_bar else range(self.num_epochs)
-            _t = iter(t)
-            epoch = 0
-            while True:
+        while True:
+            
+            self.train()
+            running_loss = 0.0
+            for batch in self.transform_batch(data_loader, bar = False):
                 
-                self.train()
-                running_loss = 0.0
-                for minibatch in self._iterate_batches(endog_features = endog_features, 
-                    exog_features = exog_features, covariates = covariates, extra_features = extra_features,
-                        batch_size = self.batch_size, bar = False):
-                    
-                    anneal_factor = anneal_fn(step_count)
-                    self.anneal_factors.append(anneal_factor)
-                    #if batch[0].shape[0] > 1:
-                    try:
-                        if step_count == 0:
-
-                            with poutine.trace(param_only=True) as param_capture:
-                                _ = self.get_loss_fn()(self.model, self.guide, **minibatch)
-                        
-                            params = {site["value"].unconstrained() for site in param_capture.trace.nodes.values()}
-
-                            model_optimizer = Adam(params, lr = self.min_learning_rate, betas = (self.beta, 0.999))
-                            scheduler = self._get_1cycle_scheduler(model_optimizer, n_batches)
-
-                            if self.covariate_compensation:
-                                mine_optimizer = Adam(
-                                    self.dependence_network.parameters(), lr = DependencyModel.lr,
-                                )
-
-                        step_loss, step_norm = self.model_step(model_optimizer, params, **minibatch, anneal_factor = anneal_factor)
-                        running_loss+=float(step_loss)
-                        self.model_norms.append(step_norm)
-
-                        dependence_loss, mine_norm = self.dependence_step(mine_optimizer)
-                        self.dependence_losses.append(float(dependence_loss))
-                        self.mine_norms.append(mine_norm)
-                        step_count+=1
-                    except ValueError:
-                        raise ModelParamError('Gradient overflow caused parameter values that were too large to evaluate. Try setting a lower learning rate.')
-
-                    if epoch < self.num_epochs:
-                        scheduler.step()
-                
-                #epoch cleanup
-                epoch_loss = running_loss/(n_observations * self.num_exog_features)
-                self.training_loss.append(epoch_loss)
-                recent_losses = self.training_loss[-5:]
-
-                if training_bar:
-                    t.set_description("Epoch {} done. Recent losses: {}".format(
-                        str(epoch + 1),
-                        ' --> '.join('{:.3e}'.format(loss) for loss in recent_losses)
-                    ))
+                anneal_factor = anneal_fn(step_count)
 
                 try:
-                    next(_t)
-                except StopIteration:
-                    pass
 
-                if early_stopper(recent_losses[-1]) and epoch > self.num_epochs:
-                    break
+                    metrics = self._step(batch, model_optimizer, dependence_optimizer, anneal_factor = anneal_factor)
 
-                epoch+=1
-                yield epoch, epoch_loss
+                    if not writer is None:
+                        for k, v in metrics.items():
+                            writer.add_scalar(k, v, step_count)
 
-        except KeyboardInterrupt:
-            logger.warn('Interrupted training.')
+                    running_loss+=metrics['topic_model_loss']
+                    step_count+=1
+
+                except ValueError:
+                    raise ModelParamError('Gradient overflow caused parameter values that were too large to evaluate. Try setting a lower learning rate.')
+
+                if epoch < self.num_epochs:
+                    scheduler.step()
+            
+            epoch_loss = running_loss/(n_observations * self.num_exog_features)
+            self.training_loss.append(epoch_loss)
+            recent_losses = self.training_loss[-5:]
+
+            if training_bar:
+                t.set_description("Epoch {} done. Recent losses: {}".format(
+                    str(epoch + 1),
+                    ' --> '.join('{:.3e}'.format(loss) for loss in recent_losses)
+                ))
+
+            try:
+                next(_t)
+            except StopIteration:
+                pass
+
+            if early_stopper(recent_losses[-1]) and epoch > self.num_epochs:
+                break
+
+            epoch+=1
+
+            yield epoch, epoch_loss
 
         self.set_device('cpu')
         self.eval()

@@ -18,8 +18,8 @@ def collate_batch(batch,*,
         'endog_features' : preprocess_endog(endog),
         'exog_features' : preprocess_exog(exog),
         'read_depth' : preprocess_read_depth(exog),
-        'covariates' : covariates,
-        'extra_features' : extra_features,
+        'covariates' : np.array(covariates).astype(np.float32),
+        'extra_features' : np.array(extra_features).astype(np.float32),
     }
 
 
