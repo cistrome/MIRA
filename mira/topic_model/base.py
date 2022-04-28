@@ -141,30 +141,6 @@ class OneCycleLR_Wrapper(torch.optim.lr_scheduler.OneCycleLR):
 class BaseModel(torch.nn.Module, BaseEstimator):
 
     @classmethod
-    def _load_old_model(cls, filename):
-
-        old_model = torch.load(filename)
-
-        params = old_model['params'].copy()
-        params['num_topics'] = params.pop('num_modules')
-        
-        fit_params = {}
-        fit_params['num_exog_features'] = len(params['features'])
-        fit_params['num_endog_features'] = params['highly_variable'].sum()
-        fit_params['highly_variable'] = params.pop('highly_variable')
-        fit_params['features'] = params.pop('features')
-        
-        model = cls(**params)
-        model._set_weights(fit_params, old_model['model']['weights'])
-
-        if 'pi' in old_model['model']:
-            model.residual_pi = old_model['model']['pi']
-
-        model.enrichments = {}
-        
-        return model
-
-    @classmethod
     def load(cls, filename):
         '''
         Load a pre-trained topic model from disk.
@@ -195,8 +171,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             endogenous_key = None,
             exogenous_key = None,
             counts_layer = None,
-            covariates_key = None,
-            extra_features_key = None,
+            covariates_keys = None,
+            extra_features_keys = None,
             num_topics = 16,
             hidden = 128,
             num_layers = 3,
@@ -333,8 +309,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.endogenous_key = endogenous_key
         self.exogenous_key = exogenous_key
         self.counts_layer = counts_layer
-        self.covariates_key = covariates_key
-        self.extra_features_key = extra_features_key
+        self.covariates_keys = covariates_keys
+        self.extra_features_keys = extra_features_keys
         self.num_topics = num_topics
         self.hidden = hidden
         self.num_layers = num_layers
@@ -468,7 +444,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         )
 
         self.K = torch.tensor(self.num_topics, requires_grad = False)
-        #self.eps = torch.tensor(5.0e-3, requires_grad=False)
         self.to(self.device)
 
 
@@ -602,8 +577,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.num_exog_features = len(features)
         self.features = features
         self.highly_variable = highly_variable
-        self.num_covariates = 0 if covariates is None else covariates.shape[-1]
-        self.num_extra_features = 0 if extra_features is None else extra_features.shape[-1]
+        self.num_covariates = 0 if self.covariates_keys is None else len(self.covariates_keys)
+        self.num_extra_features = 0 if self.extra_features_keys is None else len(self.extra_features_keys)
         self.covariate_compensation = self.num_covariates > 0
 
         self._get_weights()
@@ -1049,7 +1024,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         results = []
         for batch in self.transform_batch(data_loader, bar = bar, desc = desc):
 
-            results.append(fn(batch['endog_features'], batch['read_depth']))
+            results.append(fn(batch['endog_features'], batch['read_depth'], batch['covariates'], batch['extra_features']))
 
         results = np.vstack(results)
         return results

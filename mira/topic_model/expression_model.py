@@ -25,7 +25,9 @@ logger = logging.getLogger(__name__)
 
 class ExpressionEncoder(torch.nn.Module):
 
-    def __init__(self,embedding_size=None,*,num_endog_features, num_topics, hidden, dropout, num_layers):
+    def __init__(self,embedding_size=None,*,num_endog_features, num_topics, 
+                hidden, dropout, num_layers,
+                num_exog_features, num_covariates, num_extra_features):
         super().__init__()
 
         if embedding_size is None:
@@ -159,7 +161,7 @@ class ExpressionTopicModel(BaseModel):
     def _get_read_depth(self, *, dataset, batch_size = 512):
 
         return self._run_encoder_fn(self.encoder.read_depth, dataset, 
-            batch_size =batch_size, bar = False, desc = 'Calculating reads scale')
+            batch_size=batch_size, bar = False, desc = 'Calculating reads scale')
 
 
     def get_endog_fn(self):

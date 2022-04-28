@@ -109,7 +109,6 @@ class Wasserstein(Mine):
         )
 
 
-
 def dual_ema_loss(x, running_mean, alpha):
 
     if running_mean == 0:
@@ -118,6 +117,28 @@ def dual_ema_loss(x, running_mean, alpha):
         running_mean = ema(x, alpha, running_mean.item())
 
     return running_mean
+
+
+class WassersteinDualEMA(Wasserstein):
+
+    lr = 1e-4
+    hidden = 64
+    loss_beta = 5000
+
+    def __init__(self, T, alpha=0.01):
+        super().__init__(T, alpha = alpha)
+
+    def forward(self, x, z, z_marg=None):
+        if z_marg is None:
+            z_marg = z[torch.randperm(x.shape[0])]
+
+        t = self.T((x, z)).mean()
+        t_marg = self.T((x, z_marg)).mean()
+
+        self.running_mean = dual_ema_loss(
+            t_marg, self.running_mean, self.alpha)
+
+        return -t + t_marg
 
 
 class WassersteinDual(Wasserstein):
@@ -136,7 +157,7 @@ class WassersteinDual(Wasserstein):
         t = self.T((x, z)).mean()
         t_marg = self.T((x, z_marg)).mean()
 
-        self.running_mean = dual_ema_loss(
-            t_marg, self.running_mean, self.alpha)
+        #self.running_mean = dual_ema_loss(
+        #    t_marg, self.running_mean, self.alpha)
 
         return -t + t_marg

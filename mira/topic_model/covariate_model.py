@@ -24,20 +24,21 @@ class CovariateModelMixin(BaseModel):
     def _get_weights(self, on_gpu = True, inference_mode = False):
         super()._get_weights(on_gpu=on_gpu, inference_mode=inference_mode)
 
-
         if self.covariate_compensation:
             self.dependence_network = DependencyModel(DependencyModel.get_statistics_network(
                 2*self.num_exog_features, DependencyModel.hidden)
             ).to(self.device)
 
+
     def get_loss_fn(self):
         return TraceMeanField_ELBO().differentiable_loss
 
-    def model_step(self, opt, parameters, anneal_factor = 1, *args, **kwargs):
+
+    def model_step(self, batch, opt, anneal_factor = 1):
 
         opt.zero_grad()
 
-        bioloss = self.get_loss_fn()(self.model, self.guide, *args, **kwargs)
+        bioloss = self.get_loss_fn()(self.model, self.guide, **batch)
 
         dependence_loss = -self.dependence_network(
             self.decoder.biological_signal,
@@ -46,20 +47,13 @@ class CovariateModelMixin(BaseModel):
 
         loss = bioloss + torch.tensor(anneal_factor, requires_grad = False) * DependencyModel.loss_beta * dependence_loss        
         loss.backward()
-        
-        nn.utils.clip_grad_norm_(parameters, 1e5)
-        
-        total_norm = 0
-        for p in parameters:
-            param_norm = p.grad.detach().data.norm(2)
-            total_norm += param_norm.item() ** 2
-        total_norm = total_norm ** 0.5
 
         opt.step()
 
-        return loss.item(), total_norm
+        return loss.item()
 
-    def dependence_step(self, opt):
+
+    def dependence_step(self, batch, opt):
 
         opt.zero_grad()
         loss = self.dependence_network(
@@ -67,17 +61,9 @@ class CovariateModelMixin(BaseModel):
             self.decoder.covariate_signal.detach(),
         )
         loss.backward()
-        
-        nn.utils.clip_grad_norm_(self.dependence_network.parameters(), 100)
-        total_norm = 0
-        for p in self.dependence_network.parameters():
-            param_norm = p.grad.detach().data.norm(2)
-            total_norm += param_norm.item() ** 2
-        total_norm = total_norm ** 0.5
 
-        opt.step()
-
-        return -loss.item(), total_norm
+        return -loss.item()
+    
     
     def _get_1cycle_scheduler(self, optimizer, n_batches_per_epoch):
 
@@ -87,84 +73,90 @@ class CovariateModelMixin(BaseModel):
             div_factor= self.max_learning_rate/self.min_learning_rate, three_phase=False)
 
 
+    def _step(self, batch, model_optimizer, dependence_optimizer, anneal_factor = 1.):
+        
+        return {
+            'topic_model_loss' : self.model_step(batch, model_optimizer, anneal_factor = anneal_factor),
+            'dependence_loss' : self.dependence_step(batch, dependence_optimizer),
+            'anneal_factor' : anneal_factor,
+        }
+
+
+    def get_model_parameters(self, data_loader):
+
+        batch = next(iter(data_loader))
+
+        with poutine.trace(param_only=True) as param_capture:
+            
+            self.get_loss_fn()(self.model, self.guide, **batch)
+                    
+            params = {site["value"].unconstrained() for site in param_capture.trace.nodes.values()}
+
+        return params, self.dependence_network.parameters()
+
+
     @adi.wraps_modelfunc(fetch = tmi.fit_adata, 
-        fill_kwargs=['features','highly_variable','endog_features','exog_features', 
-        'covariates','extra_features'])
+        fill_kwargs=['features','highly_variable','dataset'])
     def get_learning_rate_bounds(self, num_epochs = 6, eval_every = 10, 
         lower_bound_lr = 1e-6, upper_bound_lr = 1,*,
-        features, highly_variable, endog_features, exog_features, covariates,
-        extra_features):
-
+        features, highly_variable, dataset):
+        
         self._instantiate_model(
-            features = features, highly_variable = highly_variable, 
-            endog_features = endog_features, exog_features = exog_features,
-            covariates = covariates, extra_features = extra_features
+            features = features, highly_variable = highly_variable
         )
 
-        self._get_dataset_statistics(endog_features, exog_features, covariates, extra_features)
+        data_loader = self.get_dataloader(dataset, training=True)
 
-        n_batches = self.get_num_batches(endog_features.shape[0], self.batch_size)
+        self._get_dataset_statistics(dataset)
 
+        n_batches = len(dataset)//self.batch_size
         eval_steps = ceil((n_batches * num_epochs)/eval_every)
 
         learning_rates = np.exp(
                 np.linspace(np.log(lower_bound_lr), 
                 np.log(upper_bound_lr), 
-                eval_steps+1))
+                eval_steps+1)
+            )
 
         self.learning_rates = learning_rates
 
         def lr_function(e):
             return learning_rates[e]/learning_rates[0]
 
-        batches_complete, steps_complete, step_loss, samples_seen = 0,0,0,0
-        learning_rate_losses, self.dependence_losses = [], []
+        topic_model_params, dependence_model_params = self._get_model_parameters(data_loader)
+
+        model_optimizer = Adam(topic_model_params, lr = learning_rates[0], betas = (0.90, 0.999))
+        scheduler = torch.optim.lr_scheduler.LambdaLR(model_optimizer, lr_function)
+
+        dependence_optimizer = Adam(dependence_model_params, lr = DependencyModel.lr)
+
+        batches_complete, step_loss = 0,0
+        learning_rate_losses = []
         
         try:
+
             t = trange(eval_steps-2, desc = 'Learning rate range test', leave = True)
             _t = iter(t)
 
             for epoch in range(num_epochs + 1):
 
-                #train step
                 self.train()
-                for minibatch in self._iterate_batches(endog_features = endog_features, 
-                        exog_features = exog_features, covariates = covariates, extra_features = extra_features,
-                        batch_size = self.batch_size, bar = False):
+                for batch in self.transform_batch(data_loader, bar = False):
 
-                    if steps_complete == 0:
-
-                        with poutine.trace(param_only=True) as param_capture:
-                            loss = self.get_loss_fn()(self.model, self.guide, **minibatch)
-                    
-                        params = {site["value"].unconstrained() for site in param_capture.trace.nodes.values()}
-
-                        model_optimizer = Adam(params, lr = learning_rates[0], betas = (0.90, 0.999))
-                        scheduler = torch.optim.lr_scheduler.LambdaLR(
-                            model_optimizer, lr_function)
-
-                        if self.covariate_compensation:
-                            mine_optimizer = Adam(
-                                self.dependence_network.parameters(), lr = DependencyModel.lr,
-                            )
-
-                    step_loss += self.model_step(model_optimizer, params, **minibatch, anneal_factor = 1.)[0]
-                    self.dependence_losses.append(float(self.dependence_step(mine_optimizer)[0]))
-
+                    step_loss += self._step(batch, model_optimizer, dependence_optimizer, anneal_factor = 1.)['topic_model_loss']
                     batches_complete+=1
-                    samples_seen += minibatch['endog_features'].shape[0]
                     
                     if batches_complete % eval_every == 0 and batches_complete > 0:
-                        steps_complete+=1
                         scheduler.step()
-                        learning_rate_losses.append(step_loss/(samples_seen * self.num_exog_features))
-                        step_loss, samples_seen = 0.0, 0
+                        learning_rate_losses.append(step_loss/(self.batch_size * self.num_exog_features))
+                        step_loss = 0.0
                         try:
                             next(_t)
                         except StopIteration:
                             break
 
         except ValueError as err:
+            print(repr(err))
             logger.error(str(err) + '\nProbably gradient overflow from too high learning rate, stopping test early.')
 
         self.gradient_lr = np.array(learning_rates[:len(learning_rate_losses)])

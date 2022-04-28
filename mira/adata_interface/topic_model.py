@@ -11,19 +11,21 @@ def collate_batch(batch,*,
     preprocess_exog, 
     preprocess_read_depth):
 
-    endog, exog = list(zip(*batch))
+    endog, exog, covariates, extra_features = list(zip(*batch))
     endog, exog = sparse.vstack(endog), sparse.vstack(exog)
 
     return {
         'endog_features' : preprocess_endog(endog),
         'exog_features' : preprocess_exog(exog),
-        'read_depth' : preprocess_read_depth(exog)
+        'read_depth' : preprocess_read_depth(exog),
+        'covariates' : covariates,
+        'extra_features' : extra_features,
     }
 
 
 class InMemoryDataset(Dataset):
 
-    def __init__(self,*, features, highly_variable, 
+    def __init__(self,*, features, highly_variable, covariates_keys, extra_features_keys,
         counts_layer, adata):
 
         self.features = features
@@ -34,6 +36,9 @@ class InMemoryDataset(Dataset):
         self.exog_features = fetch_layer(self, adata, counts_layer)
         self.endog_features = fetch_layer(self, adata[:, highly_variable], counts_layer)
 
+        self.covariates = fetch_columns(self, adata, covariates_keys)
+        self.extra_features = fetch_columns(self, adata, extra_features_keys)
+
         assert isinstance(self.exog_features, sparse.spmatrix)
         assert isinstance(self.exog_features, sparse.spmatrix)
 
@@ -41,7 +46,10 @@ class InMemoryDataset(Dataset):
         return self.exog_features.shape[0]
 
     def __getitem__(self, idx):
-        return self.endog_features[idx], self.exog_features[idx]
+        return self.endog_features[idx], \
+            self.exog_features[idx], \
+            self.covariates[idx] if not self.covariates is None else [], \
+            self.extra_features[idx] if not self.extra_features is None else []
 
 
 logger = logging.getLogger(__name__)
@@ -92,10 +100,6 @@ def fit_adata(self, adata):
 
     features = adata.var_names.values
 
-    covariates = fetch_columns(self, adata, self.covariates_key)
-
-    extra_features = fetch_columns(self, adata, self.extra_features_key)
-
     return dict(
         features = features,
         highly_variable = highly_variable,
@@ -103,6 +107,8 @@ def fit_adata(self, adata):
             features = features,
             highly_variable = highly_variable,
             counts_layer = self.counts_layer,
+            covariates_keys = self.covariates_keys,
+            extra_features_keys = self.extra_features_keys,
             adata = adata
         )
     )
@@ -113,16 +119,17 @@ def fetch_features(self, adata):
                 features = self.features,
                 highly_variable = self.highly_variable,
                 counts_layer = self.counts_layer,
-                adata = adata)
+                adata = adata,
+                covariates_keys = self.covariates_keys,
+                extra_features_keys = self.extra_features_keys)
             }
-
 
 
 def fetch_topic_comps(self, adata, key = 'X_topic_compositions'):
     logger.info('Fetching key {} from obsm'.format(key))
 
-    covariates = fetch_columns(self, adata, self.covariates_key)
-    extra_features = fetch_columns(self, adata, self.extra_features_key)
+    covariates = fetch_columns(self, adata, self.covariates_keys)
+    extra_features = fetch_columns(self, adata, self.extra_features_keys)
 
     return dict(topic_compositions = adata.obsm[key],
                 covariates = covariates, extra_features = extra_features)
