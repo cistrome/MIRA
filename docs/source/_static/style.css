@@ -1,0 +1,29 @@
+
+.container-xl {
+    max-width: 1600px;
+}
+
+:root {
+  --pst-color-h1: #000;
+  --pst-color-h2: #000;
+  --pst-font-size-h1: 42px;
+  --pst-font-size-h1: 38px;
+  --pst-color-background: #fffff8;
+}
+
+
+.panel-height {
+    padding: 8%;
+    max-height:300px;
+    object-fit: contain;
+    position: relative;
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+.home-content {
+    max-width: 75%;
+}
+
+.hidden { color: #FFFFFF }

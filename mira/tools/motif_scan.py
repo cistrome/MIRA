@@ -1,10 +1,5 @@
 import os
-import sys
-import configparser
 import subprocess
-import requests
-import zipfile
-import io
 import tempfile
 import pyfaidx
 import numpy as np
@@ -19,12 +14,6 @@ from mira.adata_interface.regulators import fetch_peaks, add_factor_hits_data
 from functools import partial
 
 logger = logging.getLogger(__name__)
-
-'''config = configparser.ConfigParser()
-configpath = __file__[:-3] + '_config.ini'
-config.read(configpath)
-assert(len(config.sections()) > 0), 'Did not read config file correctly.
-config.get('data','motifs')'''
 
 mira_dir = os.path.dirname(mira.__file__)
 PWM_DIR = os.path.join(mira_dir, 'package_data/motifs/')
@@ -216,6 +205,7 @@ def get_motif_hits_in_peaks(peaks, pvalue_threshold = 0.0001,*, genome_fasta):
 
     Returns
     -------
+
     adata : anndata.AnnData
         `.varm["motifs_hits"]` : scipy.spmatrix[float] of shape (n_motifs, n_peaks)
             Called motif hits for each peak. Each value is the affinity score of a motif
@@ -226,25 +216,30 @@ def get_motif_hits_in_peaks(peaks, pvalue_threshold = 0.0001,*, genome_fasta):
             in expression data), and whether expression data exists for that factor. The
             columns are labeled id, name, parsed_name, and in_expr_data, respectively. 
 
-    Notes
-    -----
-    * To retrieve the metadata for motifs, one may use the method 
-    `mira.utils.fetch_factor_meta(adata)`.
-    * Currently, MIRA ships with the 2021 JASPAR core vertebrates collection. In the
-    future, this will be expanded to include options for updated JASPAR collections
-    and user-provided PFMs.
+    .. note::
+
+        To retrieve the metadata for motifs, one may use the method `mira.utils.fetch_factor_meta(adata)`.
+        
+        Currently, MIRA ships with the 2021 JASPAR core vertebrates collection. In the
+        future, this will be expanded to include options for updated JASPAR collections
+        and user-provided PFMs.
 
     Examples
     --------
-    >>> atac_data.var
-                         chr   start     end
-    chr1:9778-10670     chr1    9778   10670
-    chr1:180631-181281  chr1  180631  181281
-    chr1:183970-184795  chr1  183970  184795
-    chr1:190991-191935  chr1  190991  191935
-    >>> mira.tl.get_motif_hits_in_peaks(atac_data, 
-        chrom = "chr", start = "start", end = "end",
-        genome_file = "~/genomes/hg38/hg38.fa")
+
+    .. code-block:: python
+
+        >>> atac_data.var
+        ...                 chr   start     end
+        ...    chr1:9778-10670     chr1    9778   10670
+        ...    chr1:180631-181281  chr1  180631  181281
+        ...    chr1:183970-184795  chr1  183970  184795
+        ...    chr1:190991-191935  chr1  190991  191935
+        >>> mira.tl.get_motif_hits_in_peaks(atac_data, 
+        ...    chrom = "chr", start = "start", end = "end",
+        ...    genome_file = "~/genomes/hg38/hg38.fa"
+        ... )
+
     '''
 
     peaks = validate_peaks(peaks)

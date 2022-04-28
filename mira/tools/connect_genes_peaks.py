@@ -4,7 +4,7 @@ from lisa.core.genome_tools import Region, RegionSet, Genome
 from collections import Counter
 import logging
 import numpy as np
-from scipy.sparse import spdiags, csr_matrix, coo_matrix
+from scipy.sparse import coo_matrix
 from mira.adata_interface.core import wraps_functional
 from mira.adata_interface.rp_model import get_peak_and_tss_data, add_peak_gene_distances
 
@@ -112,9 +112,12 @@ def get_distance_to_TSS(max_distance = 6e5, promoter_width = 3000,*,
         `.var` with columns corresponding to the chromosome, start, and end
         coordinates given by the `peak_chrom`, `peak_start` and `peak_end`
         parameters, respectively. 
-    tss_data : pd.DataFrame
+    tss_data : pd.DataFrame or str
         DataFrame of TSS locations for each gene. TSS information must include
-        the chromosome, start, end, strand, and symbol of the gene.
+        the chromosome, start, end, strand, and symbol of the gene. May pass
+        either an in-memory dataframe or path to that dataframe on disk.
+    sep : str, default = "\t"
+        If loading `tss_data` from disk, use this separator character.
 
     peak_chrom : str, default = "chr"
         The column in `adata.var` corresponding to the chromosome of peaks
@@ -169,32 +172,41 @@ def get_distance_to_TSS(max_distance = 6e5, promoter_width = 3000,*,
 
     Examples
     --------
-    >>> atac_data.var
-                         chr   start     end
-    chr1:9778-10670     chr1    9778   10670
-    chr1:180631-181281  chr1  180631  181281
-    chr1:183970-184795  chr1  183970  184795
-    chr1:190991-191935  chr1  190991  191935
-    >>> tss_data
-      chrom strand   geneSymbol chrom  chromStart  chromEnd
-    0  chr1      +      DDX11L1  chr1     11868.0   14409.0
-    2  chr1      -       WASH7P  chr1     14403.0   29570.0
-    3  chr1      -    MIR6859-1  chr1     17368.0   17436.0
-    4  chr1      +  MIR1302-2HG  chr1     29553.0   31097.0
-    >>> mira.tl.get_distance_to_TSS(atac_data, 
-                            tss_data = tss_data, 
-                            gene_chrom='chrom', 
-                            gene_strand='strand', 
-                            gene_start='chromStart',
-                            gene_end='chromEnd',
-                            genome_file = '~/genomes/hg38/hg38.genome'
-                           )
-    WARNING:mira.tools.connect_genes_peaks:71 regions encounted from unknown chromsomes: KI270728.1,GL000194.1,GL000205.2,GL000195.1,GL000219.1,KI270734.1,GL000218.1,KI270721.1,KI270726.1,KI270711.1,KI270713.1
-    INFO:mira.tools.connect_genes_peaks:Finding peak intersections with promoters ...
-    INFO:mira.tools.connect_genes_peaks:Calculating distances between peaks and TSS ...
-    INFO:mira.tools.connect_genes_peaks:Masking other genes' promoters ...
-    INFO:mira.adata_interface.rp_model:Added key to var: distance_to_TSS
-    INFO:mira.adata_interface.rp_model:Added key to uns: distance_to_TSS_genes
+
+    One can download mm10 or hg38 TSS annotations via:
+
+    .. code-block :: python
+
+        >>> mira.datasets.mm10_tss_data() # or mira.datasets.hg38_tss_data()
+        ...   INFO:mira.datasets.datasets:Dataset contents:
+        ...       * mira-datasets/mm10_tss_data.bed12
+
+
+    Then, to annotate the ATAC peaks:
+
+    .. code-block:: python
+
+        >>> atac_data.var
+        ...                        chr   start     end
+        ...    chr1:9778-10670     chr1    9778   10670
+        ...    chr1:180631-181281  chr1  180631  181281
+        ...    chr1:183970-184795  chr1  183970  184795
+        ...    chr1:190991-191935  chr1  190991  191935
+        >>> mira.tl.get_distance_to_TSS(atac_data, 
+        ...                        tss_data = "mira-datasets/mm10_tss_data.bed12", 
+        ...                        gene_chrom='chrom', 
+        ...                        gene_strand='strand', 
+        ...                        gene_start='chromStart',
+        ...                        gene_end='chromEnd',
+        ...                        genome_file = '~/genomes/hg38/hg38.genome'
+        ...                    )
+        ...    WARNING:mira.tools.connect_genes_peaks:71 regions encounted from unknown chromsomes: KI270728.1,GL000194.1,GL000205.2,GL000195.1,GL000219.1,KI270734.1,GL000218.1,KI270721.1,KI270726.1,KI270711.1,KI270713.1
+        ...    INFO:mira.tools.connect_genes_peaks:Finding peak intersections with promoters ...
+        ...    INFO:mira.tools.connect_genes_peaks:Calculating distances between peaks and TSS ...
+        ...    INFO:mira.tools.connect_genes_peaks:Masking other genes' promoters ...
+        ...    INFO:mira.adata_interface.rp_model:Added key to var: distance_to_TSS
+        ...    INFO:mira.adata_interface.rp_model:Added key to uns: distance_to_TSS_genes
+
     '''
 
     #load genome

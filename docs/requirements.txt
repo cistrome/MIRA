@@ -1,0 +1,7 @@
+.
+sphinx-panels
+pydata-sphinx-theme
+nbsphinx
+sphinx-copybutton
+numpydoc
+ipython

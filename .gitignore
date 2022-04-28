@@ -1,0 +1,30 @@
+data/
+*.gz
+*.fa
+mira-datasets/
+runs/
+*.db
+.snakemake/
+datasets/
+cache/
+./*.ipynb
+*.out
+*.pth
+test.*
+*.test
+*.fa
+__pycache__/
+./notebooks/
+# Compiled python modules.
+*.pyc
+# Setuptools distribution folder.
+/dist/
+# Python egg metadata, regenerated from source files by setuptools.
+/*.egg-info
+build/
+meta.yaml
+test/
+.DS_store/
+.DS_Store/
+.ipynb_checkpoints/
+*.fai

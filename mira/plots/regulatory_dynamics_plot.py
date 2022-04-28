@@ -2,7 +2,8 @@ import numpy as np
 from scipy import sparse
 from lisa.core.genome_tools import Region
 import warnings
-import matplotlib.patches
+from matplotlib import patches
+from tqdm.notebook import trange
 
 def _residual_transform(X, pi_j_hat, n_i):
     
@@ -37,7 +38,7 @@ def _get_n(X):
     return np.array(X.sum(-1)).reshape(-1)
 
 
-def _make_regpanel(ax,*, accessibility, chrom, start, end, peaks):
+def plot_fragment_heatmap(ax,*, accessibility, chrom, start, end, peaks, time, height = 1):
 
     accessibility.data = np.ones_like(accessibility.data)
     n_i = _get_n(accessibility)
@@ -49,13 +50,15 @@ def _make_regpanel(ax,*, accessibility, chrom, start, end, peaks):
         Region(*peak).overlaps(interval)
         for peak in peaks
     ])
+    
+    order = time.argsort()
 
-    X = accessibility[:, overlapped_peaks].toarray()
+    X = accessibility[:, overlapped_peaks].toarray()[order, :]
 
-    residuals = _residual_transform(X, p_i[:, overlapped_peaks], n_i)
+    residuals = _residual_transform(X, p_i[overlapped_peaks], n_i)
 
     ax.set(xlim = (start, end), ylim = (0, len(residuals)))
-    t_ = iter(tqdm.trange((residuals > 0).sum()), desc = 'Plotting fragments')
+    t_ = iter(trange((residuals > 0).sum(), desc = 'Plotting fragments'))
 
     for alpha, position in zip(residuals.T, peaks[overlapped_peaks]):
         
@@ -66,11 +69,8 @@ def _make_regpanel(ax,*, accessibility, chrom, start, end, peaks):
         for j, a in enumerate(alpha):
             if a > 0:
                 ax.add_patch(
-                    patches.Rectangle((start, j), (end - start), 1, color = 'black', alpha = transparency[j])
+                    patches.Rectangle((start, j), (end - start), height, color = 'black', alpha = transparency[j])
                 )
                 next(t_)
 
     ax.invert_yaxis()
-
-
-def plot_regulatory_panel(*,)

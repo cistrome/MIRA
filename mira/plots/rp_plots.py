@@ -1,4 +1,3 @@
-import matplotlib.pyplot as plt
 import numpy as np
 from lisa.core.genome_tools import Region
 import tqdm
@@ -19,14 +18,12 @@ def _plot_rp_model_tails(ax, start_pos, left_decay, right_decay, color = 'lightg
     ax.fill_between(x, y, y2 = 0, color = color, alpha = alpha)
     ax.plot(x, y, color = linecolor, linewidth = linewidth)
     
-    
 
 def _plot_rp_models(ax, color = 'lightgrey', linecolor = 'black', 
-        linewidth = 1, alpha = 0.25,*, 
+        linewidth = 1, alpha = 0.25, bin_size = 50, *, 
         interval_chrom, interval_start, interval_end, rp_models, 
         gene_id, chrom, start, end, strand):
     
-
     TSS_data = {
         gene : tuple(data)
         for gene, data in zip(gene_id, zip(chrom, start, end, strand))
@@ -38,7 +35,7 @@ def _plot_rp_models(ax, color = 'lightgrey', linecolor = 'black',
         if model.gene in TSS_data.keys():
             
             gene_chrom, gene_start, gene_end, gene_strand = TSS_data[model.gene]
-            rp_params = model.get_normalized_params()
+            rp_params = model._get_normalized_params()
             
             upstream, downstream = 1e3 * rp_params['distance']
 
@@ -51,4 +48,5 @@ def _plot_rp_models(ax, color = 'lightgrey', linecolor = 'black',
             
             if gene_bounds.overlaps(interval):
                 _plot_rp_model_tails(ax, start_pos, left, right, 
-                    color = color, alpha = alpha, linecolor = linecolor, linewidth = linewidth)
+                    color = color, alpha = alpha, linecolor = linecolor, linewidth = linewidth, 
+                    bin_size = bin_size)

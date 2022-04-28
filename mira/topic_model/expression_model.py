@@ -2,7 +2,6 @@
 import torch
 import torch.distributions.constraints as constraints
 import torch.nn.functional as F
-from pyro.nn import PyroParam
 import pyro.distributions as dist
 from mira.topic_model.base import BaseModel, get_fc_stack, encoder_layer
 from pyro.contrib.autoname import scope
@@ -16,7 +15,6 @@ import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 import mira.tools.enrichr_enrichments as enrichr
 from mira.plots.enrichment_plot import plot_enrichments as mira_plot_enrichments
-from torch.distributions.utils import broadcast_all
 from pyro.distributions.torch_distribution import ExpandedDistribution
 from pyro.distributions.torch_distribution import TorchDistribution
 from torch import nn
@@ -24,48 +22,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-'''class WeightedNegativeBinomial(pyro.distributions.NegativeBinomial):
-
-    def __init__(self,*,total_count, weights, probs=None, logits=None, validate_args=None):
-        super().__init__(total_count=total_count, probs = probs, logits = logits, validate_args=validate_args)
-        _, self.weights = broadcast_all(self.total_count, weights)
-    
-    def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
-
-        log_unnormalized_prob = (self.total_count * F.logsigmoid(-self.logits) +
-                                 value * F.logsigmoid(self.logits))
-
-        log_normalization = (-torch.lgamma(self.total_count + value) + torch.lgamma(1. + value) +
-                             torch.lgamma(self.total_count))
-
-        unweighted_probs = log_unnormalized_prob - log_normalization
-        return unweighted_probs * self.weights
-
-    def expand(self, batch_shape, _instance=None):
-        return ExpandedDistribution(self, batch_shape)'''
-
-class NullScoreDistribution(dist.Distribution):
-
-    def __init__(self, shape):
-        super().__init__()
-        self.__shape = shape
-
-
-    def sample(self):                                 
-        return torch.zeros(self.__shape)
-
-    def log_prob(self, x):
-        return x.new_zeros(x.shape[0])
-
 
 class ExpressionEncoder(torch.nn.Module):
 
-
-    def __init__(self,embedding_size=None,*,
-        num_endog_features, num_covariates, num_extra_features,
-        num_topics, hidden, dropout, num_layers, num_exog_features):
+    def __init__(self,embedding_size=None,*,num_endog_features, num_topics, hidden, dropout, num_layers):
         super().__init__()
 
         if embedding_size is None:
@@ -137,13 +97,6 @@ class ExpressionTopicModel(BaseModel):
 
         return np.clip(np.nan_to_num(r_ij), -10, 10)
 
-    def _get_obs_weight(self):
-
-        weights = self.highly_variable.astype(int) + 1
-        weights = weights * self.num_exog_features/weights.sum()
-        #weights = torch.tensor(self._get_obs_weight(), requires_grad = False).to(self.device)
-
-        return weights
 
     @scope(prefix= 'rna')
     def model(self,*,endog_features, exog_features, covariates, read_depth, extra_features, anneal_factor = 1.):
@@ -154,8 +107,7 @@ class ExpressionTopicModel(BaseModel):
         dispersion = dispersion.to(self.device)
 
         with pyro.plate("cells", endog_features.shape[0]):
-
-            with poutine.scale(None, anneal_factor):
+            with poutine.scale(None, anneal_factor/self.reconstruction_weight):
                 theta = pyro.sample(
                     "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
                 )
@@ -181,7 +133,7 @@ class ExpressionTopicModel(BaseModel):
         
         with pyro.plate("cells", endog_features.shape[0]):
 
-            with poutine.scale(None, anneal_factor):
+            with poutine.scale(None, anneal_factor/self.reconstruction_weight):
                 theta = pyro.sample(
                     "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
                 )
@@ -190,52 +142,64 @@ class ExpressionTopicModel(BaseModel):
                     "read_depth", dist.LogNormal(rd_loc.reshape((-1,1)), rd_scale.reshape((-1,1))).to_event(1)
                 )
 
+    def _get_dataset_statistics(self, dataset):
+        super()._get_dataset_statistics(dataset)
 
-    def _get_dataset_statistics(self, endog_features, exog_features, covariates, extra_features):
-        super()._get_dataset_statistics(endog_features, exog_features, covariates, extra_features)
+        skim_endog = dataset[0][0]
+        cummulative_counts = np.zeros(skim_endog.shape[1])
 
-        self.residual_pi = np.array(endog_features.sum(axis = 0)).reshape(-1)/endog_features.sum()
+        for i in range(len(dataset)):
+            cummulative_counts = cummulative_counts + dataset[i][0].toarray().reshape(-1)
+
+        self.residual_pi = cummulative_counts/cummulative_counts.sum()
 
 
     @adi.wraps_modelfunc(tmi.fetch_features, partial(adi.add_obs_col, colname = 'model_read_scale'),
-        ['endog_features','exog_features'])
-    def _get_read_depth(self, *, endog_features, exog_features, batch_size = 512):
+        ['dataset'])
+    def _get_read_depth(self, *, dataset, batch_size = 512):
 
-        return self._run_encoder_fn(self.encoder.read_depth, endog_features = endog_features, exog_features = exog_features, 
+        return self._run_encoder_fn(self.encoder.read_depth, dataset, 
             batch_size =batch_size, bar = False, desc = 'Calculating reads scale')
-        
-
-    def _preprocess_endog(self, X, read_depth, start, end):
-        
-        assert(isinstance(X, np.ndarray) or isspmatrix(X))
-        
-        X = X[start:end]
-        if isspmatrix(X):
-            X = X.toarray()
-
-        assert(len(X.shape) == 2)
-        assert(X.shape[1] == self.num_endog_features)
-        
-        assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
-
-        X = self._residual_transform(X.astype(np.float32), self.residual_pi)
-
-        return torch.tensor(X, requires_grad = False).to(self.device)
 
 
-    def _preprocess_exog(self, X, start, end):
-        
-        assert(isinstance(X, np.ndarray) or isspmatrix(X))
-        
-        X = X[start:end]
-        if isspmatrix(X):
-            X = X.toarray()
+    def get_endog_fn(self):
 
-        assert(len(X.shape) == 2)
-        assert(X.shape[1] == self.num_exog_features)
+        def preprocess_endog(X):
         
-        assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
-        return torch.tensor(X.astype(np.float32), requires_grad = False).to(self.device)
+            assert(isinstance(X, np.ndarray) or isspmatrix(X))
+            
+            if isspmatrix(X):
+                X = X.toarray()
+
+            assert(len(X.shape) == 2)
+            assert(X.shape[1] == self.num_endog_features)
+            
+            assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
+
+            X = self._residual_transform(X, self.residual_pi).astype(np.float32)
+
+            return X
+
+        return preprocess_endog
+
+
+    def get_exog_fn(self):
+        
+        def preprocess_exog(X):
+
+            assert(isinstance(X, np.ndarray) or isspmatrix(X))
+            if isspmatrix(X):
+                X = X.toarray()
+
+            assert(len(X.shape) == 2)
+            assert(X.shape[1] == self.num_exog_features)
+            
+            assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
+
+            return X.astype(np.float32)
+
+        return preprocess_exog
+
 
     def _get_save_data(self):
         data = super()._get_save_data()
@@ -245,7 +209,7 @@ class ExpressionTopicModel(BaseModel):
     
     def rank_genes(self, topic_num):
         '''
-        Ranks genes according to their activation in module **topic_num**. Sorted from most to least activated.
+        Ranks genes according to their activation in module `topic_num`. Sorted from least to most activated.
 
         Parameters
         ----------
@@ -255,6 +219,18 @@ class ExpressionTopicModel(BaseModel):
         Returns
         -------
         np.ndarray: sorted array of gene names in order from most suppressed to most activated given the specified module
+
+        Examples
+        --------
+
+        Genes are ranked from least to most activated. To get the top genes:
+
+        .. code-block:: python
+
+            >>> rna_model.rank_genes(0)[-10:]
+            array(['ESRRG', 'APIP', 'RPGRIP1L', 'TM4SF4', 'DSCAM', 'NRAD1', 'ST3GAL1',
+            'LEPR', 'EXOC6', 'SLC44A5'], dtype=object)
+
         '''
         assert(isinstance(topic_num, int) and topic_num < self.num_topics and topic_num >= 0)
 
@@ -276,6 +252,17 @@ class ExpressionTopicModel(BaseModel):
         Returns
         -------
         list : of format [(topic_num, activation), ...]
+
+        Examples
+        --------
+
+        To see the top 5 modules associated with gene "GHRL":
+
+        .. code-block:: python
+
+            >>> rna_model.rank_modules('GHRL')[:5]
+            [(14, 3.375548), (22, 2.321417), (1, 2.3068447), (0, 1.780294), (9, 1.3936363)]
+
         '''
         
         assert(gene in self.genes)
@@ -347,8 +334,12 @@ class ExpressionTopicModel(BaseModel):
 
         Examples
         --------
-        >>> rna_model.post_topic(10, top_n = 500)
-        >>> rna_model.post_topic(10)
+
+        .. code-block:: python
+
+            >>> rna_model.post_topic(10, top_n = 500)
+            >>> rna_model.post_topic(10)
+
         '''
 
         list_id = enrichr.post_genelist(
@@ -377,7 +368,11 @@ class ExpressionTopicModel(BaseModel):
 
         Examples
         --------
-        >>> rna_model.post_topics()
+
+        .. code-block:: python
+
+            >>> rna_model.post_topics()
+
         '''
 
         for i in range(self.num_topics):
@@ -398,7 +393,10 @@ class ExpressionTopicModel(BaseModel):
 
         Examples
         --------
-        >>> rna_model.fetch_topic_enrichments(10, ontologies = ['WikiPathways_2019_Mouse'])        
+
+        .. code-block:: python
+
+            >>> rna_model.fetch_topic_enrichments(10, ontologies = ['WikiPathways_2019_Mouse'])        
         '''
 
         try:
@@ -430,7 +428,10 @@ class ExpressionTopicModel(BaseModel):
 
         Examples
         --------
-        >>> rna_model.fetch_enrichments(ontologies = ['WikiPathways_2019_Mouse'])
+
+        .. code-block:: python
+
+            >>> rna_model.fetch_enrichments(ontologies = ['WikiPathways_2019_Mouse'])
         '''
         
         for i in range(self.num_topics):
@@ -450,20 +451,24 @@ class ExpressionTopicModel(BaseModel):
         -------
         enrichments : dict
             Dictionary with schema:
-            {
-                <ontology> : {
-                    [
-                        {'rank' : <rank>,
-                        'term' : <term>,
-                        'pvalue' : <pval>,
-                        'zscore': <zscore>,
-                        'combined_score': <combined_score>,
-                        'genes': [<gene1>, ..., <geneN>],
-                        'adj_pvalue': <adj_pval>},
-                        ...,
-                    ]
-                }
-            }   
+
+            .. code-block::
+                
+                {
+                    <ontology> : {
+                        [
+                            {'rank' : <rank>,
+                            'term' : <term>,
+                            'pvalue' : <pval>,
+                            'zscore': <zscore>,
+                            'combined_score': <combined_score>,
+                            'genes': [<gene1>, ..., <geneN>],
+                            'adj_pvalue': <adj_pval>},
+                            ...,
+                        ]
+                    }
+                }   
+                
         '''
         
         try:
@@ -519,8 +524,18 @@ class ExpressionTopicModel(BaseModel):
 
         Examples
         --------
-        >>> rna_model.plot_enrichments(10, pval_threshold = 1e-3, show_genes = False,
-            plot_per_row = 3, aspect = 1.5, max_genes = 10)
+
+        .. code-block:: python
+
+            >>> rna_model.post_topic(13, 500)
+            >>> rna_model.fetch_topic_enrichments(13, 
+            ... ontologies=['WikiPathways_2019_Mouse','BioPlanet_2019'])
+            >>> rna_model.plot_enrichments(13, height=4, show_top=6, max_genes=10, 
+            ... aspect=2.5, plots_per_row=1)
+
+        .. image:: /_static/mira.topics.ExpressionTopicModel.plot_enrichments.svg
+            :width: 1200
+
         '''
 
         try:
@@ -538,5 +553,5 @@ class ExpressionTopicModel(BaseModel):
 
         return mira_plot_enrichments(results, text_color = text_color, label_genes = label_genes,
             show_top = show_top, barcolor = barcolor, show_genes = show_genes, max_genes = max_genes,
-            enrichments_per_row = plots_per_row, height = height, aspect = aspect, pval_threshold = pval_threshold,
+            plots_per_row = plots_per_row, height = height, aspect = aspect, pval_threshold = pval_threshold,
             palette = palette, color_by_adj = color_by_adj, gene_fontsize = gene_fontsize)

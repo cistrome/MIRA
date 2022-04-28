@@ -1,11 +1,7 @@
-from numpy.lib.function_base import median
 import mira.adata_interface.core as adi
 import mira.adata_interface.lite_nite as lni
-from scipy.stats import chi2, mannwhitneyu
 import numpy as np
-from scipy.sparse import isspmatrix
 from functools import partial
-from mira.plots.chromatin_differential_plot import plot_chromatin_differential
 
 
 def _get_NITE_score(gene_expr, lite_logp, nite_logp, median_nonzero_expression = None, axis = 0):
@@ -60,10 +56,14 @@ def get_NITE_score_genes(median_nonzero_expression = None,*, genes, gene_expr, l
 
     Examples
     --------
-    >>> rp_args = dict(expr_adata = atac_data, expr_adata = rna_data)
-    >>> litemodel.get_logp(**rp_args)
-    >>> nitemodel.get_logp(**rp_args)
-    >>> mira.tl.get_NITE_score_genes(rna_data)
+
+    .. code-block:: python
+
+        >>> rp_args = dict(expr_adata = atac_data, expr_adata = rna_data)
+        >>> litemodel.predict(**rp_args)
+        >>> nitemodel.predict(**rp_args)
+        >>> mira.tl.get_NITE_score_genes(rna_data)
+        
     '''
 
     return (genes, *_get_NITE_score(gene_expr, lite_logp, nite_logp, 
@@ -99,8 +99,8 @@ def get_NITE_score_cells(median_nonzero_expression = None, *, genes, gene_expr, 
     Examples
     --------
     >>> rp_args = dict(expr_adata = atac_data, expr_adata = rna_data)
-    >>> litemodel.get_logp(**rp_args)
-    >>> nitemodel.get_logp(**rp_args)
+    >>> litemodel.predict(**rp_args)
+    >>> nitemodel.predict(**rp_args)
     >>> mira.tl.get_NITE_score_cells(rna_data)
     '''
 
