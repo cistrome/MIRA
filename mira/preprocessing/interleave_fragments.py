@@ -6,8 +6,8 @@ import sys
 class BedFileRecord:
 
     def __init__(self, fields):
-        self.fields = fields.strip().split('\t')
-        self.chr, self.start, self.end = self.fields[:3]
+        self.fields = fields.decode().strip().split('\t')
+        self.chr, self.start, self.end = self.fields[0], int(self.fields[1]), int(self.fields[2])
 
     def __gt__(self, other):
         return self.chr > other.chr or \
@@ -46,7 +46,9 @@ class PeekIterator:
         try:
             self._next = self._get_next()
             assert self._next >= ret_value, \
-                    'Input stream must be sorted or interleaving will not work!'
+                    'Input stream must be sorted or interleaving will not work! Prev, Next record:\n{}\n{}'.format(
+                        str(ret_value), str(self._next)
+                    )
 
         except StopIteration:
             self._depleted = True

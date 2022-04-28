@@ -2,9 +2,27 @@
 
 from functools import partial
 
+
+rule concatenate_lanes:
+    input:
+        lambda wildcards : config['data'][wildcards.batch][wildcards.sample]['fastqs'][wildcards.read_no]
+    output:
+        temp('{directory}/{batch}/{sample}/reads-{read_no}.fastq.gz')
+    shell:
+        'cat {input} > {output}'
+        
+
 def get_reads_file(wildcards,*,read_no):
 
-    return config['data'][wildcards.batch][wildcards.sample]['fastqs']['R' + str(read_no)]
+    reads = config['data'][wildcards.batch][wildcards.sample]['fastqs']['R' + str(read_no)]
+    if len(reads) > 1:
+        return rules.concatenate_lanes.output[0].format(
+            directory = wildcards.directory, batch = wildcards.batch,
+            sample = wildcards.sample, read_no = 'R' + str(read_no)
+        )
+    else:
+        return reads
+
 
 rule scatac_chromap:
     input:
@@ -12,14 +30,14 @@ rule scatac_chromap:
         r3 = partial(get_reads_file, read_no = 3),
         barcode = partial(get_reads_file, read_no = 2)
     output:
-        temp('{directory}/{batch}.{sample}.fragments.bed')
-    threads: config['chromap_threads'] if 'chromap_threads' in config else 8
+        temp('{directory}/{batch}/{sample}/fragments.bed')
+    threads: config['mapping']['cores']
     params:
-        index = config["genome"]["index"],
+        index = config["mapping"]["index"],
         fasta = config["genome"]["fasta"],
         whitelist = config['barcode']["whitelist"],
         barcode_start = config["barcode"]["barcode_start"],
-        barcode_end = config["barcode"]["barcode_end"],
+        barcode_end = config["barcode"]["barcode_start"] + config['barcode']['barcode_length'] - 1,
         whitelist_match = config["barcode"]["whitelist_match"],
         strand = '-' if config['barcode']['reversed'] else '+'
     shell:
@@ -37,6 +55,6 @@ rule compress_bedfile:
     input:
         rules.scatac_chromap.output
     output:
-        '{directory}/{batch}.{sample}.fragments.bed.gz'
+        protected('{directory}/{batch}/{sample}/fragments.bed.gz')
     shell:
-        'gzip -d -c {input} > {output}'
+        'gzip -c {input} > {output}'

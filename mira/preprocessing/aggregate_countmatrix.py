@@ -76,7 +76,7 @@ def count_peaks(*,fragment_file, peaks_file, genome_file):
                 logger.warning('Processed {} million fragments ...'.format(str(i//1e6)))
 
     if not process.poll() == 0:
-        raise Exception('Error while scanning for motifs: ' + process.stderr.read().decode())
+        raise Exception('Error while aggregating matrix: ' + process.stderr.read().decode())
     
     logger.warning('Done reading fragments.')
     logger.warning('Formatting counts matrix ...')

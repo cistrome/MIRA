@@ -1,0 +1,64 @@
+#STAR_VERSION = subprocess.check_output("STAR --version", shell=True)
+#bam = "{directory}/{batch}/{sample}/{feature}/Aligned.sortedByCoord.out.bam",
+
+STAR_output_prefix = "{directory}/{batch}/{sample}/{feature}/"
+
+rule STARsolo:
+    output:
+        directory(STAR_output_prefix + "Solo.out/{feature}/raw")
+    params:
+        star_custom = lambda w : w.feature,
+        outprefix = lambda w : STAR_output_prefix.format(
+            directory = w.directory, batch = w.batch, sample = w.sample, feature = w.feature
+        ),
+        barcodestart = config["barcode"]["barcode_start"],
+        barcodelength = config["barcode"]["barcode_length"],
+        umistart = config["barcode"]["umi_start"],
+        umilength = config["barcode"]["umi_length"],
+        mapindex = config["mapping"]["index"],
+        whitelist = config["barcode"]["whitelist"],
+        transcripts = lambda w: ','.join(config['data'][w.batch][w.sample]['fastqs']['R2']),
+        barcodes = lambda w: ','.join(config['data'][w.batch][w.sample]['fastqs']['R1'])
+    threads: config['mapping']['cores']
+    shell:
+        """
+        STAR \
+            --runMode alignReads \
+            --genomeDir {params.mapindex} \
+            --runThreadN {threads} \
+            --outFileNamePrefix {params.outprefix} \
+            --outSAMtype BAM SortedByCoordinate \
+            --outSAMattributes NH HI nM AS CR UR CB UB GX GN sS sQ sM \
+            --soloType CB_UMI_Simple \
+            --soloFeatures {params.star_custom} \
+            --soloCBwhitelist {params.whitelist} \
+            --soloCBstart {params.barcodestart} \
+            --soloCBlen {params.barcodelength} \
+            --soloUMIstart {params.umistart} \
+            --soloUMIlen {params.umilength} \
+            --soloCBmatchWLtype 1MM_multi_pseudocounts \
+            --soloUMIfiltering MultiGeneUMI \
+            --readFilesIn {params.transcripts} {params.barcodes} \
+            --readFilesCommand zcat \
+            --genomeSAindexNbases 2
+        """
+
+def iterate_batch_sample_path(wildcards):
+
+    return [(batch, sample, rules.STARsolo.output[0].format(
+                directory = wildcards.directory, batch = batch, 
+                sample = sample, feature = wildcards.feature))
+            for batch, samples in config['data'].items()
+            for sample in samples.keys()
+       ]
+
+rule aggregate_countmatrix:
+    input:
+       lambda w : list(zip(*iterate_batch_sample_path(w)))[-1]
+    output:
+        '{directory}/{feature}_counts.h5ad'
+    params:
+        adatas = lambda w : ' '.join(['-ad {} {} {}'.format(*record) 
+            for record in iterate_batch_sample_path(w)])
+    shell: 
+        'mira-preprocess format-adata {params.adatas} -o {output}'

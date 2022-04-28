@@ -5,23 +5,24 @@ def label_fragments(fragment_stream,*, batch, sample):
 
     for fragment in fragment_stream:
         line = fragment.strip().split('\t')
-        barcode = line[4]
+        barcode = line[3]
 
-        barcode = '@{batch}:{sample}-{barcode}'.format(
+        barcode = '@{batch}:{sample}:{barcode}'.format(
             batch = str(batch), sample = str(sample), barcode = barcode
         )
 
         yield '\t'.join(
-            [*line[:4], barcode, line[5:]]
+            [*line[:3], barcode, *line[4:]]
         )
 
 def add_arguments(parser):
 
-    parser.add_argument('fragment-file', type = argparse.FileType('r'))
+    parser.add_argument('--fragment-file', '-f', type = argparse.FileType('r'),
+        required=True)
     parser.add_argument('--batch','-b', type = str, required = True)
     parser.add_argument('--sample','-s', type = str, required = True)
     parser.add_argument('--outfile', '-o', type = argparse.FileType('w'),
-        default = sys.stderr)
+        default = sys.stdout)
 
 def main(args):
 

@@ -1,0 +1,43 @@
+barcode:
+  barcode_length: 16
+  barcode_start: 8
+  reversed: true
+  whitelist: /liulab/galib/sc_CIDC/references/whitelist/scATAC_multiome/737K-arc-v1.txt
+  whitelist_match: /liulab/galib/sc_CIDC/references/whitelist/rna_atac_barcode.csv
+data:
+  batch1:
+    mhc-high:
+      fastqs:
+        R1:
+        - /liulab/sgu/20210923_mbcf/210831_SG9280_mkfastq/fastq/outs/fastq_path/HK572DRXY/ATAC-2/ATAC-2_S2_L001_R1_001.fastq.gz
+        - /liulab/sgu/20210923_mbcf/210831_SG9280_mkfastq/fastq/outs/fastq_path/HK572DRXY/ATAC-2/ATAC-2_S2_L002_R1_001.fastq.gz
+        R2:
+        - /liulab/sgu/20210923_mbcf/210831_SG9280_mkfastq/fastq/outs/fastq_path/HK572DRXY/ATAC-2/ATAC-2_S2_L001_R2_001.fastq.gz
+        - /liulab/sgu/20210923_mbcf/210831_SG9280_mkfastq/fastq/outs/fastq_path/HK572DRXY/ATAC-2/ATAC-2_S2_L002_R2_001.fastq.gz
+        R3:
+        - /liulab/sgu/20210923_mbcf/210831_SG9280_mkfastq/fastq/outs/fastq_path/HK572DRXY/ATAC-2/ATAC-2_S2_L001_R3_001.fastq.gz
+        - /liulab/sgu/20210923_mbcf/210831_SG9280_mkfastq/fastq/outs/fastq_path/HK572DRXY/ATAC-2/ATAC-2_S2_L002_R3_001.fastq.gz
+    mhc-low:
+      fastqs:
+        R1:
+        - /liulab/sgu/20210923_mbcf/210831_SG9280_mkfastq/fastq/outs/fastq_path/HK572DRXY/ATAC-4/ATAC-4_S3_L001_R1_001.fastq.gz
+        - /liulab/sgu/20210923_mbcf/210831_SG9280_mkfastq/fastq/outs/fastq_path/HK572DRXY/ATAC-4/ATAC-4_S3_L002_R1_001.fastq.gz
+        R2:
+        - /liulab/sgu/20210923_mbcf/210831_SG9280_mkfastq/fastq/outs/fastq_path/HK572DRXY/ATAC-4/ATAC-4_S3_L001_R2_001.fastq.gz
+        - /liulab/sgu/20210923_mbcf/210831_SG9280_mkfastq/fastq/outs/fastq_path/HK572DRXY/ATAC-4/ATAC-4_S3_L002_R2_001.fastq.gz
+        R3:
+        - /liulab/sgu/20210923_mbcf/210831_SG9280_mkfastq/fastq/outs/fastq_path/HK572DRXY/ATAC-4/ATAC-4_S3_L001_R3_001.fastq.gz
+        - /liulab/sgu/20210923_mbcf/210831_SG9280_mkfastq/fastq/outs/fastq_path/HK572DRXY/ATAC-4/ATAC-4_S3_L002_R3_001.fastq.gz
+directory: mira-preprocessing
+genome:
+  chrom_sizes: /liulab/alynch/projects/multiomics/DataAnalyses/MIRA/mira-datasets/mm10.chrom.sizes
+  fasta: /liulab/galib/sc_CIDC/references/Refdata_scATAC_MAESTRO_GRCm38_1.2.0/GRCm38_genome.fa
+mapping:
+  cores: 8
+  index: /liulab/galib/sc_CIDC/references/Refdata_scATAC_MAESTRO_GRCm38_1.2.0/GRCm38_chromap.index
+peaks:
+  genome_size: mm
+  max_fraglen: 150
+  short_fragments: true
+  slop_distance: 250
+

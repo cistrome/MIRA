@@ -1,23 +1,23 @@
 
 
-include: "make_countmatrix.rule"
+include: "make_countmatrix.rules"
 
 def get_fragment_gzipped_name(wildcards):
     # code for starting from fragments here
-    return '{directory}/{batch}.{sample}.fragments.bed.gz'
+    return '{directory}/{batch}/{sample}/fragments.bed.gz'
 
 
 rule label_fragments:
     input:
         lambda w : get_fragment_gzipped_name(w)
     output:
-        '{directory}/{batch}.{sample}.fragments-labeled.bed.gz'
+        temp('{directory}/{batch}/{sample}/fragments-labeled.bed.gz')
     params:
         batch = lambda w : w.batch,
         sample = lambda w : w.sample
     shell:
         "gzip -d -c {input} "
-        "| mira-preprocess label-fragments - --batch {params.batch} --sample {params.sample} "
+        "| mira-preprocess label-fragments -f - --batch {params.batch} --sample {params.sample} "
         "| gzip > {output}"
 
 
@@ -25,9 +25,9 @@ rule filter_chromosomes:
     input:
         rules.label_fragments.output
     output:
-        '{directory}/{batch}.{sample}.fragments-chromfiltered.bed.gz'
+        '{directory}/{batch}/{sample}/fragments-chromfiltered.bed.gz'
     params:
-        genome_file = config['genome_file']
+        genome_file = config['genome']['chrom_sizes']
     shell:
         "gzip -d -c {input} | mira-preprocess filter-chroms - {params.genome_file} "
         "| gzip > {output}"
@@ -45,10 +45,10 @@ rule filter_short_fragments:
     input:
         get_shortfrags_input
     output:
-        '{directory}/{batch}.{sample}.fragments-short.bed.gz'
+        temp('{directory}/{batch}/{sample}/fragments-short.bed.gz')
     params:
-        genome_file = config['genome_file'],
-        max_fraglen = config['max_fraglen']
+        genome_file = config['genome']['chrom_sizes'],
+        max_fraglen = config['peaks']['max_fraglen']
     shell:
         "gzip -d -c {input} "
         "| awk '$3 - $2 <= {params.max_fraglen} && $1 != \"#\"'"
@@ -57,7 +57,7 @@ rule filter_short_fragments:
 
 def get_filter_barcodes_input(wildcards):
 
-    if 'short_fragments' in config and config['short_fragments']:
+    if 'short_fragments' in config['peaks'] and config['peaks']['short_fragments']:
         return rules.filter_short_fragments.output
     else:
         return rules.filter_chromosomes.output
@@ -66,9 +66,9 @@ def get_filter_barcodes_input(wildcards):
 rule filter_barcodes:
     input: 
         fragments = lambda w : get_filter_barcodes_input(w),
-        barcodes = '{directory}/{batch}.{sample}.barcodes.txt'
+        barcodes = '{directory}/{batch}/{sample}/barcodes.txt'
     output: 
-        '{directory}/{batch}.{sample}.fragments-barcodefiltered.bed.gz'
+        temp('{directory}/{batch}/{sample}/fragments-barcodefiltered.bed.gz')
     shell:
         "gzip -d -c {input.fragments} | mira-preprocess filter-barcodes - {input.barcodes}"
         "| gzip > {output}"
