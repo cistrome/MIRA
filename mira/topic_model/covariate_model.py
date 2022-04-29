@@ -13,28 +13,123 @@ from math import ceil
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 logger = logging.getLogger(__name__)
-from mira.topic_model.mine import Wasserstein as DependencyModel
+from mira.topic_model.mine import WassersteinDualFlat
 from pyro import poutine
 from functools import partial
 
 
 class CovariateModelMixin(BaseModel):
 
+    def __init__(self, endogenous_key = None,
+            exogenous_key = None,
+            counts_layer = None,
+            covariates_keys = None,
+            extra_features_keys = None,
+            num_topics = 16,
+            hidden = 128,
+            num_layers = 3,
+            num_epochs = 40,
+            decoder_dropout = 0.2,
+            encoder_dropout = 0.1,
+            use_cuda = True,
+            seed = 0,
+            min_learning_rate = 1e-6,
+            max_learning_rate = 1e-1,
+            beta = 0.95,
+            batch_size = 64,
+            initial_pseudocounts = 50,
+            nb_parameterize_logspace = True,
+            embedding_size = None,
+            kl_strategy = 'monotonic',
+            reconstruction_weight = 1.,
+            dataset_loader_workers = 0,
+            dependence_lr = 1e-4,
+            dependence_beta = 10000,
+            dependence_hidden = 64,
+            dependence_model = WassersteinDualFlat
+            ):
+        super().__init__()
+
+        self.endogenous_key = endogenous_key
+        self.exogenous_key = exogenous_key
+        self.counts_layer = counts_layer
+        self.covariates_keys = covariates_keys
+        self.extra_features_keys = extra_features_keys
+        self.num_topics = num_topics
+        self.hidden = hidden
+        self.num_layers = num_layers
+        self.num_epochs = num_epochs
+        self.decoder_dropout = decoder_dropout
+        self.encoder_dropout = encoder_dropout
+        self.use_cuda = use_cuda
+        self.seed = seed
+        self.min_learning_rate = min_learning_rate
+        self.max_learning_rate = max_learning_rate
+        self.beta = beta
+        self.batch_size = batch_size
+        self.initial_pseudocounts = initial_pseudocounts
+        self.nb_parameterize_logspace = nb_parameterize_logspace
+        self.embedding_size = embedding_size
+        self.kl_strategy = kl_strategy
+        self.reconstruction_weight = reconstruction_weight
+        self.dataset_loader_workers = dataset_loader_workers
+        self.dependence_model = dependence_model
+        self.dependence_lr = dependence_lr
+        self.dependence_beta = dependence_beta
+        self.dependence_hidden = 64
 
     def _get_weights(self, on_gpu = True, inference_mode = False):
         super()._get_weights(on_gpu=on_gpu, inference_mode=inference_mode)
 
-        if self.covariate_compensation:
-            self.dependence_network = DependencyModel(DependencyModel.get_statistics_network(
-                2*self.num_exog_features, DependencyModel.hidden)
-            ).to(self.device)
+        self.dependence_network = self.dependence_model(
+            self.dependence_model.get_statistics_network(
+            2*self.num_exog_features, 
+            self.dependence_hidden)
+        ).to(self.device)
 
 
     def get_loss_fn(self):
         return TraceMeanField_ELBO().differentiable_loss
 
 
-    def model_step(self, batch, opt, anneal_factor = 1):
+    def model_step(self, batch, opt, parameters, anneal_factor = 1):
+
+        opt.zero_grad()
+
+        bioloss = self.get_loss_fn()(self.model, self.guide, **batch)
+
+        dependence_loss = -self.dependence_network(
+            self.decoder.biological_signal,
+            self.decoder.covariate_signal,
+        )
+
+        loss = bioloss + torch.tensor(anneal_factor, requires_grad = False) * \
+                torch.tensor(self.dependence_beta, requires_grad=False) * dependence_loss        
+
+        loss.backward()
+        
+        nn.utils.clip_grad_norm_(parameters, 1e5)
+        opt.step()
+
+        return loss.item()
+
+
+    def dependence_step(self, opt, parameters):
+
+        opt.zero_grad()
+        loss = self.dependence_network(
+            self.decoder.biological_signal.detach(),
+            self.decoder.covariate_signal.detach(),
+        )
+        loss.backward()
+        
+        nn.utils.clip_grad_norm_(parameters, 100)
+        opt.step()
+
+        return -loss.item()
+
+
+    '''def model_step(self, batch, opt, anneal_factor = 1):
 
         opt.zero_grad()
 
@@ -62,7 +157,9 @@ class CovariateModelMixin(BaseModel):
         )
         loss.backward()
 
-        return -loss.item()
+        nn.utils.clip_grad_norm_(self.dependence_network.parameters(), 100)
+
+        return -loss.item()'''
     
     
     def _get_1cycle_scheduler(self, optimizer, n_batches_per_epoch):
@@ -73,11 +170,12 @@ class CovariateModelMixin(BaseModel):
             div_factor= self.max_learning_rate/self.min_learning_rate, three_phase=False)
 
 
-    def _step(self, batch, model_optimizer, dependence_optimizer, anneal_factor = 1.):
+    def _step(self, batch, model_optimizer, dependence_optimizer, 
+            model_parameters, dependence_parameters, anneal_factor = 1.):
         
         return {
-            'topic_model_loss' : self.model_step(batch, model_optimizer, anneal_factor = anneal_factor),
-            'dependence_loss' : self.dependence_step(dependence_optimizer),
+            'topic_model_loss' : self.model_step(batch, model_optimizer,  model_parameters, anneal_factor = anneal_factor),
+            'dependence_loss' : self.dependence_step(dependence_optimizer, dependence_parameters),
             'anneal_factor' : anneal_factor,
         }
 
@@ -128,7 +226,7 @@ class CovariateModelMixin(BaseModel):
         model_optimizer = Adam(topic_model_params, lr = learning_rates[0], betas = (0.90, 0.999))
         scheduler = torch.optim.lr_scheduler.LambdaLR(model_optimizer, lr_function)
 
-        dependence_optimizer = Adam(dependence_model_params, lr = DependencyModel.lr)
+        dependence_optimizer = Adam(dependence_model_params, lr = self.dependence_lr)
 
         batches_complete, step_loss = 0,0
         learning_rate_losses = []
@@ -143,7 +241,8 @@ class CovariateModelMixin(BaseModel):
                 self.train()
                 for batch in self.transform_batch(data_loader, bar = False):
 
-                    step_loss += self._step(batch, model_optimizer, dependence_optimizer, anneal_factor = 1.)['topic_model_loss']
+                    step_loss += self._step(batch, model_optimizer, dependence_optimizer, 
+                        topic_model_params, dependence_model_params, anneal_factor = 1.)['topic_model_loss']
                     batches_complete+=1
                     
                     if batches_complete % eval_every == 0 and batches_complete > 0:
@@ -186,7 +285,7 @@ class CovariateModelMixin(BaseModel):
         model_optimizer = Adam(topic_model_params, lr = self.min_learning_rate, betas = (self.beta, 0.999))
         scheduler = self._get_1cycle_scheduler(model_optimizer, n_batches)
 
-        dependence_optimizer = Adam(dependence_model_params, lr = DependencyModel.lr)
+        dependence_optimizer = Adam(dependence_model_params, lr = self.dependence_lr)
 
         self.training_loss = []
         
@@ -208,8 +307,10 @@ class CovariateModelMixin(BaseModel):
 
                 try:
 
-                    metrics = self._step(batch, model_optimizer, dependence_optimizer, anneal_factor = anneal_factor)
+                    metrics = self._step(batch, model_optimizer, dependence_optimizer, 
+                        topic_model_params, dependence_model_params, anneal_factor = anneal_factor)
 
+                        
                     if not writer is None:
                         for k, v in metrics.items():
                             writer.add_scalar(k, v, step_count)
