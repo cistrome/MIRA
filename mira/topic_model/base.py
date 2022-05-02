@@ -78,9 +78,9 @@ class Decoder(nn.Module):
         super().__init__()
         self.beta = nn.Linear(num_topics, num_exog_features, bias = False)
         self.bn = nn.BatchNorm1d(num_exog_features)
-        dropout_rate = 1 - np.sqrt(1-dropout)
-        self.drop = nn.Dropout(dropout_rate)
-        self.drop2 = nn.Dropout(dropout_rate)
+        #dropout_rate = 1 - np.sqrt(1-dropout)
+        self.drop = nn.Dropout(dropout)
+        #self.drop2 = nn.Dropout(dropout_rate)
         self.num_topics = num_topics
         self.num_covariates = num_covariates
 
@@ -88,7 +88,7 @@ class Decoder(nn.Module):
 
             self.batch_effect_model = nn.Sequential(
                 encoder_layer(num_topics + num_covariates, covar_channels, 
-                    dropout=dropout, nonlin=True),
+                    dropout=dropout/2, nonlin=True),
                 nn.Linear(covar_channels, num_exog_features),
                 nn.BatchNorm1d(num_exog_features, affine = False),
             )
@@ -103,10 +103,10 @@ class Decoder(nn.Module):
         
         X = self.drop(theta)
 
-        self.covariate_signal = self.get_batch_effect(X, covariates, 
+        self.covariate_signal = self.get_batch_effect(theta, covariates, 
             nullify_covariates = nullify_covariates)
 
-        self.biological_signal = self.get_biological_effect(self.drop2(X))
+        self.biological_signal = self.get_biological_effect(X)
         
         return F.softmax(self.biological_signal + self.covariate_signal, dim=1)
 
