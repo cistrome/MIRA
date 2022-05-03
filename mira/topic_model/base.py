@@ -98,7 +98,9 @@ class Decoder(nn.Module):
                 )
 
     def forward(self, theta, covariates, nullify_covariates = False):
-
+        
+        self.theta = theta
+        
         X = self.drop(theta)
 
         self.covariate_signal = self.get_batch_effect(X, covariates, 

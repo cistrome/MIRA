@@ -128,7 +128,8 @@ class ExpressionTopicModel(BaseModel):
 
 
     @scope(prefix= 'rna')
-    def guide(self,*,endog_features, exog_features, covariates, read_depth, extra_features, anneal_factor = 1.):
+    def guide(self,*,endog_features, exog_features, covariates, 
+            read_depth, extra_features, anneal_factor = 1.):
         super().guide()
 
         theta_loc, theta_scale, rd_loc, rd_scale = self.encoder(endog_features, read_depth, covariates, extra_features)
