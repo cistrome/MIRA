@@ -1,4 +1,5 @@
 
+import enum
 import numpy as np
 from sklearn.model_selection import KFold
 from functools import partial
@@ -147,7 +148,7 @@ class TopicModelTuner:
 
     def __init__(self,
         topic_model,
-        test_column = None,
+        test_column = 'test_set_cells',
         min_topics = 5, max_topics = 55,
         min_epochs = 20, max_epochs = 40,
         min_dropout = 0.01, max_dropout = 0.15,
@@ -160,7 +161,9 @@ class TopicModelTuner:
         tune_kl_strategy  = True,
         tensorboard_logdir = 'runs',
         storage = 'sqlite:///mira-tuning.db',
-        model_survival_rate=1/4,*,
+        model_survival_rate=1/4,
+        usefulness_function = None,
+        optimize_usefulness = False,*,
         save_name,
     ):
         '''
@@ -296,6 +299,8 @@ class TopicModelTuner:
         self.tune_kl_strategy = tune_kl_strategy
         self.tensorboard_logdir = tensorboard_logdir
         self.model_survival_rate = model_survival_rate
+        self.usefulness_function = usefulness_function
+        self.optimize_usefulness = optimize_usefulness
 
 
     @adi.wraps_modelfunc(adi.fetch_adata_shape, tmi.add_test_column, ['shape'])
@@ -330,7 +335,10 @@ class TopicModelTuner:
     def _trial(
             trial,
             base_seed = 0,
-            parallel = False,*,
+            parallel = False,
+            usefulness_function = None,
+            optimize_usefulness = False,
+            worker_number = 0,*,
             tensorboard_logdir,
             model, data, cv, batch_sizes,
             min_topics, max_topics,
@@ -346,7 +354,7 @@ class TopicModelTuner:
             batch_size = trial.suggest_categorical('batch_size', batch_sizes),
             encoder_dropout = trial.suggest_float('encoder_dropout', min_dropout, max_dropout),
             num_epochs = trial.suggest_int('num_epochs', min_epochs, max_epochs, log = True),
-            beta = trial.suggest_float('beta', 0.90, 0.99, log = True),
+            beta = trial.suggest_float('beta', 0.90, 0.97, log = True),
         )
 
         if tune_kl_strategy:
@@ -365,10 +373,12 @@ class TopicModelTuner:
         cv_scores = []
 
         num_splits = cv.get_n_splits(data)
-        cv_scores = []
+        report_scores, cv_metrics = [], []
         must_prune = False
 
-        with SummaryWriter(log_dir=os.path.join(tensorboard_logdir, study_name, str(trial.number))) as trial_writer:
+        with SummaryWriter(
+                log_dir=os.path.join(tensorboard_logdir, study_name, str(trial.number))
+            ) as trial_writer:
             
             if not parallel:
                 print('Evaluating: ' + _format_params(params))
@@ -385,23 +395,39 @@ class TopicModelTuner:
                             print('\rProgress: ' + '|##########'*step + '|' + '#'*num_hashtags + ' '*(10-num_hashtags) + '|' + '          |'*(num_splits-step-1),
                                 end = '')
 
-                cv_scores.append(
-                    model.score(test_counts)
-                )
-                
-                trial.report(np.mean(cv_scores), step)
+                distortion, rate, loss = model.distortion_rate_loss(test_counts)
+                metrics = {'rate' : rate, 'distortion' : distortion, 'loss' : loss}
+
+                if not usefulness_function is None:
+                    usefulness, eval_metrics = usefulness_function(model, train_counts, test_counts, data)
+                    metrics.update({'usefulness' : usefulness, **eval_metrics})
+
+                if optimize_usefulness:
+                    report_scores.append(-usefulness)
+                else:
+                    report_scores.append(loss)
+                    
+                cv_metrics.append(metrics)
+
+                trial.report(np.mean(report_scores), step)
                     
                 if trial.should_prune() and step + 1 < num_splits:
                     must_prune = True
                     break
 
-            trial_score = np.mean(cv_scores)
+            trial_score = np.mean(report_scores)
 
-            metrics = {**{'cv_{}_score'.format(str(i)) : cv_score for i, cv_score in enumerate(cv_scores)}, 
-                                'trial_score' : trial_score,
-                                'test_score' : 1.,
-                                'num_folds_tested' : len(cv_scores),
-                                'number' : trial.number}
+            metrics = {
+                        'trial_score' : trial_score,
+                        'test_score' : 1.,
+                        'num_folds_tested' : len(report_scores),
+                        'number' : trial.number,
+                        'worker_number' : worker_number,
+                        **{'cv_{}_{}'.format(str(fold), metric) : value 
+                            for fold, metrics in enumerate(cv_metrics)
+                            for metric, value in metrics.items()
+                        }
+                    }
 
             trial_writer.add_hparams(params, metrics, domains)
 
@@ -486,6 +512,9 @@ class TopicModelTuner:
         '''
 
         assert isinstance(n_workers, int) and n_workers > 0
+        
+        if self.optimize_usefulness:
+            assert not self.usefulness_function is None
 
         self.model.cpu()
 
@@ -546,6 +575,7 @@ class TopicModelTuner:
         trial_func = partial(
             self._trial,
             base_seed = self.seed,
+            worker_number = worker_number,
             model = self.model, data = train_data,
             cv = self.cv, batch_sizes = self.batch_sizes,
             min_dropout = self.min_dropout, max_dropout = self.max_dropout,
@@ -555,6 +585,8 @@ class TopicModelTuner:
             tune_layers = self.tune_layers,
             study_name = self.study_name,
             tensorboard_logdir = self.tensorboard_logdir,
+            usefulness_function = self.usefulness_function,
+            optimize_usefulness = self.optimize_usefulness,
             parallel = parallel
         )
 

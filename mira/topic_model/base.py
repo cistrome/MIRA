@@ -22,6 +22,8 @@ from scipy.cluster.hierarchy import linkage
 import mira.topic_model.ilr_tools as ilr
 from torch.utils.data import DataLoader
 import time
+from torch.distributions import kl_divergence
+
 logger = logging.getLogger(__name__)
 
 
@@ -374,7 +376,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         return dict(batch_size = self.batch_size, 
             shuffle = True, drop_last=True,)
         
-    def get_dataloader(self, dataset, training = False):
+    def get_dataloader(self, dataset, training = False,
+        batch_size = 512):
 
         if training:
             extra_kwargs = dict(
@@ -390,7 +393,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         return DataLoader(
             dataset, 
-            batch_size = self.batch_size, 
+            batch_size = batch_size, 
             **extra_kwargs,
             collate_fn= partial(tmi.collate_batch,
                 preprocess_endog = self.get_endog_fn(), 
@@ -641,7 +644,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             features = features, highly_variable = highly_variable
         )
 
-        data_loader = self.get_dataloader(dataset, training=True)
+        data_loader = self.get_dataloader(dataset, training=True,
+            batch_size=self.batch_size)
 
         self._get_dataset_statistics(dataset)
 
@@ -905,7 +909,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         n_batches = len(dataset)//self.batch_size
         n_observations = len(dataset)//self.batch_size
-        data_loader = self.get_dataloader(dataset, training=True)
+        data_loader = self.get_dataloader(dataset, training=True,
+            batch_size=self.batch_size)
 
         scheduler = self._get_1cycle_scheduler(n_batches)
         self.svi = SVI(self.model, self.guide, scheduler, loss=TraceMeanField_ELBO())
@@ -1022,7 +1027,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.eval()
         logger.debug('Predicting latent variables ...')
 
-        data_loader = self.get_dataloader(dataset, training=False)
+        data_loader = self.get_dataloader(dataset, training=False,
+            batch_size=self.batch_size)
 
         results = []
         for batch in self.transform_batch(data_loader, bar = bar, desc = desc):
@@ -1050,7 +1056,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @adi.wraps_modelfunc(tmi.fetch_features, tmi.add_topic_comps,
         fill_kwargs=['dataset'])
-    def predict(self, batch_size = 512,*, dataset):
+    def predict(self, batch_size = 512, bar = True,*, dataset):
         '''
         Predict the topic compositions of cells in the data. Adds the 
         topic compositions to the `.obsm` field of the adata object.
@@ -1092,7 +1098,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         '''
 
         return dict(
-            cell_topic_dists = self._run_encoder_fn(self.encoder.topic_comps, dataset, batch_size = batch_size),
+            cell_topic_dists = self._run_encoder_fn(self.encoder.topic_comps, 
+                dataset, batch_size = batch_size, bar = bar),
             topic_feature_dists = self.get_topic_feature_distribution(),
             topic_feature_activations = self._score_features(),
             feature_names = self.features,
@@ -1194,22 +1201,64 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         return ilr.centered_boxcox_transform(topic_compositions, a = box_cox).dot(basis)
 
 
-    def _get_elbo_loss(self, batch_size = 512, *, dataset):
+    def _evaluate_vae_loss(self, model, loss, 
+        batch_size = 512, *, dataset):
 
-        try:
-            self.svi
-        except AttributeError:
-            raise AttributeError('This function only works after training, not before training or after loading from disk.')
+        #try:
+        #    self.svi
+        #except AttributeError:
+        #    raise AttributeError('This function only works after training, not before training or after loading from disk.')
 
         self.eval()
+        self._set_seeds()
+
         running_loss = 0
         
-        data_loader = self.get_dataloader(dataset, training=False)
-
+        data_loader = self.get_dataloader(dataset, training=False, 
+            batch_size = batch_size)
+        
         for batch in self.transform_batch(data_loader, bar = False):
-            running_loss += float(self.svi.evaluate_loss(**batch, anneal_factor = 1.0))
+            with torch.no_grad():
+                running_loss += float(
+                    loss(model, self.guide, **batch, anneal_factor = 1.0)
+                )
 
-        return running_loss
+        return running_loss/len(dataset)
+
+
+    @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
+        fill_kwargs=['dataset'])
+    def distortion_rate_loss(self, batch_size = 512,*,dataset):
+
+        class TraceMeanFieldLatentKL(TraceMeanField_ELBO):
+
+            def _differentiable_loss_particle(self, model_trace, guide_trace):
+                
+                try:
+                    guide_site = guide_trace.nodes['rna/theta']
+                    model_site = model_trace.nodes['rna/theta']
+                except KeyError:
+                    guide_site = guide_trace.nodes['atac/theta']
+                    model_site = model_trace.nodes['atac/theta']
+
+                return kl_divergence(guide_site["fn"], model_site["fn"]).sum().item(), None
+
+        
+        self.eval()
+        loss_vae = self._evaluate_vae_loss(
+                self.model, TraceMeanField_ELBO().loss,
+                dataset=dataset, batch_size = batch_size
+            )
+
+        rate = self._evaluate_vae_loss(
+                self.model, TraceMeanFieldLatentKL().loss,
+                dataset=dataset, batch_size = batch_size
+            )
+
+        distortion = loss_vae - rate/self.reconstruction_weight
+
+        return distortion, rate, loss_vae/self.num_exog_features
+
     
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
         fill_kwargs=['dataset'])
@@ -1251,9 +1300,10 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         '''
         self.eval()
-        return self._get_elbo_loss(
+        return self._evaluate_vae_loss(
+                self.model, TraceMeanField_ELBO().loss,
                 dataset=dataset, batch_size = batch_size
-            )/(len(dataset) * self.num_exog_features)
+            )/self.num_exog_features
 
     
     def _run_decoder_fn(self, fn, latent_composition, covariates,
@@ -1362,6 +1412,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 highly_variable = self.highly_variable,
                 features = self.features,
                 enrichments = self.enrichments,
+                num_extra_features = self.num_extra_features,
             )
         )
 

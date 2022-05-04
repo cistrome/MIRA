@@ -78,7 +78,7 @@ class CovariateModelMixin(BaseModel):
         self.dependence_model = dependence_model
         self.dependence_lr = dependence_lr
         self.dependence_beta = dependence_beta
-        self.dependence_hidden = 64
+        self.dependence_hidden = dependence_hidden
 
     def _get_weights(self, on_gpu = True, inference_mode = False):
         super()._get_weights(on_gpu=on_gpu, inference_mode=inference_mode)
