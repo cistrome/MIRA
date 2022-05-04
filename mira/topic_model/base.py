@@ -99,7 +99,6 @@ class Decoder(nn.Module):
 
     def forward(self, theta, covariates, nullify_covariates = False):
         
-        self.theta = theta
         
         X = self.drop(theta)
 
