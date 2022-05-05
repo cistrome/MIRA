@@ -62,7 +62,6 @@ class Mine(nn.Module):
 
         return nn.Sequential(
             ConcatLayer(1),
-            nn.Dropout(0.05),
             nn.Linear(dim,hidden), nn.ReLU(), nn.Dropout(0.05),
             nn.Linear(hidden, hidden), nn.ReLU(), nn.Dropout(0.05),
             nn.Linear(hidden, 1),

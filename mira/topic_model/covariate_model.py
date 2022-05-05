@@ -91,7 +91,7 @@ class CovariateModelMixin(BaseModel):
 
         #self.objective_network = self.dependence_model(
         #    self.dependence_model.get_statistics_network(
-        #   self.num_topics + self.num_covariates, 
+        #    self.num_topics + self.num_covariates, 
         #    self.dependence_hidden)
         #).to(self.device)
 
@@ -116,12 +116,12 @@ class CovariateModelMixin(BaseModel):
         #)
 
         loss = bioloss + \
-                torch.tensor(anneal_factor * self.dependence_beta, requires_grad = False) * dependence_loss # + \
-        #        torch.tensor(anneal_factor * 10000, requires_grad = False) * objective_loss
+                torch.tensor(anneal_factor * self.dependence_beta, requires_grad = False) * dependence_loss#  + \
+                #torch.tensor(anneal_factor * 1e5, requires_grad = False) * objective_loss
 
         loss.backward()
         
-        nn.utils.clip_grad_norm_(parameters, 1e5)
+        #nn.utils.clip_grad_norm_(parameters, 1e5)
         opt.step()
 
         return loss.item()
@@ -136,7 +136,7 @@ class CovariateModelMixin(BaseModel):
         )
         loss.backward()
         
-        nn.utils.clip_grad_norm_(parameters, 100)
+        #nn.utils.clip_grad_norm_(parameters, 100)
         opt.step()
 
         return -loss.item()
@@ -199,7 +199,7 @@ class CovariateModelMixin(BaseModel):
 
     def _step(self, batch, 
             model_optimizer, dependence_optimizer, #objective_optimizer,
-            model_parameters, dependence_parameters, #objective_parameters,
+            model_parameters, dependence_parameters, # objective_parameters,
             anneal_factor = 1.):
         
         return {
@@ -218,7 +218,7 @@ class CovariateModelMixin(BaseModel):
             self.get_loss_fn()(self.model, self.guide, **batch)
             params = {site["value"].unconstrained() for site in param_capture.trace.nodes.values()}
 
-        return params, self.dependence_network.parameters() #, self.objective_network.parameters()
+        return params, self.dependence_network.parameters()#, self.objective_network.parameters()
 
 
     @adi.wraps_modelfunc(fetch = tmi.fit_adata, 
@@ -231,7 +231,8 @@ class CovariateModelMixin(BaseModel):
             features = features, highly_variable = highly_variable
         )
 
-        data_loader = self.get_dataloader(dataset, training=True)
+        data_loader = self.get_dataloader(dataset, training=True,
+            batch_size = self.batch_size)
 
         self._get_dataset_statistics(dataset)
 
@@ -310,7 +311,9 @@ class CovariateModelMixin(BaseModel):
 
         n_batches = len(dataset)//self.batch_size
         n_observations = len(dataset)//self.batch_size
-        data_loader = self.get_dataloader(dataset, training=True)
+
+        data_loader = self.get_dataloader(dataset, training=True,
+            batch_size = self.batch_size)
 
         parameters = self.get_model_parameters(data_loader)
 
@@ -318,9 +321,9 @@ class CovariateModelMixin(BaseModel):
         scheduler = self._get_1cycle_scheduler(model_optimizer, n_batches)
 
         dependence_optimizer = Adam(parameters[1], lr = self.dependence_lr)
-        #objective_optimizer = Adam(parameters[2], lr = 1e-2)
+        #objective_optimizer = Adam(parameters[2], lr = 1e-4)
 
-        optimizers = (model_optimizer, dependence_optimizer) #, objective_optimizer)
+        optimizers = (model_optimizer, dependence_optimizer)#, objective_optimizer)
 
         self.training_loss = []
         
@@ -342,7 +345,8 @@ class CovariateModelMixin(BaseModel):
 
                 try:
 
-                    metrics = self._step(batch, *optimizers, *parameters, anneal_factor = anneal_factor)
+                    metrics = self._step(batch, *optimizers, *parameters, 
+                        anneal_factor = anneal_factor)
                         
                     if not writer is None:
                         for k, v in metrics.items():

@@ -363,14 +363,7 @@ class TopicModelTuner:
         if tune_layers:
             params['num_layers'] = trial.suggest_categorical('num_layers', [2,3])
 
-        domains = {
-            'kl_strategy' : ['monotonic','cyclic'],
-            'batch_size' : batch_sizes,
-            'num_layers' : [2,3],
-        }
-
         model.set_params(**params, seed = base_seed + trial.number)
-        cv_scores = []
 
         num_splits = cv.get_n_splits(data)
         report_scores, cv_metrics = [], []
@@ -429,7 +422,7 @@ class TopicModelTuner:
                         }
                     }
 
-            trial_writer.add_hparams(params, metrics, domains)
+            trial_writer.add_hparams(params, metrics)
 
             if must_prune:
                 raise optuna.TrialPruned()
@@ -707,12 +700,6 @@ class TopicModelTuner:
             
         '''
 
-        domains = {
-            'kl_strategy' : ['monotonic','cyclic'],
-            'batch_size' : self.batch_sizes,
-            'num_layers' : [2,3],
-        }
-
         scores = []
         best_params = self._get_best_params(top_n_trials)
 
@@ -732,7 +719,7 @@ class TopicModelTuner:
                         scores.append(test_score)
 
                         logger.info('Score: {:.5e}'.format(test_score))
-                        writer.add_hparams(params, {'test_score' : test_score}, domains)
+                        writer.add_hparams(params, {'test_score' : test_score})
 
                         if record_umaps:
 
