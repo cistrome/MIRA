@@ -36,6 +36,27 @@ class ZeroPaddedBinaryMultinomial(pyro.distributions.Multinomial):
         return log_factorial_n + log_powers
 
 
+class ZeroPaddedMultinomial(pyro.distributions.Multinomial):
+
+
+    def log_prob(self, value):
+
+        count, idx = value
+        if self._validate_args:
+            pass
+        #self._validate_sample(value)
+        logits = self.logits
+        logits = logits.clone(memory_format=torch.contiguous_format)
+        
+        log_factorial_n = torch.lgamma(count.sum(-1) + 1)
+        log_factorial_xs = torch.lgamma(count + 1).sum(-1)
+
+        logits = torch.hstack([idx.new_zeros((logits.shape[0], 1)), logits])
+        log_powers = torch.gather(logits, -1, idx).sum(-1)
+
+        return log_factorial_n - log_factorial_xs + log_powers
+
+
 class DANEncoder(nn.Module):
 
     def __init__(self, embedding_size = None, *,num_endog_features, num_topics,
@@ -91,6 +112,7 @@ class DANEncoder(nn.Module):
 class AccessibilityTopicModel(BaseModel):
 
     encoder_model = DANEncoder
+    count_model = 'binary'
 
     @property
     def peaks(self):
@@ -111,9 +133,14 @@ class AccessibilityTopicModel(BaseModel):
             theta = theta/theta.sum(-1, keepdim = True)            
             peak_probs = self.decoder(theta, covariates)
             
-            pyro.sample(
-                'obs', ZeroPaddedBinaryMultinomial(total_count = 1, probs = peak_probs), obs = exog_features,
-            )
+            if self.count_model == 'binary':
+                pyro.sample(
+                    'obs', ZeroPaddedBinaryMultinomial(total_count = 1, probs = peak_probs), obs = exog_features,
+                )
+            else:
+                pyro.sample(
+                    'obs', ZeroPaddedMultinomial(probs = peak_probs, validate_args = False), obs = (exog_features, endog_features),
+                )
 
     @scope(prefix = 'atac')
     def guide(self, *, endog_features, exog_features, read_depth, covariates, 
@@ -129,6 +156,45 @@ class AccessibilityTopicModel(BaseModel):
                 theta = pyro.sample(
                     "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
                 )
+
+
+    def _get_padded_idx_matrix(self, accessibility_matrix):
+
+        width = int(accessibility_matrix.sum(-1).max())
+
+        dense_matrix = []
+        for i in range(accessibility_matrix.shape[0]):
+
+            if self.count_model == 'binary':
+                row = accessibility_matrix[i,:].indices + 1
+            else:
+                row = np.repeat(accessibility_matrix[i,:].indices, accessibility_matrix[i,:].data.astype(int)) + 1
+
+            if len(row) == width:
+                dense_matrix.append(np.array(row)[np.newaxis, :])
+            else:
+                dense_matrix.append(np.concatenate([np.array(row), np.zeros(width - len(row))])[np.newaxis, :]) #0-pad tail to "width"
+
+        dense_matrix = np.vstack(dense_matrix)
+        
+        return dense_matrix
+
+
+    def _dense_counts_matrix(self, accessibility_matrix):
+
+        width = int((accessibility_matrix > 0).sum(-1).max())
+
+        dense_matrix = []
+        for i in range(accessibility_matrix.shape[0]):
+            row = accessibility_matrix[i,:].data
+            if len(row) == width:
+                dense_matrix.append(np.array(row)[np.newaxis, :])
+            else:
+                dense_matrix.append(np.concatenate([np.array(row), np.zeros(width - len(row))])[np.newaxis, :]) #0-pad tail to "width"
+
+        dense_matrix = np.vstack(dense_matrix)
+        
+        return dense_matrix
 
     @staticmethod
     def _binarize_matrix(X, expected_width):
@@ -147,7 +213,8 @@ class AccessibilityTopicModel(BaseModel):
         return X
 
 
-    def _get_padded_idx_matrix(self, accessibility_matrix):
+    ### OLD CODE ###
+    '''def _get_padded_idx_matrix(self, accessibility_matrix):
 
         width = int(accessibility_matrix.sum(-1).max())
 
@@ -173,6 +240,7 @@ class AccessibilityTopicModel(BaseModel):
 
         return preprocess_endog
                    
+
     def get_exog_fn(self):
         
         def preprocess_exog(X):
@@ -180,6 +248,41 @@ class AccessibilityTopicModel(BaseModel):
             return self._get_padded_idx_matrix(
                     self._binarize_matrix(X, self.num_exog_features)
                     ).astype(np.int64)
+
+        return preprocess_exog'''
+
+
+    def get_endog_fn(self):
+
+        def preprocess_endog_binary(X):
+        
+            return self._get_padded_idx_matrix(
+                    self._binarize_matrix(X, self.num_endog_features)).astype(np.int32)
+
+        def preprocess_endog(X):
+        
+            return self._get_padded_idx_matrix(X).astype(np.int64)
+
+        if self.count_model == 'binary':
+            return preprocess_endog_binary
+
+        return preprocess_endog
+                   
+
+    def get_exog_fn(self):
+        
+        def preprocess_exog(X):
+
+            return self._dense_counts_matrix(X).astype(np.int64)
+
+        def preprocess_exog_binary(X):
+
+            return self._get_padded_idx_matrix(
+                    self._binarize_matrix(X, self.num_exog_features)
+                    ).astype(np.int64)
+
+        if self.count_model == 'binary':
+            return preprocess_exog_binary
 
         return preprocess_exog
 

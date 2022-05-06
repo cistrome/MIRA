@@ -80,9 +80,9 @@ class Decoder(nn.Module):
         super().__init__()
         self.beta = nn.Linear(num_topics, num_exog_features, bias = False)
         self.bn = nn.BatchNorm1d(num_exog_features)
-        #dropout_rate = 1 - np.sqrt(1-dropout)
+        dropout_rate = 1 - np.sqrt(1-dropout)
         self.drop = nn.Dropout(dropout)
-        #self.drop2 = nn.Dropout(dropout_rate)
+        self.drop2 = nn.Dropout(dropout_rate)
         self.num_topics = num_topics
         self.num_covariates = num_covariates
 
@@ -101,14 +101,14 @@ class Decoder(nn.Module):
 
     def forward(self, theta, covariates, nullify_covariates = False):
         
-        self.theta = theta
+        #self.theta = theta
         
         X = self.drop(theta)
 
-        self.covariate_signal = self.get_batch_effect(theta, covariates, 
+        self.covariate_signal = self.get_batch_effect(X, covariates, 
             nullify_covariates = nullify_covariates)
 
-        self.biological_signal = self.get_biological_effect(X)
+        self.biological_signal = self.get_biological_effect(self.drop2(X))
         
         return F.softmax(self.biological_signal + self.covariate_signal, dim=1)
 
@@ -166,7 +166,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         '''
 
-        data = torch.load(filename)
+        data = torch.load(filename,map_location=torch.device('cpu'))
 
         model = cls(**data['params'])
         model._set_weights(data['fit_params'], data['weights'])
@@ -1203,7 +1203,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     def _evaluate_vae_loss(self, model, loss, 
-        batch_size = 512, *, dataset):
+        batch_size = 512, bar = False,*, dataset):
 
         #try:
         #    self.svi
@@ -1218,7 +1218,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         data_loader = self.get_dataloader(dataset, training=False, 
             batch_size = batch_size)
         
-        for batch in self.transform_batch(data_loader, bar = False):
+        for batch in self.transform_batch(data_loader, bar = bar):
             with torch.no_grad():
                 running_loss += float(
                     loss(model, self.guide, **batch, anneal_factor = 1.0)
@@ -1229,7 +1229,13 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
         fill_kwargs=['dataset'])
-    def distortion_rate_loss(self, batch_size = 512,*,dataset):
+    def distortion_rate_loss(self, batch_size = 512, bar = False,*, dataset):
+        
+        return self._distortion_rate_loss(batch_size= batch_size,
+            dataset = dataset)
+
+
+    def _distortion_rate_loss(self, batch_size = 512, bar = False,*,dataset):
 
         class TraceMeanFieldLatentKL(TraceMeanField_ELBO):
 
@@ -1248,12 +1254,13 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.eval()
         loss_vae = self._evaluate_vae_loss(
                 self.model, TraceMeanField_ELBO().loss,
-                dataset=dataset, batch_size = batch_size
+                dataset=dataset, batch_size = batch_size,
+                bar = bar,
             )
 
         rate = self._evaluate_vae_loss(
                 self.model, TraceMeanFieldLatentKL().loss,
-                dataset=dataset, batch_size = batch_size
+                dataset=dataset, batch_size = batch_size, bar = bar,
             )
 
         distortion = loss_vae - rate/self.reconstruction_weight

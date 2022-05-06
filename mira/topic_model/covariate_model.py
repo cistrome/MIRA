@@ -89,12 +89,32 @@ class CovariateModelMixin(BaseModel):
             self.dependence_hidden)
         ).to(self.device)
 
-        #self.objective_network = self.dependence_model(
-        #    self.dependence_model.get_statistics_network(
-        #    self.num_topics + self.num_covariates, 
-        #    self.dependence_hidden)
-        #).to(self.device)
 
+    @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
+        fill_kwargs=['dataset'])
+    def get_dependence_loss(self, batch_size = 512, bar = False,*,dataset):
+        return self._get_dependence_loss(batch_size=batch_size,
+            dataset=dataset, bar = bar)
+
+    
+    def _get_dependence_loss(self, batch_size = 512, bar =False,*, dataset):
+
+        def dependence_loss(model, guide, **batch):
+
+            TraceMeanField_ELBO().loss(self.model, self.guide, **batch)
+
+            dependence_loss = -self.dependence_network(
+                self.decoder.biological_signal.detach(),
+                self.decoder.covariate_signal.detach(),
+            ).item()
+
+            return dependence_loss * self.dependence_beta * batch_size
+
+
+        return self._evaluate_vae_loss(
+                self.model, dependence_loss,
+                dataset=dataset, batch_size = batch_size, bar = bar
+            )
 
     def get_loss_fn(self):
         return TraceMeanField_ELBO().differentiable_loss
