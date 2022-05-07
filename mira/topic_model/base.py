@@ -81,7 +81,7 @@ class Decoder(nn.Module):
         self.beta = nn.Linear(num_topics, num_exog_features, bias = False)
         self.bn = nn.BatchNorm1d(num_exog_features)
         dropout_rate = 1 - np.sqrt(1-dropout)
-        self.drop = nn.Dropout(dropout)
+        self.drop = nn.Dropout(dropout_rate)
         self.drop2 = nn.Dropout(dropout_rate)
         self.num_topics = num_topics
         self.num_covariates = num_covariates
