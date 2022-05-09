@@ -116,6 +116,7 @@ class Decoder(nn.Module):
     def get_biological_effect(self, theta):
         return self.bn(self.beta(theta))
 
+
     def get_batch_effect(self, theta, covariates, nullify_covariates = False):
         
         if self.num_covariates == 0 or nullify_covariates: 
@@ -129,9 +130,9 @@ class Decoder(nn.Module):
         return batch_effect
 
 
-    def get_softmax_denom(self, X, batch_effect):
+    def get_softmax_denom(self, theta, covariates):
 
-        return (self.get_biological_effect(X) + batch_effect).exp().sum(-1)
+        return (self.get_biological_effect(theta) + self.get_batch_effect(theta, covariates)).exp().sum(-1)
 
 
 class ModelParamError(ValueError):
@@ -1325,7 +1326,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
             yield fn(
                     torch.tensor(latent_composition[start : end], requires_grad = False).to(self.device),
-                    torch.tensor(covariates[start : end], requires_grad = False).to(self.device)
+                    torch.tensor(covariates[start : end], requires_grad = False).to(self.device) if self.num_covariates > 0 else None,
                 ).detach().cpu().numpy()
 
 
@@ -1398,8 +1399,10 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_obs_col, colname = 'softmax_denom'), 
-        fill_kwargs = ['topic_compositions','covariates'])
-    def _get_softmax_denom(self, topic_compositions, covariates, batch_size = 512, bar = True):
+        fill_kwargs = ['topic_compositions','covariates', 'extra_features'])
+    def _get_softmax_denom(self, topic_compositions, covariates, extra_features,
+            batch_size = 512, bar = True):
+
         return np.concatenate([
             x for x in self._run_decoder_fn(
                 self.decoder.get_softmax_denom, topic_compositions, covariates,
