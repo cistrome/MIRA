@@ -92,6 +92,17 @@ Tools
    mira.tl.get_NITE_score_cells
    mira.tl.get_chromatin_differential
 
+Joint Representation
+~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: tools
+
+   mira.utils.make_joint_representation
+   mira.tl.get_cell_pointwise_mutual_information
+   mira.tl.summarize_mutual_information
+   mira.tl.get_relative_norms
+   mira.tl.get_topic_cross_correlation
 
 Utils/Accessors
 ~~~~~~~~~~~~~~~

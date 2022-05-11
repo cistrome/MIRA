@@ -196,7 +196,7 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
             if not 'distance_to_TSS' in atac_adata.varm:
                 raise Exception('Peaks have not been annotated with TSS locations. Run "get_distance_to_TSS" before proceeding.')
 
-            distance_matrix = atac_adata.varm['distance_to_TSS'].T #genes, #regions
+            distance_matrix = atac_adata[:, self.accessibility_model.features].varm['distance_to_TSS'].T #genes, #regions
 
             hits_data = dict()
             if include_factor_data:

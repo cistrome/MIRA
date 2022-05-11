@@ -147,7 +147,7 @@ class TopicModelTuner:
 
     def __init__(self,
         topic_model,
-        test_column = None,
+        test_column = 'test_set',
         min_topics = 5, max_topics = 55,
         min_epochs = 20, max_epochs = 40,
         min_dropout = 0.01, max_dropout = 0.15,

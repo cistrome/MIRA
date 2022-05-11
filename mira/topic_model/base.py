@@ -350,7 +350,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         return dict(batch_size = self.batch_size, 
             shuffle = True, drop_last=True,)
         
-    def get_dataloader(self, dataset, training = False):
+    def get_dataloader(self, dataset, training = False,
+        batch_size = 512):
 
         if training:
             extra_kwargs = dict(
@@ -366,7 +367,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         return DataLoader(
             dataset, 
-            batch_size = self.batch_size, 
+            batch_size = batch_size, 
             **extra_kwargs,
             collate_fn= partial(tmi.collate_batch,
                 preprocess_endog = self.get_endog_fn(), 
@@ -610,7 +611,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             features = features, highly_variable = highly_variable
         )
 
-        data_loader = self.get_dataloader(dataset, training=True)
+        data_loader = self.get_dataloader(dataset, training=True,
+            batch_size = self.batch_size)
 
         self._get_dataset_statistics(dataset)
 
@@ -873,7 +875,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         n_batches = len(dataset)//self.batch_size
         n_observations = len(dataset)//self.batch_size
-        data_loader = self.get_dataloader(dataset, training=True)
+        data_loader = self.get_dataloader(dataset, training=True,
+            batch_size= self.batch_size)
 
         scheduler = self._get_1cycle_scheduler(n_batches)
         self.svi = SVI(self.model, self.guide, scheduler, loss=TraceMeanField_ELBO())
@@ -990,7 +993,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.eval()
         logger.debug('Predicting latent variables ...')
 
-        data_loader = self.get_dataloader(dataset, training=False)
+        data_loader = self.get_dataloader(dataset, training=False,
+            batch_size=batch_size)
 
         results = []
         for batch in self.transform_batch(data_loader, bar = bar, desc = desc):
@@ -1171,7 +1175,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.eval()
         running_loss = 0
         
-        data_loader = self.get_dataloader(dataset, training=False)
+        data_loader = self.get_dataloader(dataset, training=False, 
+            batch_size = batch_size)
 
         for batch in self.transform_batch(data_loader, bar = False):
             running_loss += float(self.svi.evaluate_loss(**batch, anneal_factor = 1.0))
@@ -1218,6 +1223,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         '''
         self.eval()
+        self._set_seeds()
+
         return self._get_elbo_loss(
                 dataset=dataset, batch_size = batch_size
             )/(len(dataset) * self.num_exog_features)
