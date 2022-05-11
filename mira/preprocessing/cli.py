@@ -8,7 +8,14 @@ from mira.preprocessing import iterative_merge, aggregate_countmatrix, \
         filter_chromosomes, label_fragments, interleave_fragments, \
         run_atac_pipeline, run_rna_pipeline, format_adata
 
-parser = argparse.ArgumentParser(fromfile_prefix_chars = '@')
+class MyArgumentParser(argparse.ArgumentParser):
+    def convert_arg_line_to_args(self, arg_line):
+        return arg_line.split()
+
+parser = MyArgumentParser(
+    fromfile_prefix_chars = '@',
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
 subparsers = parser.add_subparsers(help = 'commands')
 
 def add_subcommand(definition_file, cmd_name):

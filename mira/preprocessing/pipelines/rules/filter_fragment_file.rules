@@ -7,30 +7,31 @@ def get_fragment_gzipped_name(wildcards):
     return '{directory}/{batch}/{sample}/fragments.bed.gz'
 
 
-rule label_fragments:
+rule filter_chromosomes:
     input:
-        lambda w : get_fragment_gzipped_name(w)
+        fragments = lambda w : get_fragment_gzipped_name(w),
+        chrom_sizes = rules.get_chromsizes.output,
     output:
-        temp('{directory}/{batch}/{sample}/fragments-labeled.bed.gz')
+        '{directory}/{batch}/{sample}/fragments-chromfiltered.bed.gz'
     params:
         batch = lambda w : w.batch,
         sample = lambda w : w.sample
     shell:
-        "gzip -d -c {input} "
+        "gzip -d -c {input.fragments} "
+        "| mira-preprocess filter-chroms - {input.chrom_sizes} "
         "| mira-preprocess label-fragments -f - --batch {params.batch} --sample {params.sample} "
         "| gzip > {output}"
 
 
-rule filter_chromosomes:
-    input:
-        rules.label_fragments.output
-    output:
-        '{directory}/{batch}/{sample}/fragments-chromfiltered.bed.gz'
-    params:
-        genome_file = config['genome']['chrom_sizes']
-    shell:
-        "gzip -d -c {input} | mira-preprocess filter-chroms - {params.genome_file} "
-        "| gzip > {output}"
+#rule filter_chromosomes:
+#    input:
+#        fragments = rules.label_fragments.output,
+#        chrom_sizes = rules.get_chromsizes.output,
+#    output:
+#        '{directory}/{batch}/{sample}/fragments-chromfiltered.bed.gz'
+#    shell:
+#        "gzip -d -c {input.fragments} | mira-preprocess filter-chroms - {input.chrom_sizes} "
+#        "| gzip > {output}"
 
 
 def get_shortfrags_input(wildcards):
@@ -47,7 +48,6 @@ rule filter_short_fragments:
     output:
         temp('{directory}/{batch}/{sample}/fragments-short.bed.gz')
     params:
-        genome_file = config['genome']['chrom_sizes'],
         max_fraglen = config['peaks']['max_fraglen']
     shell:
         "gzip -d -c {input} "

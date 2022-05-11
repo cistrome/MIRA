@@ -20,7 +20,7 @@ def read_star_rawmatrix(dir_path):
         return var
 
     def read_matrix(dir_path):
-        return mmread(os.path.join(dir_path, 'matrix.mtx')).T
+        return mmread(os.path.join(dir_path, 'matrix.mtx')).T.tocsr()
 
     return anndata.AnnData(
         obs = read_obs(dir_path),
@@ -38,13 +38,15 @@ def combine_adatas(*adatas):
         adata.obs_names = np.array(['@{}:{}:{}'.format(batch, sample, bc)
                 for bc in adata.obs_names
             ])
+        
+        adata.var = adata.var.set_index('id')
             
         adata_list.append( adata )
 
     if len(adata_list) == 1:
         return adata_list[0]
     
-    return anndata.concat(adata_list, axis = 0, join = 'outer')
+    return anndata.concat(adata_list, merge = 'same')
 
 
 def add_arguments(parser):

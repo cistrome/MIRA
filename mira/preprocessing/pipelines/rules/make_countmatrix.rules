@@ -2,6 +2,8 @@
 from functools import partial
 
 include: "filter_fragment_file.rules"
+include: "get_annotations.rules"
+
 
 def get_batch_signature(batch, _dir, aggregated_rule, sample_level_rule):
         
@@ -64,7 +66,7 @@ def iterate_batches_samples(wildcards,*,aggregated_rule, sample_level_rule, debu
 rule merge_fragment_file:
     input: 
         partial(iterate_batches_samples, 
-            aggregated_rule = '{directory}/bulk/fragments-merged.bed.gz',
+            aggregated_rule = '{directory}/{batch}/bulk/fragments-merged.bed.gz',
             sample_level_rule= rules.filter_chromosomes.output[0], debug = 'merge_fragment_file')
     output:
         '{directory}/{batch}/bulk/fragments-merged.bed.gz'
@@ -106,14 +108,14 @@ rule call_peaks:
 
 rule slop_peaks:
     input : 
-        rules.call_peaks.output
+        peaks = rules.call_peaks.output,
+        chrom_sizes = rules.get_chromsizes.output,
     output : 
         '{directory}/{batch}/{sample}/summits-slopped.bed'
     params :
-        genome_file = config['genome']['chrom_sizes'],
         slop_distance = config['peaks']['slop_distance']
     shell :
-        "bedtools slop -i {input} -g {params.genome_file} -b {params.slop_distance} > {output}"
+        "bedtools slop -i {input.peaks} -g {input.chrom_sizes} -b {params.slop_distance} > {output}"
 
 
 def get_extra_sample_level_merges(wildcards, ):
@@ -128,18 +130,18 @@ def get_extra_sample_level_merges(wildcards, ):
 
 rule merge_peaks:
     input: 
-        lambda w : iterate_batches_samples(w,
+        peaks = lambda w : iterate_batches_samples(w,
             aggregated_rule = '{directory}/{batch}/bulk/merged-peakset.bed',
             sample_level_rule = rules.slop_peaks.output[0], debug = 'merge_peaks') + \
-            get_extra_sample_level_merges(w)
+            get_extra_sample_level_merges(w),
+        chrom_sizes = rules.get_chromsizes.output,
     output:
         '{directory}/{batch}/bulk/merged-peakset.bed'
     params:
-        genome_file = config['genome']['chrom_sizes'],
         style = lambda w : 'consensus' if w.batch == 'bulk' else 'iterative-overlap'
     shell:
-        "mira-preprocess merge-peaks -s {input} "
-        "-g {params.genome_file} -o {output}"
+        "mira-preprocess merge-peaks -s {input.peaks} "
+        "-g {input.chrom_sizes} -o {output}"
 
 
 rule aggregate_peakcounts:
@@ -150,11 +152,10 @@ rule aggregate_peakcounts:
         fragments = partial(get_aggregated_intermediates, 
                     aggregated_rule = rules.merge_fragment_file.output[0], 
                     sample_level_rule = rules.filter_chromosomes.output[0], debug = 'aggregate_peakcounts-fragments'),
+        chrom_sizes = rules.get_chromsizes.output,
     output:
         '{directory}/{batch}/{sample}/peakcounts.h5ad'
-    params :
-        genome_file = config['genome']['chrom_sizes'],
     shell:
         "mira-preprocess agg-countmatrix --fragments {input.fragments} "
         "--peaks {input.peaks} "
-        "--genome-file {params.genome_file} -o {output}"
+        "--genome-file {input.chrom_sizes} -o {output}"

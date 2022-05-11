@@ -9,8 +9,20 @@ from .fastq_parser import parse_fasta_directory
 
 def add_arguments(subparser):
 
+    def check_is_file(filename):
+
+        if not os.path.isfile(filename):
+            raise subparser.error("Invalid file name: {}".format(filename))
+        
+        return filename
+
+    genome_parser = subparser.add_argument_group('Genome')
+    species_or_fasta = genome_parser.add_mutually_exclusive_group(required=True)
+    species_or_fasta.add_argument('--species','-sp', type = str)
+    species_or_fasta.add_argument('--fasta', '-fa', type = check_is_file)
+    genome_parser.add_argument('--gtf', type= check_is_file, required = '--fasta' in sys.argv)
+
     map_parser = subparser.add_argument_group('Mapping')
-    map_parser.add_argument('--star-index', '-x', type = str, required=True)
     map_parser.add_argument('--star-cores', '-sc', type = int, default = 12)
     map_parser.add_argument('--star-features', '-f', type = str, nargs = "+", 
         default = ['Gene'])
@@ -59,8 +71,12 @@ def main(args):
 
     config_dict = dict(
         directory = args.results_dir,
+        genome = dict(
+            gtf = args.gtf,
+            fasta = args.fasta,
+            species = args.species,
+        ),
         mapping = dict(
-            index = args.star_index,
             cores = args.star_cores,
             features = args.star_features
         ),
