@@ -1,5 +1,4 @@
-from curses import pair_content
-from inspect import isroutine
+
 import numpy as np
 import mira.adata_interface.core as adi
 import mira.adata_interface.joint as ji
@@ -166,7 +165,7 @@ def get_topic_cross_correlation(x, y):
 
     Returns
     -------
-    
+
     cross correlations : pd.DataFrame of shape (n_expr_topics, n_accessibility_topics)
         Pearson cross correlation between expression and accessibility topics across
         all cells.        
