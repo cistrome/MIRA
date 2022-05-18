@@ -591,10 +591,15 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         self._get_weights()
 
-    def _step(self, batch, anneal_factor):
+    def _step(self, batch, anneal_factor, batch_size_adjustment):
 
         return {
-            'loss' : float(self.svi.step(**batch, anneal_factor = anneal_factor))/self.batch_size,
+            'loss' : float(
+                    self.svi.step(**batch, 
+                        anneal_factor = anneal_factor,
+                        batch_size_adjustment = batch_size_adjustment
+                    )
+                ),
             'anneal_factor' : anneal_factor
             }
 
@@ -684,7 +689,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 self.train()
                 for batch in self.transform_batch(data_loader, bar = False):
 
-                    step_loss += self._step(batch, 1.)['loss']
+                    step_loss += self._step(batch, 1., 64/self.batch_size)['loss']
                     batches_complete+=1
                     
                     if batches_complete % eval_every == 0 and batches_complete > 0:
@@ -934,7 +939,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 anneal_factor = anneal_fn(step_count)
 
                 try:
-                    metrics = self._step(batch, anneal_factor)
+                    metrics = self._step(batch, anneal_factor, 64/self.batch_size)
 
                     if not writer is None:
                         for k, v in metrics.items():
@@ -1266,7 +1271,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         distortion = loss_vae - rate/self.reconstruction_weight
 
-        return distortion, rate, loss_vae/self.num_exog_features
+        return distortion, rate, (distortion + rate)/self.num_exog_features #loss_vae/self.num_exog_features
 
     
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,

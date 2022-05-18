@@ -101,55 +101,60 @@ class ExpressionTopicModel(BaseModel):
 
 
     @scope(prefix= 'rna')
-    def model(self,*,endog_features, exog_features, covariates, read_depth, extra_features, anneal_factor = 1.):
-        theta_loc, theta_scale = super().model()
-        pyro.module("decoder", self.decoder)
+    def model(self,*,endog_features, exog_features, covariates, read_depth, extra_features, 
+        anneal_factor = 1., batch_size_adjustment = 1.):
 
-        dispersion = pyro.param('dispersion', read_depth.new_ones(self.num_exog_features).to(self.device) * 5., constraint = constraints.positive)
-        dispersion = dispersion.to(self.device)
+        with poutine.scale(None, batch_size_adjustment):
+            theta_loc, theta_scale = super().model()
+            pyro.module("decoder", self.decoder)
 
-        with pyro.plate("cells", endog_features.shape[0]):
+            dispersion = pyro.param('dispersion', read_depth.new_ones(self.num_exog_features).to(self.device) * 5., constraint = constraints.positive)
+            dispersion = dispersion.to(self.device)
 
-            with poutine.scale(None, anneal_factor):
+            with pyro.plate("cells", endog_features.shape[0]):
+
+                with poutine.scale(None, anneal_factor):
+                    
+                    with poutine.scale(None, 1/self.reconstruction_weight):
+                        theta = pyro.sample(
+                            "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
+                        )
+
+                    theta = theta/theta.sum(-1, keepdim = True)
+
+                    expr_rate = self.decoder(theta, covariates)
+                    read_scale = pyro.sample('read_depth', dist.LogNormal(torch.log(read_depth), 1.).to_event(1))
                 
-                with poutine.scale(None, 1/self.reconstruction_weight):
-                    theta = pyro.sample(
-                        "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
-                    )
-
-                theta = theta/theta.sum(-1, keepdim = True)
-
-                expr_rate = self.decoder(theta, covariates)
-                read_scale = pyro.sample('read_depth', dist.LogNormal(torch.log(read_depth), 1.).to_event(1))
-            
-            if not self.nb_parameterize_logspace:
-                mu = torch.multiply(read_scale, expr_rate)
-                probs = mu/(mu + dispersion)
-                X = pyro.sample('obs', dist.NegativeBinomial(total_count = dispersion, probs = probs).to_event(1), obs = exog_features)
-            else:
-                logits = (read_scale * expr_rate).log() - (dispersion).log()
-                X = pyro.sample('obs', dist.NegativeBinomial(total_count = dispersion, logits = logits).to_event(1), obs = exog_features)
+                if not self.nb_parameterize_logspace:
+                    mu = torch.multiply(read_scale, expr_rate)
+                    probs = mu/(mu + dispersion)
+                    X = pyro.sample('obs', dist.NegativeBinomial(total_count = dispersion, probs = probs).to_event(1), obs = exog_features)
+                else:
+                    logits = (read_scale * expr_rate).log() - (dispersion).log()
+                    X = pyro.sample('obs', dist.NegativeBinomial(total_count = dispersion, logits = logits).to_event(1), obs = exog_features)
 
 
     @scope(prefix= 'rna')
     def guide(self,*,endog_features, exog_features, covariates, 
-            read_depth, extra_features, anneal_factor = 1.):
-        super().guide()
+            read_depth, extra_features, anneal_factor = 1., batch_size_adjustment = 1.):
 
-        theta_loc, theta_scale, rd_loc, rd_scale = self.encoder(endog_features, read_depth, covariates, extra_features)
-        
-        with pyro.plate("cells", endog_features.shape[0]):
+        with poutine.scale(None, batch_size_adjustment):
+            super().guide()
 
-            with poutine.scale(None, anneal_factor):
+            theta_loc, theta_scale, rd_loc, rd_scale = self.encoder(endog_features, read_depth, covariates, extra_features)
+            
+            with pyro.plate("cells", endog_features.shape[0]):
 
-                with poutine.scale(None, 1/self.reconstruction_weight):
-                    theta = pyro.sample(
-                        "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
+                with poutine.scale(None, anneal_factor):
+
+                    with poutine.scale(None, 1/self.reconstruction_weight):
+                        theta = pyro.sample(
+                            "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
+                        )
+
+                    read_depth = pyro.sample(
+                        "read_depth", dist.LogNormal(rd_loc.reshape((-1,1)), rd_scale.reshape((-1,1))).to_event(1)
                     )
-
-                read_depth = pyro.sample(
-                    "read_depth", dist.LogNormal(rd_loc.reshape((-1,1)), rd_scale.reshape((-1,1))).to_event(1)
-                )
 
     def _get_dataset_statistics(self, dataset):
         super()._get_dataset_statistics(dataset)
