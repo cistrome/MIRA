@@ -123,6 +123,9 @@ class AccessibilityTopicModel(BaseModel):
         read_depth, covariates, extra_features, anneal_factor = 1.,
         batch_size_adjustment = 1.):
 
+        logger.debug('Batch size adjustment: ' + str(batch_size_adjustment))
+        logger.debug('Anneal factor: ' + str(anneal_factor/self.reconstruction_weight))
+
         with poutine.scale(None, batch_size_adjustment):
 
             theta_loc, theta_scale = super().model()

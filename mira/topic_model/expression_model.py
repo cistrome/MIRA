@@ -120,10 +120,10 @@ class ExpressionTopicModel(BaseModel):
                             "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
                         )
 
-                    theta = theta/theta.sum(-1, keepdim = True)
-
-                    expr_rate = self.decoder(theta, covariates)
                     read_scale = pyro.sample('read_depth', dist.LogNormal(torch.log(read_depth), 1.).to_event(1))
+
+                theta = theta/theta.sum(-1, keepdim = True)
+                expr_rate = self.decoder(theta, covariates)
                 
                 if not self.nb_parameterize_logspace:
                     mu = torch.multiply(read_scale, expr_rate)

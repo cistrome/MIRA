@@ -354,7 +354,7 @@ class TopicModelTuner:
             batch_size = trial.suggest_categorical('batch_size', batch_sizes),
             encoder_dropout = trial.suggest_float('encoder_dropout', min_dropout, max_dropout),
             num_epochs = trial.suggest_int('num_epochs', min_epochs, max_epochs, log = True),
-            beta = trial.suggest_float('beta', 0.90, 0.97, log = True),
+            #beta = trial.suggest_float('beta', 0.90, 0.97, log = True),
         )
 
         if tune_kl_strategy:

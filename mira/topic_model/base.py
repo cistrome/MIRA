@@ -1271,7 +1271,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         distortion = loss_vae - rate/self.reconstruction_weight
 
-        return distortion, rate, (distortion + rate)/self.num_exog_features #loss_vae/self.num_exog_features
+        return distortion, rate, loss_vae/self.num_exog_features #loss_vae/self.num_exog_features
 
     
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
