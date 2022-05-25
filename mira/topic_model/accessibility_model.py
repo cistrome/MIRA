@@ -167,6 +167,11 @@ class AccessibilityTopicModel(BaseModel):
                         "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
                     )
 
+    def recommend_parameters(self, n_samples, finetune = False):
+        params = super().recommend_parameters(n_samples)
+        params['num_layers'] = 2
+
+        return params
 
     def _get_padded_idx_matrix(self, accessibility_matrix):
 

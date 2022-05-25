@@ -15,7 +15,7 @@ from math import ceil
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 logger = logging.getLogger(__name__)
-from mira.topic_model.mine import WassersteinDualFlat
+from mira.topic_model.mine import WassersteinDualFlat, WassersteinDual
 from pyro import poutine
 from functools import partial
 
@@ -32,7 +32,7 @@ class CovariateModelMixin(BaseModel):
             num_layers = 3,
             num_epochs = 40,
             decoder_dropout = 0.2,
-            encoder_dropout = 0.1,
+            encoder_dropout = 0.02,
             use_cuda = True,
             seed = 0,
             min_learning_rate = 1e-6,
@@ -42,13 +42,13 @@ class CovariateModelMixin(BaseModel):
             initial_pseudocounts = 50,
             nb_parameterize_logspace = True,
             embedding_size = None,
-            kl_strategy = 'monotonic',
-            reconstruction_weight = 1.,
+            kl_strategy = 'cyclic',
+            reconstruction_weight = 1/2,
             dataset_loader_workers = 0,
             dependence_lr = 1e-4,
-            dependence_beta = 10000,
+            dependence_beta = 1000,
             dependence_hidden = 64,
-            dependence_model = WassersteinDualFlat
+            dependence_model = WassersteinDual
             ):
         super().__init__()
 
@@ -167,7 +167,6 @@ class CovariateModelMixin(BaseModel):
         )
         loss.backward()
         
-        #nn.utils.clip_grad_norm_(parameters, 100)
         opt.step()
 
         return -loss.item()
@@ -179,6 +178,7 @@ class CovariateModelMixin(BaseModel):
             epochs=self.num_epochs, steps_per_epoch=n_batches_per_epoch, 
             anneal_strategy='cos', cycle_momentum=True, 
             div_factor= self.max_learning_rate/self.min_learning_rate, three_phase=False)
+
 
     @staticmethod
     def _get_step_disentanglement_coef(step_num, *, n_epochs, n_batches_per_epoch):
@@ -323,16 +323,9 @@ class CovariateModelMixin(BaseModel):
 
         model_optimizer = Adam(parameters[0], lr = self.min_learning_rate, betas = (self.beta, 0.999))
         scheduler = self._get_1cycle_scheduler(model_optimizer, n_batches)
-
-        #scheduler = torch.optim.lr_scheduler.CyclicLR(model_optimizer, 
-        #    self.min_learning_rate, self.max_learning_rate, 
-        #    mode = 'triangular2', base_momentum = 0.85,
-        #    max_momentum = 0.95, cycle_momentum=False, 
-        #    step_size_up = int(self.num_epochs/6*n_batches + 1))
-
         dependence_optimizer = Adam(parameters[1], lr = self.dependence_lr)
 
-        optimizers = (model_optimizer, dependence_optimizer)#, objective_optimizer)
+        optimizers = (model_optimizer, dependence_optimizer)
 
         self.training_loss = []
         

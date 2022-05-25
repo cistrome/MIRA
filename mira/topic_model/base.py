@@ -1,4 +1,5 @@
 from functools import partial
+import sched
 from scipy import interpolate
 import pyro
 import pyro.distributions as dist
@@ -185,18 +186,18 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             num_layers = 3,
             num_epochs = 40,
             decoder_dropout = 0.2,
-            encoder_dropout = 0.1,
+            encoder_dropout = 0.015,
             use_cuda = True,
             seed = 0,
             min_learning_rate = 1e-6,
             max_learning_rate = 1e-1,
-            beta = 0.95,
+            beta = 0.92,
             batch_size = 64,
             initial_pseudocounts = 50,
             nb_parameterize_logspace = True,
             embedding_size = None,
-            kl_strategy = 'monotonic',
-            reconstruction_weight = 1.,
+            kl_strategy = 'cyclic',
+            reconstruction_weight = 1/2,
             dataset_loader_workers = 0,
             ):
         '''
@@ -336,6 +337,49 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.kl_strategy = kl_strategy
         self.reconstruction_weight = reconstruction_weight
         self.dataset_loader_workers = dataset_loader_workers
+
+
+    def _recommend_batchsize(self, n_samples):
+        if n_samples >= 4000 and n_samples <= 10000:
+            return 64
+        elif n_samples > 10000:
+            return 128
+        else:
+            return 32
+
+    def _recommend_hidden(self, n_samples):
+        if n_samples < 2000:
+            return 64
+        else:
+            return 128
+
+    def _recommend_num_layers(self, n_samples):
+        if n_samples < 2000:
+            return 2
+        else:
+            return 3
+
+    def _recommend_num_topics(self, n_samples):
+        
+        #boxcox transform of the number of samples
+        return int(
+            (n_samples**0.2 - 1)/0.2
+        )
+
+
+    def recommend_parameters(self, n_samples, finetune = False):
+
+        assert isinstance(n_samples, int) and n_samples > 0
+
+        params = {
+            'batch_size' : self._recommend_batchsize(n_samples),
+            'hidden' : self._recommend_hidden(n_samples),
+            'num_layers' : self._recommend_num_layers(n_samples),
+            'num_epochs' : 20 if not finetune else 40,
+            'num_topics' : self._recommend_num_topics(n_samples),
+        }
+
+        return params
 
     @staticmethod
     def _iterate_batch_idx(N, batch_size, bar = False, desc = None):
@@ -526,7 +570,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         return pyro.optim.lr_scheduler.PyroLRScheduler(OneCycleLR_Wrapper, 
             {'optimizer' : Adam, 'optim_args' : {'lr' : self.min_learning_rate, 'betas' : (self.beta, 0.999)}, 'max_lr' : self.max_learning_rate, 
             'steps_per_epoch' : n_batches_per_epoch, 'epochs' : self.num_epochs, 'div_factor' : self.max_learning_rate/self.min_learning_rate,
-            'cycle_momentum' : False, 'three_phase' : False, 'verbose' : False})
+            'cycle_momentum' : True, 'three_phase' : False, 'verbose' : False})
 
     @staticmethod
     def _get_monotonic_kl_factor(step_num, *, n_epochs, n_batches_per_epoch):
@@ -940,6 +984,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
                 try:
                     metrics = self._step(batch, anneal_factor, 64/self.batch_size)
+                    #metrics['learning_rate'] = float(scheduler._last_lr[0])
 
                     if not writer is None:
                         for k, v in metrics.items():

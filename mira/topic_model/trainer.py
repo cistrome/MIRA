@@ -1,7 +1,6 @@
 
-import enum
 import numpy as np
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, ShuffleSplit
 from functools import partial
 import os
 import optuna
@@ -40,6 +39,27 @@ class DisableLogger:
         self.logger.setLevel(self.level)
 
 
+class FailureToImproveException(Exception):
+    pass
+
+def terminate_after_n_failures(study, trail, 
+    n_failures=5,
+    min_trials = 32):
+
+    if len(study.trials) < min_trials or len(study.trials) < n_failures:
+        return
+    
+    best_trial_no = max([trial.number for trial in study.best_trials])
+
+    failures = 0
+    for trial in study.trials[best_trial_no:]:
+        if trial.state == ts.PRUNED or trial.state == ts.COMPLETE:
+            failures+=1
+
+    if failures > n_failures:
+        study.stop()
+
+
 def _format_params(params):
 
     def _format_param_value(value):
@@ -65,7 +85,7 @@ def _get_batches_trained(trial):
 def _get_trial_desc(trial):
 
         if trial.state == ts.COMPLETE:
-            return 'Trial #{:<3} | completed, score: {:.4e} | params: {}'.format(str(trial.number), trial.values[-1], _format_params(trial.params))
+            return 'Trial #{:<3} | completed, score: {:.4e} | params: {}'.format(str(trial.number), trial.values[0], _format_params(trial.params))
         elif trial.state == ts.PRUNED:
             return 'Trial #{:<3} | pruned at step: {:<12} | params: {}'.format(str(trial.number), str(_get_batches_trained(trial)), _format_params(trial.params))
         elif trial.state == ts.FAIL:
@@ -73,38 +93,19 @@ def _get_trial_desc(trial):
                 .format(str(trial.number), str(trial.params))
 
 
-def _log_progress(study, trial,*, num_trials, worker_number):
+def _log_progress(study, trial,*, worker_number):
     
     logger.info('Worker {}: '.format(worker_number) + _get_trial_desc(trial))
 
-    if study.best_trial.number == trial.number:
+    if trial.number in [t.number for t in study.best_trials]:
         logger.info('New best!')
 
 
-def _print_study(study, trial):
-
-    if study is None:
-        raise ValueError('Cannot print study before running any trials.')
-
-    if NOTEBOOK_MODE:
-        clear_output(wait=True)
-    else:
-        print('------------------------------------------------------')
-
-    try:
-        print('Trials finished: {} | Best trial: {} | Best score: {:.4e}\nPress ctrl+C,ctrl+C or esc,I+I,I+I in Jupyter notebook to stop early.'.format(
-        str(len(study.trials)),
-        str(study.best_trial.number),
-        study.best_value
-    ), end = '\n\n')
-    except ValueError:
-        print('Trials finished {}'.format(str(len(study.trials))), end = '\n\n')        
-
-    print('#Topics | Trials (number is #folds tested)', end = '')
+def _print_topic_histogram(study):
 
     study_results = sorted([
-        (trial_.params['num_topics'], _get_batches_trained(trial_), trial_.number)
-        for trial_ in study.trials
+        (trial_.params['num_topics'], '\u25A0', trial_.number)
+        for trial_ in study.trials if trial_.state in [ts.COMPLETE, ts.PRUNED, ts.FAIL]
     ], key = lambda x : x[0])
 
     current_num_modules = 0
@@ -117,9 +118,39 @@ def _print_study(study, trial):
         print(str(trial_result[1]), end = ' ')
     
     print('', end = '\n\n')
+
+
+def _clear_page():
+
+    if NOTEBOOK_MODE:
+        clear_output(wait=True)
+    else:
+        print('------------------------------------------------------')
+
+
+def _print_study(study, trial):
+
+    if study is None:
+        raise ValueError('Cannot print study before running any trials.')
+    
+    _clear_page()
+
+    try:
+        print('Trials finished: {} | Best trial: {} | Best score: {:.4e}\nPress ctrl+C,ctrl+C or esc,I+I,I+I in Jupyter notebook to stop early.'.format(
+        str(len(study.trials)),
+        str(study.best_trial.number),
+        study.best_value
+    ), end = '\n\n')
+    except ValueError:
+        print('Trials finished {}'.format(str(len(study.trials))), end = '\n\n')
+
+    print('#Topics | Trials (number is #folds tested)', end = '')
+    _print_topic_histogram(study) 
+
     print('Trial Information:')
     for trial in study.trials:
-        print(_get_trial_desc(trial))
+        if trial.state in [ts.COMPLETE, ts.PRUNED, ts.FAIL]:
+            print(_get_trial_desc(trial))
 
     print('\n')
     
@@ -134,13 +165,18 @@ try:
 except ImportError:
     NOTEBOOK_MODE = False
 
+
 class TopicModelTuner:
+
+    objective = 'minimize'
+    serial_dashboard = _print_study
+    parallel_dashboard = _log_progress
 
     @classmethod
     def load_study(cls, study_name, storage = 'sqlite:///mira-tuning.db'):
 
         return optuna.create_study(
-            direction = 'minimize',
+            directions = cls.objective,
             study_name = study_name,
             storage = storage,
             load_if_exists= True,
@@ -163,7 +199,9 @@ class TopicModelTuner:
         storage = 'sqlite:///mira-tuning.db',
         model_survival_rate=1/4,
         usefulness_function = None,
-        optimize_usefulness = False,*,
+        optimize_usefulness = False,
+        stop_condition = None,
+        min_trials = 32,*,
         save_name,
     ):
         '''
@@ -301,6 +339,10 @@ class TopicModelTuner:
         self.model_survival_rate = model_survival_rate
         self.usefulness_function = usefulness_function
         self.optimize_usefulness = optimize_usefulness
+        self.stop_condition = stop_condition
+        self.min_trials = min_trials
+
+        self.study = self.create_study()
 
 
     @adi.wraps_modelfunc(adi.fetch_adata_shape, tmi.add_test_column, ['shape'])
@@ -331,110 +373,155 @@ class TopicModelTuner:
         np.random.seed(self.seed)
         return self.test_column, np.random.rand(num_samples) > train_size
 
-    @staticmethod
-    def _trial(
-            trial,
-            base_seed = 0,
-            parallel = False,
-            usefulness_function = None,
-            optimize_usefulness = False,
-            worker_number = 0,*,
-            tensorboard_logdir,
-            model, data, cv, batch_sizes,
-            min_topics, max_topics,
-            min_dropout, max_dropout,
-            min_epochs, max_epochs,
-            tune_kl_strategy,
-            tune_layers,
-            study_name,
-        ):
-            
+
+    def suggest_parameters(self, trial):
+
         params = dict(
-            num_topics = trial.suggest_int('num_topics', min_topics, max_topics, log=True),
-            batch_size = trial.suggest_categorical('batch_size', batch_sizes),
-            encoder_dropout = trial.suggest_float('encoder_dropout', min_dropout, max_dropout),
-            num_epochs = trial.suggest_int('num_epochs', min_epochs, max_epochs, log = True),
+            num_topics = trial.suggest_int('num_topics', self.min_topics, self.max_topics, log=True),
+            batch_size = trial.suggest_categorical('batch_size', self.batch_sizes),
+            encoder_dropout = trial.suggest_float('encoder_dropout', self.min_dropout, self.max_dropout, log = True),
+            num_epochs = trial.suggest_int('num_epochs', self.min_epochs, self.max_epochs, log = True),
             #beta = trial.suggest_float('beta', 0.90, 0.97, log = True),
         )
 
-        if tune_kl_strategy:
+        if self.tune_kl_strategy:
             params['kl_strategy'] = trial.suggest_categorical('kl_strategy', ['monotonic','cyclic'])
 
-        if tune_layers:
+        if self.tune_layers:
             params['num_layers'] = trial.suggest_categorical('num_layers', [2,3])
 
-        model.set_params(**params, seed = base_seed + trial.number)
+        return params
 
-        num_splits = cv.get_n_splits(data)
-        report_scores, cv_metrics = [], []
+
+    def get_trial_score(self, cv_metrics):
+
+        metrics = self.transpose_metrics(cv_metrics)
+
+        if self.optimize_usefulness:
+            return -np.mean(metrics['usefulness'])
+        else:
+            return np.mean(metrics['loss'])
+
+
+    @staticmethod
+    def transpose_metrics(cv_metrics):
+
+        metric_summaries = {}
+        for fold, metrics in enumerate(cv_metrics):
+            for metric, value in metrics.items():
+                if not metric in metric_summaries:
+                    metric_summaries[metric] = []
+                
+                metric_summaries[metric].append(value)
+
+        return metric_summaries
+
+
+    def run_trial(
+            self,
+            trial,
+            parallel,*,
+            data,
+            worker_number,
+        ):
+            
+        params = self.suggest_parameters(trial)
+
+        self.model.set_params(**params, seed = self.seed + trial.number)
+
+        num_splits = self.cv.get_n_splits(data)
+        cv_metrics = []
         must_prune = False
 
         with SummaryWriter(
-                log_dir=os.path.join(tensorboard_logdir, study_name, str(trial.number))
+                log_dir=os.path.join(self.tensorboard_logdir, self.study_name, str(trial.number))
             ) as trial_writer:
             
             if not parallel:
                 print('Evaluating: ' + _format_params(params))
 
-            for step, (train_idx, test_idx) in enumerate(cv.split(data)):
+            for step, (train_idx, test_idx) in enumerate(self.cv.split(data)):
 
                 train_counts, test_counts = data[train_idx], data[test_idx]
                 
-                with SummaryWriter(log_dir=os.path.join(tensorboard_logdir, study_name, str(trial.number), str(step))) as model_writer:
-                    for epoch, loss in model._internal_fit(train_counts, writer = model_writer):
+                with SummaryWriter(log_dir=os.path.join(self.tensorboard_logdir, self.study_name, str(trial.number), str(step))) as model_writer:
+                    for epoch, loss in self.model._internal_fit(train_counts, writer = model_writer):
                         
                         if not parallel:
-                            num_hashtags = int(10 * epoch/params['num_epochs'])
+                            num_hashtags = int(10 * epoch/self.model.num_epochs)
                             print('\rProgress: ' + '|##########'*step + '|' + '#'*num_hashtags + ' '*(10-num_hashtags) + '|' + '          |'*(num_splits-step-1),
                                 end = '')
 
-                distortion, rate, loss = model.distortion_rate_loss(test_counts)
+                distortion, rate, loss = self.model.distortion_rate_loss(test_counts)
                 metrics = {'rate' : rate, 'distortion' : distortion, 'loss' : loss}
 
-                if not usefulness_function is None:
-                    usefulness, eval_metrics = usefulness_function(model, train_counts, test_counts, data)
+                if not self.usefulness_function is None:
+                    usefulness, eval_metrics = self.usefulness_function(
+                                self.model, train_counts, test_counts, data
+                            )
                     metrics.update({'usefulness' : usefulness, **eval_metrics})
 
-                if optimize_usefulness:
-                    report_scores.append(-usefulness)
-                else:
-                    report_scores.append(loss)
-                    
                 cv_metrics.append(metrics)
 
-                trial.report(np.mean(report_scores), step)
-                    
-                if trial.should_prune() and step + 1 < num_splits:
-                    must_prune = True
-                    break
+                try:
+                    trial.report(self.get_trial_score(cv_metrics), step)
+                        
+                    if trial.should_prune() and step + 1 < num_splits:
+                        must_prune = True
+                        break
+                except NotImplementedError:
+                    pass
 
-            trial_score = np.mean(report_scores)
+            metric_summaries = self.transpose_metrics(cv_metrics)
+            metric_summaries = {metric : np.mean(values) for metric, values in metric_summaries.items()}
 
             metrics = {
-                        'trial_score' : trial_score,
-                        'test_score' : 1.,
-                        'num_folds_tested' : len(report_scores),
                         'number' : trial.number,
-                        'worker_number' : worker_number,
+                        **metric_summaries,
                         **{'cv_{}_{}'.format(str(fold), metric) : value 
                             for fold, metrics in enumerate(cv_metrics)
                             for metric, value in metrics.items()
-                        }
+                        },
+                        'test_score' : 1.,
+                        'worker_number' : worker_number,
+                        'num_folds_tested' : len(cv_metrics),
                     }
 
+            trial_score = self.get_trial_score(cv_metrics)
+
+            if isinstance(trial_score, float):
+                metrics['trial_score'] = trial_score
+            else:
+                for i, val in enumerate(trial_score):
+                    metrics['trial_score_' + str(i)] = val
+
+            params['study_name'] = self.study_name
             trial_writer.add_hparams(params, metrics)
+            #for k,v in metrics.items():
+            #    trial.set_user_attr(k, v)
 
             if must_prune:
                 raise optuna.TrialPruned()
 
         return trial_score
 
+
     def print(self):
         '''
         Print study results from tuning to screen. Useful to see results of 
         tuning when reloading study.
         '''
-        _print_study(self.study, None)
+        self.serial_dashboard(self.study, None)
+
+
+    def create_study(self):
+
+        return optuna.create_study(
+            directions = self.objective,
+            study_name = self.study_name,
+            storage = self.storage,
+            load_if_exists= True,
+        )
 
 
     def get_pruner(self,*,n_workers, num_splits):
@@ -475,10 +562,18 @@ class TopicModelTuner:
             return optuna.samplers.TPESampler(
                 seed = self.seed + worker_number,
                 constant_liar=parallel,
+                **optuna.samplers.TPESampler.hyperopt_parameters()
             )
         else:
             raise ValueError('Sampler {} is not an option'.format(str(self.sampler)))
 
+
+    @property
+    def n_completed_trials(self):
+        return len([
+            trial for trial in self.study.trials
+            if trial.state == ts.PRUNED or trial.state == ts.COMPLETE
+        ])
 
     def tune(self, adata, n_workers = 1):
         '''
@@ -511,21 +606,14 @@ class TopicModelTuner:
 
         self.model.cpu()
 
-        self.study = optuna.create_study(
-            direction = 'minimize',
-            study_name = self.study_name,
-            storage = self.storage,
-            load_if_exists= True,
-        )
-
-        if len(self.study.trials) > 0:
-            logger.warn('Resuming study with {} trials.'.format(len(self.study.trials)))
+        if self.n_completed_trials > 0:
+            logger.warn('Resuming study with {} trials.'.format(self.n_completed_trials))
 
         tune_func = partial(
                 self._tune, adata, parallel = n_workers>1, n_workers = n_workers,
             )
 
-        remaining_trials = self.iters - len(self.study.trials)
+        remaining_trials = self.iters - self.n_completed_trials
         if remaining_trials > 0:
 
             worker_iters = np.array([remaining_trials//n_workers]*n_workers)
@@ -544,20 +632,36 @@ class TopicModelTuner:
         return self.study
 
 
+    def get_stop_callback(self):
+        if isinstance(self.stop_condition, int) and self.stop_condition > 0:
+            return partial(terminate_after_n_failures, 
+                n_failures = self.stop_condition,
+                min_trials = self.min_trials)
+        else:
+            return self.stop_condition
+
+
+    def get_cv(self):
+
+        if isinstance(self.cv, int):
+            return KFold(self.cv, random_state = self.seed, shuffle= True)
+        else:
+            return self.cv
+
+
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, 
         fill_kwargs = ['all_data', 'train_data', 'test_data'])
     def _tune(self, worker_number = 0, iters = 5, n_workers = 1, parallel = False,*, 
         all_data, train_data, test_data):
 
-        if isinstance(self.cv, int):
-            self.cv = KFold(self.cv, random_state = self.seed, shuffle= True)
+        self.cv = self.get_cv()
 
         if parallel and self.model.dataset_loader_workers > 0:
             logger.warn('Worker {}: Parrallelized tuning on one node with muliprocessed data loading is not permitted. Setting "dataset_loader_workers" to zero.'.format(str(worker_number)))
             self.model.dataset_loader_workers = 0
         
         self.study = optuna.create_study(
-            direction = 'minimize',
+            directions = self.objective,
             pruner = self.get_pruner(n_workers = n_workers, num_splits = self.cv.get_n_splits()),
             sampler = self.get_tuner(worker_number = worker_number, parallel=parallel),
             study_name = self.study_name,
@@ -566,25 +670,17 @@ class TopicModelTuner:
         )
         
         trial_func = partial(
-            self._trial,
-            base_seed = self.seed,
+            self.run_trial,
+            parallel = parallel,
+            data = train_data,
             worker_number = worker_number,
-            model = self.model, data = train_data,
-            cv = self.cv, batch_sizes = self.batch_sizes,
-            min_dropout = self.min_dropout, max_dropout = self.max_dropout,
-            min_epochs = self.min_epochs, max_epochs = self.max_epochs,
-            min_topics = self.min_topics, max_topics = self.max_topics,
-            tune_kl_strategy = self.tune_kl_strategy, 
-            tune_layers = self.tune_layers,
-            study_name = self.study_name,
-            tensorboard_logdir = self.tensorboard_logdir,
-            usefulness_function = self.usefulness_function,
-            optimize_usefulness = self.optimize_usefulness,
-            parallel = parallel
         )
 
         if not torch.cuda.is_available():
             logger.warn('Worker {}: GPU is not available, will not speed up training.'.format(str(worker_number)))
+
+        print_callback = self.serial_dashboard if not parallel else partial(self.parallel_dashboard, worker_number = worker_number)
+        stop_callback = self.get_stop_callback()
 
         with DisableLogger(baselogger), DisableLogger(interfacelogger), DisableLogger(corelogger):
 
@@ -596,10 +692,10 @@ class TopicModelTuner:
                 try:
                     self.study.optimize(
                         trial_func, n_trials = iters, 
-                        callbacks = [_print_study] if not parallel else [partial(_log_progress, worker_number = worker_number, num_trials = self.iters)],
+                        callbacks = [print_callback] + ([stop_callback] if not stop_callback is None else []),
                         catch = (ModelParamError,),
                     )
-                except KeyboardInterrupt:
+                except (KeyboardInterrupt, FailureToImproveException):
                     pass
 
         if not parallel:
@@ -662,11 +758,10 @@ class TopicModelTuner:
             of format [{parameter combination 1}, ..., {parameter combination N}]
         '''
 
-        return [trial.params for trial in self.get_best_trials(top_n_trials)]
-
-    def _get_best_params(self, top_n_trials = 5):
-
-        return {trial.number : trial.params for trial in self.get_best_trials(top_n_trials)}
+        return [
+            {**trial.params, 'seed' : self.seed + trial.number} 
+            for trial in self.get_best_trials(top_n_trials)
+        ]
 
 
     @adi.wraps_modelfunc(tmi.fetch_split_train_test, adi.return_output, ['all_data', 'train_data', 'test_data'])
@@ -701,7 +796,7 @@ class TopicModelTuner:
         '''
 
         scores = []
-        best_params = self._get_best_params(top_n_trials)
+        best_params = self.get_best_params(top_n_trials)
 
         for trial_num, params in best_params.items():
             logger.info('Training model with parameters: ' + _format_params(params))
@@ -750,3 +845,151 @@ class TopicModelTuner:
             self.model.fit(all_data, writer = writer)
 
         return self.model
+
+
+def _mo_print_study(self, study, trial):
+
+    if study is None:
+        raise ValueError('Cannot print study before running any trials.')
+    
+    _clear_page()
+
+    print('#Topics | #Trials', end = '')
+    _print_topic_histogram(study) 
+
+    print('Trial Information:')
+    for trial in study.trials:
+        if trial.state in [ts.COMPLETE, ts.PRUNED, ts.FAIL]:
+            print(_get_trial_desc(trial))
+
+    print('\n')
+
+
+def _mo_log_progress(self, study, trial,*,worker_number):
+    _log_progress(study, trial, worker_number=worker_number)
+
+class UsefulnessTuner(TopicModelTuner):
+
+    objective = ['minimize','minimize']
+    serial_dashboard = _mo_print_study
+    parallel_dashboard = _mo_log_progress
+
+    def __init__(self,
+        topic_model,
+        test_column = 'test_set_cells',
+        min_topics = 5, max_topics = 55,
+        min_dropout = 0.001, max_dropout = 0.05,
+        tune_dropout = False,
+        train_size = 0.8,
+        cv = 3, 
+        max_trials = 64,
+        min_trials = 32,
+        seed = 2556,
+        pruner = 'mira',
+        sampler = 'tpe',
+        tensorboard_logdir = 'runs',
+        storage = 'sqlite:///mira-tuning.db',
+        model_survival_rate=1/4,
+        optimize_usefulness = False,
+        stop_condition = 8,
+        initial_topic_array = True,*,
+        usefulness_function,
+        save_name,
+    ):
+        self.model = topic_model
+        self.test_column = test_column
+        self.min_topics, self.max_topics = min_topics, max_topics
+        self.cv = cv
+        self.iters = max_trials
+        self.seed = seed
+        self.study_name = save_name
+        self.storage = storage
+        self.pruner = pruner
+        self.sampler = sampler
+        self.tensorboard_logdir = tensorboard_logdir
+        self.model_survival_rate = model_survival_rate
+        self.usefulness_function = usefulness_function
+        self.optimize_usefulness = optimize_usefulness
+        self.stop_condition = stop_condition
+        self.min_trials = min_trials
+        self.train_size = train_size
+        self.initial_topic_array = initial_topic_array
+        self.min_dropout = min_dropout
+        self.max_dropout = max_dropout
+        self.tune_dropout = tune_dropout
+
+        self.study = self.create_study()
+
+
+    def enqueue_initial_trials(self, n_trials = 5):
+
+        for num_topics in np.geomspace(self.min_topics, self.max_topics, n_trials):
+            self.study.enqueue_trial(
+                {
+                    'num_topics' : int(num_topics),
+                    'encoder_dropout' : self.model.encoder_dropout,
+                    'reconstruction_weight' : self.model.reconstruction_weight
+                }
+            )
+
+    def suggest_parameters(self, trial):
+
+        params = dict(
+            num_topics = trial.suggest_int('num_topics', self.min_topics, self.max_topics, log=True),
+            reconstruction_weight = trial.suggest_float('reconstruction_weight', 0.1, 1, log = True),
+        )
+
+        if self.tune_dropout:
+            params['encoder_dropout'] = trial.suggest_float('encoder_dropout', self.min_dropout, self.max_dropout, log = True)
+
+        return params
+
+
+    def get_pruner(self,*,n_workers, num_splits):
+        return None
+
+
+    def get_trial_score(self, cv_metrics):
+
+        metrics = self.transpose_metrics(cv_metrics)
+
+        return np.mean(np.array(metrics['distortion']) + np.array(metrics['rate'])),\
+            -np.mean(metrics['usefulness'])
+        
+
+    def get_cv(self):
+        if isinstance(self.cv, int):
+            return ShuffleSplit(self.cv, train_size = self.train_size,
+                random_state = self.seed)
+        else:
+            return self.cv
+
+
+    def get_tuner(self, worker_number = 0, parallel = False):
+        if isinstance(self.sampler, optuna.samplers.BaseSampler):
+            self.sampler.seed+=worker_number
+            return self.sampler
+        elif self.sampler == 'tpe':
+            return optuna.samplers.TPESampler(
+                seed = self.seed + worker_number,
+                constant_liar=parallel,
+                **optuna.samplers.TPESampler.hyperopt_parameters(),
+                multivariate = True,
+            )
+        else:
+            raise ValueError('Sampler {} is not an option'.format(str(self.sampler)))
+
+
+    def tune(self, adata, n_workers = 1):
+
+        rec_params = self.model.recommend_parameters(len(adata))
+        logger.info('Inferred params based on data properties :\n  ' + '\n  '.join(
+            '{}: {}'.format(k, v) for k, v in rec_params.items()
+        ))
+
+        self.model.set_params(**rec_params)
+
+        if self.initial_topic_array and len(self.study.trials) == 0:
+            self.enqueue_initial_trials(max(5, n_workers))
+
+        return super().tune(adata, n_workers=n_workers)
