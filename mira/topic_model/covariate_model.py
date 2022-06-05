@@ -6,7 +6,7 @@ import pyro.distributions as dist
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.optim import Adam
+from torch.optim import AdamW as Adam
 from pyro.infer import SVI, TraceMeanField_ELBO
 from tqdm.notebook import tqdm, trange
 import numpy as np
@@ -85,9 +85,12 @@ class CovariateModelMixin(BaseModel):
 
         self.dependence_network = self.dependence_model(
             self.dependence_model.get_statistics_network(
-            2*self.num_exog_features, 
+            2*self.num_exog_features + self.num_topics, 
             self.dependence_hidden)
         ).to(self.device)
+
+    def _get_min_resources(self):
+        return self.num_epochs
 
 
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,

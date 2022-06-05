@@ -123,9 +123,6 @@ class AccessibilityTopicModel(BaseModel):
         read_depth, covariates, extra_features, anneal_factor = 1.,
         batch_size_adjustment = 1.):
 
-        logger.debug('Batch size adjustment: ' + str(batch_size_adjustment))
-        logger.debug('Anneal factor: ' + str(anneal_factor/self.reconstruction_weight))
-
         with poutine.scale(None, batch_size_adjustment):
 
             theta_loc, theta_scale = super().model()
@@ -166,6 +163,14 @@ class AccessibilityTopicModel(BaseModel):
                     theta = pyro.sample(
                         "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
                     )
+
+    def _get_min_resources(self):
+        return self.num_epochs
+
+    #def _get_loss_adjustment(self, batch):
+    #    adjustment = super()._get_loss_adjustment(batch)
+    #    return adjustment * 1.5e6/(150.99925507*batch['read_depth'].mean() +  330028.22965241596)
+
 
     def recommend_parameters(self, n_samples, finetune = False):
         params = super().recommend_parameters(n_samples)
@@ -265,6 +270,13 @@ class AccessibilityTopicModel(BaseModel):
                     ).astype(np.int64)
 
         return preprocess_exog'''
+
+    def get_rd_fn(self):
+        
+        def preprocess_read_depth(X):
+            return np.array((X > 0).sum(-1)).reshape((-1,1)).astype(np.float32)
+        
+        return preprocess_read_depth
 
 
     def get_endog_fn(self):

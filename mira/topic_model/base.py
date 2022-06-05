@@ -109,9 +109,11 @@ class Decoder(nn.Module):
         self.covariate_signal = self.get_batch_effect(X, covariates, 
             nullify_covariates = nullify_covariates)
 
-        self.biological_signal = self.get_biological_effect(self.drop2(X))
+        biological_signal = self.get_biological_effect(self.drop2(X))
         
-        return F.softmax(self.biological_signal + self.covariate_signal, dim=1)
+        self.biological_signal = torch.hstack([biological_signal, theta])
+
+        return F.softmax(biological_signal + self.covariate_signal, dim=1)
 
 
     def get_biological_effect(self, theta):
@@ -338,6 +340,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.reconstruction_weight = reconstruction_weight
         self.dataset_loader_workers = dataset_loader_workers
 
+    def _get_min_resources(self):
+        return self.num_epochs//3
 
     def _recommend_batchsize(self, n_samples):
         if n_samples >= 4000 and n_samples <= 10000:
@@ -375,7 +379,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             'batch_size' : self._recommend_batchsize(n_samples),
             'hidden' : self._recommend_hidden(n_samples),
             'num_layers' : self._recommend_num_layers(n_samples),
-            'num_epochs' : 20 if not finetune else 40,
+            'num_epochs' : 24 if not finetune else 48,
             'num_topics' : self._recommend_num_topics(n_samples),
         }
 
@@ -450,6 +454,9 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     def _get_dataset_statistics(self, dataset):
         pass
+
+    def _get_loss_adjustment(self, batch):
+        return 64/self.batch_size
 
     def _get_weights(self, on_gpu = True, inference_mode = False):
         
@@ -733,7 +740,9 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 self.train()
                 for batch in self.transform_batch(data_loader, bar = False):
 
-                    step_loss += self._step(batch, 1., 64/self.batch_size)['loss']
+                    #batch.pop('idx')
+
+                    step_loss += self._step(batch, 1., self._get_loss_adjustment(batch))['loss']
                     batches_complete+=1
                     
                     if batches_complete % eval_every == 0 and batches_complete > 0:
@@ -974,6 +983,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         t = trange(self.num_epochs, desc = 'Epoch 0', leave = True) if training_bar else range(self.num_epochs)
         _t = iter(t)
         epoch = 0
+
+        #self.track_idxs = []
+        #self.track_losses = []
+        #self.track_adjustment = []
+
         while True:
             
             self.train()
@@ -981,9 +995,12 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             for batch in self.transform_batch(data_loader, bar = False):
                 
                 anneal_factor = anneal_fn(step_count)
+                
+                #batch.pop('idx')
+                #self.track_idxs.append()
 
                 try:
-                    metrics = self._step(batch, anneal_factor, 64/self.batch_size)
+                    metrics = self._step(batch, anneal_factor, self._get_loss_adjustment(batch))
                     #metrics['learning_rate'] = float(scheduler._last_lr[0])
 
                     if not writer is None:
@@ -992,6 +1009,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
                     running_loss+=metrics['loss']
                     step_count+=1
+
+                    #DELETE
+                    #self.track_losses.append(
+                    #    metrics['loss']
+                    #)
 
                 except ValueError:
                     raise ModelParamError('Gradient overflow caused parameter values that were too large to evaluate. Try setting a lower learning rate.')

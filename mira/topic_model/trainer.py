@@ -1,6 +1,7 @@
 
+from audioop import add
 import numpy as np
-from sklearn.model_selection import KFold, ShuffleSplit
+from sklearn.model_selection import KFold, ShuffleSplit, train_test_split
 from functools import partial
 import os
 import optuna
@@ -25,6 +26,7 @@ from mira.adata_interface.core import logger as corelogger
 from torch.utils.tensorboard import SummaryWriter
 import torch
 from mira.topic_model.pruner import MemoryPercentileStepPruner
+from mira.plots.pareto_front_plot import plot_intermediate_values, plot_pareto_front
 
 
 class DisableLogger:
@@ -57,7 +59,7 @@ def terminate_after_n_failures(study, trail,
             failures+=1
 
     if failures > n_failures:
-        study.stop()
+        raise FailureToImproveException()
 
 
 def _format_params(params):
@@ -93,7 +95,7 @@ def _get_trial_desc(trial):
                 .format(str(trial.number), str(trial.params))
 
 
-def _log_progress(study, trial,*, worker_number):
+def _log_progress(tuner, study, trial,*, worker_number):
     
     logger.info('Worker {}: '.format(worker_number) + _get_trial_desc(trial))
 
@@ -128,7 +130,7 @@ def _clear_page():
         print('------------------------------------------------------')
 
 
-def _print_study(study, trial):
+def _print_study(tuner, study, trial):
 
     if study is None:
         raise ValueError('Cannot print study before running any trials.')
@@ -138,7 +140,7 @@ def _print_study(study, trial):
     try:
         print('Trials finished: {} | Best trial: {} | Best score: {:.4e}\nPress ctrl+C,ctrl+C or esc,I+I,I+I in Jupyter notebook to stop early.'.format(
         str(len(study.trials)),
-        str(study.best_trial.number),
+        str(study.best_trials[0].number),
         study.best_value
     ), end = '\n\n')
     except ValueError:
@@ -183,7 +185,6 @@ class TopicModelTuner:
         )
 
     def __init__(self,
-        topic_model,
         test_column = 'test_set_cells',
         min_topics = 5, max_topics = 55,
         min_epochs = 20, max_epochs = 40,
@@ -320,7 +321,6 @@ class TopicModelTuner:
             ... )
 
         '''
-        self.model = topic_model
         self.test_column = test_column
         self.min_topics, self.max_topics = min_topics, max_topics
         self.min_epochs, self.max_epochs = min_epochs, max_epochs
@@ -422,12 +422,13 @@ class TopicModelTuner:
             trial,
             parallel,*,
             data,
+            model,
             worker_number,
         ):
             
         params = self.suggest_parameters(trial)
 
-        self.model.set_params(**params, seed = self.seed + trial.number)
+        model.set_params(**params, seed = self.seed + trial.number)
 
         num_splits = self.cv.get_n_splits(data)
         cv_metrics = []
@@ -445,19 +446,19 @@ class TopicModelTuner:
                 train_counts, test_counts = data[train_idx], data[test_idx]
                 
                 with SummaryWriter(log_dir=os.path.join(self.tensorboard_logdir, self.study_name, str(trial.number), str(step))) as model_writer:
-                    for epoch, loss in self.model._internal_fit(train_counts, writer = model_writer):
+                    for epoch, loss in model._internal_fit(train_counts, writer = model_writer):
                         
                         if not parallel:
-                            num_hashtags = int(10 * epoch/self.model.num_epochs)
+                            num_hashtags = int(10 * epoch/model.num_epochs)
                             print('\rProgress: ' + '|##########'*step + '|' + '#'*num_hashtags + ' '*(10-num_hashtags) + '|' + '          |'*(num_splits-step-1),
                                 end = '')
 
-                distortion, rate, loss = self.model.distortion_rate_loss(test_counts)
+                distortion, rate, loss = model.distortion_rate_loss(test_counts)
                 metrics = {'rate' : rate, 'distortion' : distortion, 'loss' : loss}
 
                 if not self.usefulness_function is None:
                     usefulness, eval_metrics = self.usefulness_function(
-                                self.model, train_counts, test_counts, data
+                                model, train_counts, test_counts, data
                             )
                     metrics.update({'usefulness' : usefulness, **eval_metrics})
 
@@ -497,8 +498,11 @@ class TopicModelTuner:
 
             params['study_name'] = self.study_name
             trial_writer.add_hparams(params, metrics)
-            #for k,v in metrics.items():
-            #    trial.set_user_attr(k, v)
+            trial.set_user_attr("distortion", metric_summaries['distortion'])
+            trial.set_user_attr("rate", metric_summaries['rate'])
+            
+            if 'usefulness' in metric_summaries:
+                trial.set_user_attr('usefulness', metric_summaries['usefulness'])
 
             if must_prune:
                 raise optuna.TrialPruned()
@@ -524,7 +528,9 @@ class TopicModelTuner:
         )
 
 
-    def get_pruner(self,*,n_workers, num_splits):
+    def get_pruner(self,*,n_workers):
+
+        num_splits = self.cv.get_n_splits()
 
         if self.pruner == 'mira':
 
@@ -575,7 +581,7 @@ class TopicModelTuner:
             if trial.state == ts.PRUNED or trial.state == ts.COMPLETE
         ])
 
-    def tune(self, adata, n_workers = 1):
+    def tune(self, model, adata, n_workers = 1):
         '''
         Run Bayesian optimization scheme for topic model hyperparameters. This
         function launches multiple concurrent training processes to evaluate 
@@ -604,13 +610,14 @@ class TopicModelTuner:
         if self.optimize_usefulness:
             assert not self.usefulness_function is None
 
-        self.model.cpu()
+        model.cpu()
 
         if self.n_completed_trials > 0:
             logger.warn('Resuming study with {} trials.'.format(self.n_completed_trials))
 
         tune_func = partial(
-                self._tune, adata, parallel = n_workers>1, n_workers = n_workers,
+                self._tune, parallel = n_workers>1, n_workers = n_workers,
+                            model = model, data = adata,
             )
 
         remaining_trials = self.iters - self.n_completed_trials
@@ -648,21 +655,20 @@ class TopicModelTuner:
         else:
             return self.cv
 
+    def _tune(self, worker_number = 0, iters = 5, n_workers = 1, parallel = False,
+        *,model, data):
 
-    @adi.wraps_modelfunc(tmi.fetch_split_train_test, 
-        fill_kwargs = ['all_data', 'train_data', 'test_data'])
-    def _tune(self, worker_number = 0, iters = 5, n_workers = 1, parallel = False,*, 
-        all_data, train_data, test_data):
+        train_data = tmi.fetch_split_train_test(self, data)['train_data']
 
         self.cv = self.get_cv()
 
-        if parallel and self.model.dataset_loader_workers > 0:
+        if parallel and model.dataset_loader_workers > 0:
             logger.warn('Worker {}: Parrallelized tuning on one node with muliprocessed data loading is not permitted. Setting "dataset_loader_workers" to zero.'.format(str(worker_number)))
-            self.model.dataset_loader_workers = 0
+            model.dataset_loader_workers = 0
         
         self.study = optuna.create_study(
             directions = self.objective,
-            pruner = self.get_pruner(n_workers = n_workers, num_splits = self.cv.get_n_splits()),
+            pruner = self.get_pruner(n_workers = n_workers, model = model),
             sampler = self.get_tuner(worker_number = worker_number, parallel=parallel),
             study_name = self.study_name,
             storage = self.storage,
@@ -673,6 +679,7 @@ class TopicModelTuner:
             self.run_trial,
             parallel = parallel,
             data = train_data,
+            model = model,
             worker_number = worker_number,
         )
 
@@ -693,7 +700,7 @@ class TopicModelTuner:
                     self.study.optimize(
                         trial_func, n_trials = iters, 
                         callbacks = [print_callback] + ([stop_callback] if not stop_callback is None else []),
-                        catch = (ModelParamError,),
+                        catch = (ModelParamError, ValueError),
                     )
                 except (KeyboardInterrupt, FailureToImproveException):
                     pass
@@ -865,17 +872,13 @@ def _mo_print_study(self, study, trial):
     print('\n')
 
 
-def _mo_log_progress(self, study, trial,*,worker_number):
-    _log_progress(study, trial, worker_number=worker_number)
-
 class UsefulnessTuner(TopicModelTuner):
 
     objective = ['minimize','minimize']
     serial_dashboard = _mo_print_study
-    parallel_dashboard = _mo_log_progress
+    parallel_dashboard = _log_progress
 
     def __init__(self,
-        topic_model,
         test_column = 'test_set_cells',
         min_topics = 5, max_topics = 55,
         min_dropout = 0.001, max_dropout = 0.05,
@@ -892,11 +895,10 @@ class UsefulnessTuner(TopicModelTuner):
         model_survival_rate=1/4,
         optimize_usefulness = False,
         stop_condition = 8,
-        initial_topic_array = True,*,
+        initial_topic_array = False,*,
         usefulness_function,
         save_name,
     ):
-        self.model = topic_model
         self.test_column = test_column
         self.min_topics, self.max_topics = min_topics, max_topics
         self.cv = cv
@@ -927,8 +929,7 @@ class UsefulnessTuner(TopicModelTuner):
             self.study.enqueue_trial(
                 {
                     'num_topics' : int(num_topics),
-                    'encoder_dropout' : self.model.encoder_dropout,
-                    'reconstruction_weight' : self.model.reconstruction_weight
+                    'reconstruction_weight' : 0.5
                 }
             )
 
@@ -936,7 +937,7 @@ class UsefulnessTuner(TopicModelTuner):
 
         params = dict(
             num_topics = trial.suggest_int('num_topics', self.min_topics, self.max_topics, log=True),
-            reconstruction_weight = trial.suggest_float('reconstruction_weight', 0.1, 1, log = True),
+            reconstruction_weight = trial.suggest_float('reconstruction_weight', 0.2, 1, log = False),
         )
 
         if self.tune_dropout:
@@ -945,7 +946,7 @@ class UsefulnessTuner(TopicModelTuner):
         return params
 
 
-    def get_pruner(self,*,n_workers, num_splits):
+    def get_pruner(self,*,n_workers):
         return None
 
 
@@ -980,16 +981,190 @@ class UsefulnessTuner(TopicModelTuner):
             raise ValueError('Sampler {} is not an option'.format(str(self.sampler)))
 
 
-    def tune(self, adata, n_workers = 1):
+    def tune(self, model, adata, n_workers = 1):
 
-        rec_params = self.model.recommend_parameters(len(adata))
-        logger.info('Inferred params based on data properties :\n  ' + '\n  '.join(
-            '{}: {}'.format(k, v) for k, v in rec_params.items()
-        ))
+        #rec_params = model.recommend_parameters(len(adata))
+        #logger.info('Inferred params based on data properties :\n  ' + '\n  '.join(
+        #    '{}: {}'.format(k, v) for k, v in rec_params.items()
+        #))
 
-        self.model.set_params(**rec_params)
+        #model.set_params(**rec_params)
 
         if self.initial_topic_array and len(self.study.trials) == 0:
             self.enqueue_initial_trials(max(5, n_workers))
 
-        return super().tune(adata, n_workers=n_workers)
+        return super().tune(model, adata, n_workers=n_workers)
+
+
+class SpeedyTuner(UsefulnessTuner):
+
+    objective = ['minimize']
+
+    def __init__(self,
+        test_column = 'test_set_cells',
+        min_topics = 5, max_topics = 55,
+        min_dropout = 0.001, max_dropout = 0.05,
+        tune_dropout = False,
+        train_size = 0.8,
+        max_trials = 64,
+        min_trials = 32,
+        seed = 2556,
+        tensorboard_logdir = 'runs',
+        storage = 'sqlite:///mira-tuning.db',
+        pruner = 'sha',
+        sampler = 'tpe',
+        stop_condition = 8,
+        usefulness_function = None,
+        initial_topic_array = False,*,
+        save_name,
+    ):
+        self.test_column = test_column
+        self.min_topics, self.max_topics = min_topics, max_topics
+        self.iters = max_trials
+        self.seed = seed
+        self.study_name = save_name
+        self.storage = storage
+        self.pruner = pruner
+        self.sampler = sampler
+        self.tensorboard_logdir = tensorboard_logdir
+        self.stop_condition = stop_condition
+        self.min_trials = min_trials
+        self.train_size = train_size
+        self.initial_topic_array = initial_topic_array
+        self.min_dropout = min_dropout
+        self.max_dropout = max_dropout
+        self.tune_dropout = tune_dropout
+        self.optimize_usefulness = False
+        self.usefulness_function = usefulness_function
+
+        self.study = self.create_study()
+
+    def get_cv(self):
+        return None
+
+    def get_pruner(self,*, model, n_workers):
+
+        if self.pruner == 'sha':
+            return optuna.pruners.SuccessiveHalvingPruner(
+                min_resource = model._get_min_resources(),
+                reduction_factor = 2,
+            )
+        elif isinstance(self.pruner, optuna.pruners.BasePruner) or self.pruner is None:
+            return self.pruner
+        else:
+            raise ValueError('Pruner {} is not an option'.format(str(self.pruner)))
+
+
+    def run_trial(
+            self,
+            trial,
+            parallel,*,
+            data,
+            model,
+            worker_number,
+        ):
+        
+        must_prune = False
+        params = self.suggest_parameters(trial)
+
+        model.set_params(**params, seed = self.seed + trial.number)
+
+        train_counts, test_counts = train_test_split(
+                                        data, 
+                                        random_state = self.seed, 
+                                        train_size = self.train_size
+                                    )
+
+        with SummaryWriter(
+                log_dir=os.path.join(self.tensorboard_logdir, self.study_name, str(trial.number))
+            ) as trial_writer:
+
+            if not parallel:
+                print('Evaluating: ' + _format_params(params))
+
+            epoch_test_scores = []
+            for epoch, train_loss in model._internal_fit(train_counts, writer = trial_writer):
+                
+                distortion, rate, test_loss = model.distortion_rate_loss(test_counts, bar = False)
+                test_rd = distortion + rate
+
+                if not parallel:
+                    num_hashtags = int(25 * epoch/model.num_epochs)
+                    print('\rProgress: ' + '|' + '\u25A0'*num_hashtags + ' '*(25-num_hashtags) + '|', end = '')
+
+                epoch_test_scores.append(test_rd)
+                trial_writer.add_scalar('test_distortion', distortion, epoch)
+                trial_writer.add_scalar('test_rate', rate, epoch)
+                trial_writer.add_scalar('test_loss', test_rd, epoch)
+
+                
+                trial.report(min(epoch_test_scores), epoch)
+
+                if trial.should_prune() and epoch < model.num_epochs:
+                    must_prune = True
+                    break
+
+            distortion, rate, test_loss = model.distortion_rate_loss(test_counts, bar = False)
+            trial_score = distortion + rate
+
+            metrics = {
+                    'number' : trial.number,
+                    'test_score' : 1.,
+                    'worker_number' : worker_number,
+                    'epochs_trained' : epoch,
+                    'distortion' : distortion,
+                    'rate' : rate,
+                    'trial_score' : trial_score,
+                }
+
+            if not must_prune and not self.usefulness_function is None:
+                usefulness, usefulness_metrics = self.usefulness_function(
+                        model, train_counts, test_counts, data
+                    )
+
+                metrics.update({
+                    'usefulness' : usefulness,
+                    **usefulness_metrics,
+                })
+
+                trial.set_user_attr("usefulness", usefulness)
+
+            params['study_name'] = self.study_name
+            trial_writer.add_hparams(params, metrics)
+            trial.set_user_attr("distortion", distortion)
+            trial.set_user_attr("rate", rate)
+
+        if must_prune:
+            raise optuna.TrialPruned()
+
+        return trial_score
+
+
+    def plot_intermediate_values(self,
+        palette = 'Greys', 
+        ax = None, figsize = (10,7),
+        linecolor = 'black'):
+        
+        return plot_intermediate_values(self.study,
+            palette = palette, ax = ax, figsize = figsize,
+            linecolor = linecolor
+        )
+
+
+    def plot_pareto_front(self,
+        x = 'rate',
+        y = 'distortion',
+        color = 'usefulness',
+        ax = None, 
+        figsize = (7,7),
+        palette = 'Blues',
+        na_color = 'lightgrey',
+        size = 100,
+        alpha = 0.8,
+        add_legend = True,
+    ):
+        
+        return plot_pareto_front(self.study, x = x, y = y, color = color,
+            ax = ax, figsize= figsize, palette = palette, na_color = na_color,
+            size = size, alpha = alpha, add_legend = add_legend
+        )
