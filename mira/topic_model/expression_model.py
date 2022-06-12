@@ -115,10 +115,9 @@ class ExpressionTopicModel(BaseModel):
 
                 with poutine.scale(None, anneal_factor):
                     
-                    with poutine.scale(None, 1/self.reconstruction_weight):
-                        theta = pyro.sample(
-                            "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
-                        )
+                    theta = pyro.sample(
+                        "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
+                    )
 
                     read_scale = pyro.sample('read_depth', dist.LogNormal(torch.log(read_depth), 1.).to_event(1))
 
@@ -147,10 +146,9 @@ class ExpressionTopicModel(BaseModel):
 
                 with poutine.scale(None, anneal_factor):
 
-                    with poutine.scale(None, 1/self.reconstruction_weight):
-                        theta = pyro.sample(
-                            "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
-                        )
+                    theta = pyro.sample(
+                        "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
+                    )
 
                     read_depth = pyro.sample(
                         "read_depth", dist.LogNormal(rd_loc.reshape((-1,1)), rd_scale.reshape((-1,1))).to_event(1)

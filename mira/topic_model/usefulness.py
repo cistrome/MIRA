@@ -147,17 +147,22 @@ def BatchSilhouette(batch_col, cell_type_col = None,
         return cell_stratified_score
 
 
-def aggregate_usefulness(*usefulness_functions):
+class Usefulness:
     
-    def calc_usefulness(model, train, test, data):
+    def __init__(self, *usefulness_functions):
+        self.usefulness_functions = usefulness_functions
+
+    @property
+    def metrics(self):
+        return [fn.__name__ for fn in self.usefulness_functions]
+    
+    def __call__(self, model, train, test, data):
         
         model.predict(data, bar = False)
         
         metrics = {
             fn.__name__ : fn(model, train, test, data)
-            for fn in usefulness_functions
+            for fn in self.usefulness_functions
         }
         
         return gmean(list(metrics.values())), metrics
-    
-    return calc_usefulness

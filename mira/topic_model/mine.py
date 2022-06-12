@@ -140,6 +140,7 @@ class WassersteinDual(Wasserstein):
             t_marg, self.running_mean, self.alpha)
 
         return -t + t_marg
+        
 
 class WassersteinDualFlat(Wasserstein):
 

@@ -129,7 +129,7 @@ class AccessibilityTopicModel(BaseModel):
             
             with pyro.plate("cells", endog_features.shape[0]):
 
-                with poutine.scale(None, anneal_factor/self.reconstruction_weight):
+                with poutine.scale(None, anneal_factor):
                     theta = pyro.sample(
                         "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
                     )
@@ -158,14 +158,14 @@ class AccessibilityTopicModel(BaseModel):
                 
                 theta_loc, theta_scale = self.encoder(endog_features, read_depth, covariates, extra_features)
 
-                with poutine.scale(None, anneal_factor/self.reconstruction_weight):
+                with poutine.scale(None, anneal_factor):
                         
                     theta = pyro.sample(
                         "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
                     )
 
     def _get_min_resources(self):
-        return self.num_epochs
+        return self.num_epochs//2
 
     #def _get_loss_adjustment(self, batch):
     #    adjustment = super()._get_loss_adjustment(batch)

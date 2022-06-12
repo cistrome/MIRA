@@ -1,12 +1,14 @@
 from functools import partial
 import sched
+from statistics import mean
+from unittest import result
 from scipy import interpolate
 import pyro
 import pyro.distributions as dist
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.optim import Adam
+from torch.optim import AdamW as Adam
 from pyro.infer import SVI, TraceMeanField_ELBO
 from tqdm.auto import tqdm, trange
 import numpy as np
@@ -58,6 +60,21 @@ class EarlyStopping:
                 self.best_loss = current_loss
 
         return False
+
+
+class TraceMeanFieldLatentKL(TraceMeanField_ELBO):
+
+    def _differentiable_loss_particle(self, model_trace, guide_trace):
+        
+        try:
+            guide_site = guide_trace.nodes['rna/theta']
+            model_site = model_trace.nodes['rna/theta']
+        except KeyError:
+            guide_site = guide_trace.nodes['atac/theta']
+            model_site = model_trace.nodes['atac/theta']
+
+        return kl_divergence(guide_site["fn"], model_site["fn"]).sum().item(), None
+
 
 def encoder_layer(input_dim, output_dim, nonlin = True, dropout = 0.2):
     layers = [nn.Linear(input_dim, output_dim, bias = False), nn.BatchNorm1d(output_dim)]
@@ -111,7 +128,8 @@ class Decoder(nn.Module):
 
         biological_signal = self.get_biological_effect(self.drop2(X))
         
-        self.biological_signal = torch.hstack([biological_signal, theta])
+        #self.biological_signal = torch.hstack([biological_signal, theta])
+        self.biological_signal = biological_signal
 
         return F.softmax(biological_signal + self.covariate_signal, dim=1)
 
@@ -199,8 +217,9 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             nb_parameterize_logspace = True,
             embedding_size = None,
             kl_strategy = 'cyclic',
-            reconstruction_weight = 1/2,
+            reconstruction_weight = 0.8,
             dataset_loader_workers = 0,
+            weight_decay = 0.005,
             ):
         '''
         Learns regulatory "topics" from single-cell multiomics data. Topics capture 
@@ -339,6 +358,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.kl_strategy = kl_strategy
         self.reconstruction_weight = reconstruction_weight
         self.dataset_loader_workers = dataset_loader_workers
+        self.weight_decay = weight_decay
 
     def _get_min_resources(self):
         return self.num_epochs//3
@@ -456,7 +476,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         pass
 
     def _get_loss_adjustment(self, batch):
-        return 64/self.batch_size
+        return 64/len(batch['read_depth'])
 
     def _get_weights(self, on_gpu = True, inference_mode = False):
         
@@ -575,7 +595,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def _get_1cycle_scheduler(self, n_batches_per_epoch):
         
         return pyro.optim.lr_scheduler.PyroLRScheduler(OneCycleLR_Wrapper, 
-            {'optimizer' : Adam, 'optim_args' : {'lr' : self.min_learning_rate, 'betas' : (self.beta, 0.999)}, 'max_lr' : self.max_learning_rate, 
+            {'optimizer' : Adam, 'optim_args' : {'lr' : self.min_learning_rate, 'betas' : (self.beta, 0.999), 'weight_decay' : self.weight_decay}, 
+            'max_lr' : self.max_learning_rate, 
             'steps_per_epoch' : n_batches_per_epoch, 'epochs' : self.num_epochs, 'div_factor' : self.max_learning_rate/self.min_learning_rate,
             'cycle_momentum' : True, 'three_phase' : False, 'verbose' : False})
 
@@ -722,7 +743,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             return learning_rates[e]/learning_rates[0]
 
         scheduler = pyro.optim.LambdaLR({'optimizer': Adam, 
-            'optim_args': {'lr': learning_rates[0], 'betas' : (0.95, 0.999)}, 
+            'optim_args': {'lr': learning_rates[0], 'betas' : (0.95, 0.999), 'weight_decay' : self.weight_decay}, 
             'lr_lambda' : lr_function})
 
         self.svi = SVI(self.model, self.guide, scheduler, loss=TraceMeanField_ELBO())
@@ -740,9 +761,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 self.train()
                 for batch in self.transform_batch(data_loader, bar = False):
 
-                    #batch.pop('idx')
-
-                    step_loss += self._step(batch, 1., self._get_loss_adjustment(batch))['loss']
+                    step_loss += self._step(batch, 1/self.reconstruction_weight, self._get_loss_adjustment(batch))['loss']
                     batches_complete+=1
                     
                     if batches_complete % eval_every == 0 and batches_complete > 0:
@@ -984,21 +1003,14 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         _t = iter(t)
         epoch = 0
 
-        #self.track_idxs = []
-        #self.track_losses = []
-        #self.track_adjustment = []
-
         while True:
             
             self.train()
             running_loss = 0.0
             for batch in self.transform_batch(data_loader, bar = False):
                 
-                anneal_factor = anneal_fn(step_count)
+                anneal_factor = anneal_fn(step_count)/self.reconstruction_weight
                 
-                #batch.pop('idx')
-                #self.track_idxs.append()
-
                 try:
                     metrics = self._step(batch, anneal_factor, self._get_loss_adjustment(batch))
                     #metrics['learning_rate'] = float(scheduler._last_lr[0])
@@ -1009,11 +1021,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
                     running_loss+=metrics['loss']
                     step_count+=1
-
-                    #DELETE
-                    #self.track_losses.append(
-                    #    metrics['loss']
-                    #)
 
                 except ValueError:
                     raise ModelParamError('Gradient overflow caused parameter values that were too large to evaluate. Try setting a lower learning rate.')
@@ -1275,7 +1282,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         return ilr.centered_boxcox_transform(topic_compositions, a = box_cox).dot(basis)
 
 
-    def _evaluate_vae_loss(self, model, loss, 
+    def _evaluate_vae_loss(self, model, losses, 
         batch_size = 512, bar = False,*, dataset):
 
         #try:
@@ -1285,19 +1292,22 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         self.eval()
         self._set_seeds()
-
-        running_loss = 0
         
         data_loader = self.get_dataloader(dataset, training=False, 
             batch_size = batch_size)
         
+        results = []
         for batch in self.transform_batch(data_loader, bar = bar):
             with torch.no_grad():
-                running_loss += float(
-                    loss(model, self.guide, **batch, anneal_factor = 1.0)
+                #running_loss += float(
+                #    loss(model, self.guide, **batch, anneal_factor = 1.0)
+                #)
+                results.append(
+                    list(map(lambda loss_fn : float(loss_fn(model, self.guide, **batch, anneal_factor = 1.)), 
+                        losses))
                 )
 
-        return running_loss/len(dataset)
+        return list(map(lambda x : sum(x)/len(dataset), list(zip(*results))))
 
 
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
@@ -1310,35 +1320,16 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     def _distortion_rate_loss(self, batch_size = 512, bar = False,*,dataset):
 
-        class TraceMeanFieldLatentKL(TraceMeanField_ELBO):
-
-            def _differentiable_loss_particle(self, model_trace, guide_trace):
-                
-                try:
-                    guide_site = guide_trace.nodes['rna/theta']
-                    model_site = model_trace.nodes['rna/theta']
-                except KeyError:
-                    guide_site = guide_trace.nodes['atac/theta']
-                    model_site = model_trace.nodes['atac/theta']
-
-                return kl_divergence(guide_site["fn"], model_site["fn"]).sum().item(), None
-
-        
         self.eval()
-        loss_vae = self._evaluate_vae_loss(
-                self.model, TraceMeanField_ELBO().loss,
+        vae_loss, rate = self._evaluate_vae_loss(
+                self.model, [TraceMeanField_ELBO().loss, TraceMeanFieldLatentKL().loss],
                 dataset=dataset, batch_size = batch_size,
                 bar = bar,
             )
 
-        rate = self._evaluate_vae_loss(
-                self.model, TraceMeanFieldLatentKL().loss,
-                dataset=dataset, batch_size = batch_size, bar = bar,
-            )
+        distortion = vae_loss - rate
 
-        distortion = loss_vae - rate/self.reconstruction_weight
-
-        return distortion, rate, loss_vae/self.num_exog_features #loss_vae/self.num_exog_features
+        return distortion, rate, vae_loss/self.num_exog_features #loss_vae/self.num_exog_features
 
     
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,

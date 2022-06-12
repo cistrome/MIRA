@@ -562,13 +562,17 @@ class TopicModelTuner:
 
     def get_tuner(self, worker_number = 0, parallel = False):
         if isinstance(self.sampler, optuna.samplers.BaseSampler):
-            self.sampler.seed+=worker_number
+            self.sampler._rng = np.random.RandomState(self.seed + worker_number)
             return self.sampler
         elif self.sampler == 'tpe':
+
+            params = optuna.samplers.TPESampler.hyperopt_parameters()
+            params['n_startup_trials'] = 10
+
             return optuna.samplers.TPESampler(
                 seed = self.seed + worker_number,
                 constant_liar=parallel,
-                **optuna.samplers.TPESampler.hyperopt_parameters()
+                **params,
             )
         else:
             raise ValueError('Sampler {} is not an option'.format(str(self.sampler)))
@@ -941,7 +945,8 @@ class UsefulnessTuner(TopicModelTuner):
         )
 
         if self.tune_dropout:
-            params['encoder_dropout'] = trial.suggest_float('encoder_dropout', self.min_dropout, self.max_dropout, log = True)
+            #params['encoder_dropout'] = trial.suggest_float('encoder_dropout', self.min_dropout, self.max_dropout, log = True)
+            params['weight_decay'] = trial.suggest_float('weight_decay', 1e-5, 1e-1, log = True)
 
         return params
 
@@ -968,14 +973,18 @@ class UsefulnessTuner(TopicModelTuner):
 
     def get_tuner(self, worker_number = 0, parallel = False):
         if isinstance(self.sampler, optuna.samplers.BaseSampler):
-            self.sampler.seed+=worker_number
+            self.sampler._rng = np.random.RandomState(self.seed + worker_number)
             return self.sampler
         elif self.sampler == 'tpe':
+
+            params = optuna.samplers.TPESampler.hyperopt_parameters()
+            params['n_startup_trials'] = 10
+
             return optuna.samplers.TPESampler(
                 seed = self.seed + worker_number,
                 constant_liar=parallel,
-                **optuna.samplers.TPESampler.hyperopt_parameters(),
                 multivariate = True,
+                **params,
             )
         else:
             raise ValueError('Sampler {} is not an option'.format(str(self.sampler)))
@@ -1098,7 +1107,7 @@ class SpeedyTuner(UsefulnessTuner):
                 trial_writer.add_scalar('test_loss', test_rd, epoch)
 
                 
-                trial.report(min(epoch_test_scores), epoch)
+                trial.report(min(epoch_test_scores[-model.num_epochs//6:]), epoch)
 
                 if trial.should_prune() and epoch < model.num_epochs:
                     must_prune = True
@@ -1109,18 +1118,23 @@ class SpeedyTuner(UsefulnessTuner):
 
             metrics = {
                     'number' : trial.number,
-                    'test_score' : 1.,
-                    'worker_number' : worker_number,
                     'epochs_trained' : epoch,
                     'distortion' : distortion,
                     'rate' : rate,
                     'trial_score' : trial_score,
+                    'test_score' : 1.,
+                    'worker_number' : worker_number,
                 }
 
-            if not must_prune and not self.usefulness_function is None:
-                usefulness, usefulness_metrics = self.usefulness_function(
-                        model, train_counts, test_counts, data
-                    )
+            if not self.usefulness_function is None:
+                if not must_prune:
+                    usefulness, usefulness_metrics = self.usefulness_function(
+                            model, train_counts, test_counts, data
+                        )
+                else:
+                    usefulness = -1
+                    metric_names = self.usefulness_function.metrics
+                    usefulness_metrics = dict(zip(metric_names, [-1]*len(metric_names)))
 
                 metrics.update({
                     'usefulness' : usefulness,
@@ -1145,7 +1159,7 @@ class SpeedyTuner(UsefulnessTuner):
         ax = None, figsize = (10,7),
         linecolor = 'black'):
         
-        return plot_intermediate_values(self.study,
+        return plot_intermediate_values(self.study.trials,
             palette = palette, ax = ax, figsize = figsize,
             linecolor = linecolor
         )
@@ -1164,7 +1178,79 @@ class SpeedyTuner(UsefulnessTuner):
         add_legend = True,
     ):
         
-        return plot_pareto_front(self.study, x = x, y = y, color = color,
+        return plot_pareto_front(self.study.trials, x = x, y = y, color = color,
             ax = ax, figsize= figsize, palette = palette, na_color = na_color,
             size = size, alpha = alpha, add_legend = add_legend
         )
+
+
+class SpeedyTopicTuner(SpeedyTuner):
+
+    def suggest_parameters(self, trial):
+
+        params = dict(
+            num_topics = trial.suggest_int('num_topics', self.min_topics, self.max_topics, log=True),
+        )
+        return params
+
+    def get_tuner(self, worker_number = 0, parallel = False):
+        if isinstance(self.sampler, optuna.samplers.BaseSampler):
+            self.sampler._rng = np.random.RandomState(self.seed + worker_number)
+            return self.sampler
+        elif self.sampler == 'tpe':
+
+            params = optuna.samplers.TPESampler.hyperopt_parameters()
+            params['n_startup_trials'] = 3
+
+            return optuna.samplers.TPESampler(
+                seed = self.seed + worker_number,
+                constant_liar=parallel,
+                **params,
+            )
+        else:
+            raise ValueError('Sampler {} is not an option'.format(str(self.sampler)))
+
+
+
+def beta_stratified_terminate(trials, 
+        min_trials = 16, 
+        max_trials = 32, 
+        n_failures = 8):
+
+    trials = [t.state == ts.PRUNED or t.state == ts.COMPLETE for t in trials]
+
+    if len(trials) < min_trials or len(trials) < n_failures:
+        return False
+    elif len(trials) >= max_trials:
+        return True
+    
+    best_trial_no = np.argmin([t.value for t in trials])
+
+    failures = 0
+    for trial in trials[best_trial_no:]:
+        if trial.state == ts.PRUNED or trial.state == ts.COMPLETE:
+            failures+=1
+
+    if failures > n_failures:
+        return True
+
+    return False
+
+
+def weight_trials(n_trials, parallel = True,*, study,
+    reconstruction_weight):
+
+    allowed_states = [ts.PRUNED, ts.COMPLETE]
+    if parallel:
+        allowed_states.append(ts.RUNNING)
+
+    mask = np.array([t.params['reconstruction_weight'] == reconstruction_weight 
+                    for t in study.trials if t.state in allowed_states])
+
+    assert len(mask) == n_trials
+
+
+class BetaMetaTuner(SpeedyTuner):
+    pass
+
+    

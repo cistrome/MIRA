@@ -1,6 +1,6 @@
 
-from inspect import Parameter
-from mira.topic_model.base import BaseModel, EarlyStopping, ModelParamError
+
+from mira.topic_model.base import BaseModel, EarlyStopping, ModelParamError, TraceMeanFieldLatentKL
 import pyro
 import pyro.distributions as dist
 import torch
@@ -43,12 +43,13 @@ class CovariateModelMixin(BaseModel):
             nb_parameterize_logspace = True,
             embedding_size = None,
             kl_strategy = 'cyclic',
-            reconstruction_weight = 1/2,
+            reconstruction_weight = 0.8,
             dataset_loader_workers = 0,
             dependence_lr = 1e-4,
             dependence_beta = 1000,
             dependence_hidden = 64,
-            dependence_model = WassersteinDual
+            dependence_model = WassersteinDual,
+            weight_decay = 0.005,
             ):
         super().__init__()
 
@@ -79,19 +80,20 @@ class CovariateModelMixin(BaseModel):
         self.dependence_lr = dependence_lr
         self.dependence_beta = dependence_beta
         self.dependence_hidden = dependence_hidden
+        self.weight_decay = weight_decay
 
     def _get_weights(self, on_gpu = True, inference_mode = False):
         super()._get_weights(on_gpu=on_gpu, inference_mode=inference_mode)
 
         self.dependence_network = self.dependence_model(
             self.dependence_model.get_statistics_network(
-            2*self.num_exog_features + self.num_topics, 
-            self.dependence_hidden)
+                2*self.num_exog_features, 
+                self.dependence_hidden
+            )
         ).to(self.device)
 
-    def _get_min_resources(self):
-        return self.num_epochs
-
+    #def _get_min_resources(self):
+    #    return self.num_epochs//3
 
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
         fill_kwargs=['dataset'])
@@ -99,7 +101,7 @@ class CovariateModelMixin(BaseModel):
         return self._get_dependence_loss(batch_size=batch_size,
             dataset=dataset, bar = bar)
 
-    
+
     def _get_dependence_loss(self, batch_size = 512, bar =False,*, dataset):
 
         def dependence_loss(model, guide, **batch):
@@ -111,31 +113,44 @@ class CovariateModelMixin(BaseModel):
                 self.decoder.covariate_signal.detach(),
             ).item()
 
-            return dependence_loss * self.dependence_beta * batch_size
+            return dependence_loss * self.dependence_beta / self._get_loss_adjustment(batch)
 
 
         return self._evaluate_vae_loss(
-                self.model, dependence_loss,
+                self.model, [dependence_loss],
                 dataset=dataset, batch_size = batch_size, bar = bar
             )
+
 
     def get_loss_fn(self):
         return TraceMeanField_ELBO().differentiable_loss
 
 
-    '''def _distortion_rate_loss(self, batch_size = 512, bar = False,*,dataset):
+    def _distortion_rate_loss(self, batch_size = 512, bar = False,*,dataset):
+
+        def dependence_fwd(model, guide, **batch):
+
+            return -self.dependence_network(
+                self.decoder.biological_signal.detach(),
+                self.decoder.covariate_signal.detach(),
+            ).item() * self.dependence_beta / self._get_loss_adjustment(batch)
         
-        distortion, rate, vae_loss = super()._distortion_rate_loss(batch_size = batch_size, bar = bar,
-                dataset = dataset)
+        self.eval()
+        vae_loss, rate, dependence_loss = self._evaluate_vae_loss(
+                self.model, [TraceMeanField_ELBO().loss, TraceMeanFieldLatentKL().loss, dependence_fwd],
+                dataset=dataset, batch_size = batch_size,
+                bar = bar,
+            )
 
-        augmented_loss = vae_loss*self.num_exog_features + \
-                self._get_dependence_loss(batch_size=batch_size, bar = bar, dataset=dataset)
+        distortion = vae_loss - rate
+        rate += dependence_loss
+        vae_loss+= dependence_loss
 
-        return distortion, rate, augmented_loss/self.num_exog_features'''  
+        return distortion, rate, vae_loss/self.num_exog_features #loss_vae/self.num_exog_features
 
 
-    def model_step(self, batch, opt, parameters, anneal_factor = 1,
-        batch_size_adjustment = 1., disentanglement_coef = 1.):
+    def model_step(self, batch, opt, parameters, last_batch_z = None,
+        anneal_factor = 1, batch_size_adjustment = 1., disentanglement_coef = 1.):
 
         opt.zero_grad()
 
@@ -148,7 +163,7 @@ class CovariateModelMixin(BaseModel):
         )
 
         disentangle_multiplier = torch.tensor(
-                    anneal_factor * self.dependence_beta * batch_size_adjustment, 
+                    anneal_factor * self.reconstruction_weight * self.dependence_beta * batch_size_adjustment, 
                     requires_grad = False
                 )
 
@@ -161,7 +176,8 @@ class CovariateModelMixin(BaseModel):
         return loss.item(), bioloss, dependence_loss
 
 
-    def dependence_step(self, batch, opt, parameters):
+    def dependence_step(self, batch, opt, parameters,
+        last_batch_z = None):
 
         opt.zero_grad()
         loss = self.dependence_network(
@@ -198,11 +214,21 @@ class CovariateModelMixin(BaseModel):
     def _get_monotonic_disentanglement_coef(step_num, *, n_epochs, n_batches_per_epoch):
         return 1.
 
+
     def _step(self, batch, 
             model_optimizer, dependence_optimizer, #objective_optimizer,
             model_parameters, dependence_parameters, # objective_parameters,
             anneal_factor = 1., batch_size_adjustment = 1.,
             disentanglement_coef = 1.):
+
+        #try:
+        #    last_batch_z = self.decoder.covariate_signal.detach()
+
+        #    if not last_batch_z.shape[0] == batch['exog_features'].shape[0]:
+        #        last_batch_z = None
+
+        #except AttributeError:
+            #last_batch_z = None
         
         total_loss, bioloss, dependence_loss = self.model_step(batch, model_optimizer, model_parameters,
                  anneal_factor = anneal_factor, batch_size_adjustment=batch_size_adjustment,
@@ -260,10 +286,12 @@ class CovariateModelMixin(BaseModel):
 
         parameters = self.get_model_parameters(data_loader)
 
-        model_optimizer = Adam(parameters[0], lr = learning_rates[0], betas = (0.90, 0.999))
+        model_optimizer = Adam(parameters[0], lr = learning_rates[0], 
+            betas = (0.90, 0.999), weight_decay = self.weight_decay)
+
         scheduler = torch.optim.lr_scheduler.LambdaLR(model_optimizer, lr_function)
 
-        dependence_optimizer = Adam(parameters[1], lr = self.dependence_lr)
+        dependence_optimizer = Adam(parameters[1], lr = self.dependence_lr, weight_decay = 1e-3)
         
         optimizers = (model_optimizer, dependence_optimizer)
         batches_complete, step_loss = 0,0
@@ -280,7 +308,7 @@ class CovariateModelMixin(BaseModel):
                 for batch in self.transform_batch(data_loader, bar = False):
 
                     step_loss += self._step(batch, *optimizers, *parameters,
-                            anneal_factor = 1., batch_size_adjustment = 64/self.batch_size,
+                            anneal_factor = 1/self.reconstruction_weight, batch_size_adjustment = self._get_loss_adjustment(batch),
                             disentanglement_coef = 1.)['total_loss']
 
                     batches_complete+=1
@@ -324,9 +352,12 @@ class CovariateModelMixin(BaseModel):
 
         parameters = self.get_model_parameters(data_loader)
 
-        model_optimizer = Adam(parameters[0], lr = self.min_learning_rate, betas = (self.beta, 0.999))
+        model_optimizer = Adam(parameters[0], lr = self.min_learning_rate, 
+            betas = (self.beta, 0.999), weight_decay = self.weight_decay)
         scheduler = self._get_1cycle_scheduler(model_optimizer, n_batches)
-        dependence_optimizer = Adam(parameters[1], lr = self.dependence_lr)
+
+        dependence_optimizer = Adam(parameters[1], lr = self.dependence_lr,
+            weight_decay = 1e-3)
 
         optimizers = (model_optimizer, dependence_optimizer)
 
@@ -349,13 +380,13 @@ class CovariateModelMixin(BaseModel):
             running_loss = 0.0
             for batch in self.transform_batch(data_loader, bar = False):
                 
-                anneal_factor = anneal_fn(step_count)
+                anneal_factor = anneal_fn(step_count)/self.reconstruction_weight
                 disentanglement_coef = disentangle_fn(step_count)
 
                 try:
 
                     metrics = self._step(batch, *optimizers, *parameters, 
-                        anneal_factor = anneal_factor, batch_size_adjustment = 64/self.batch_size,
+                        anneal_factor = anneal_factor, batch_size_adjustment = self._get_loss_adjustment(batch),
                         disentanglement_coef = disentanglement_coef)
 
                     metrics['learning_rate'] = float(scheduler._last_lr[0])
