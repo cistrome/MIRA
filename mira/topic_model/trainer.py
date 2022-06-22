@@ -8,6 +8,7 @@ import optuna
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 from optuna.trial import TrialState as ts
+from optuna.samplers._tpe.sampler import default_weights
 from joblib import Parallel, delayed
 import time
 
@@ -125,7 +126,8 @@ def _print_topic_histogram(study):
 def _clear_page():
 
     if NOTEBOOK_MODE:
-        clear_output(wait=True)
+        #clear_output(wait=True)
+        pass
     else:
         print('------------------------------------------------------')
 
@@ -886,7 +888,7 @@ class UsefulnessTuner(TopicModelTuner):
         test_column = 'test_set_cells',
         min_topics = 5, max_topics = 55,
         min_dropout = 0.001, max_dropout = 0.05,
-        tune_dropout = False,
+        tune_weight_decay = False,
         train_size = 0.8,
         cv = 3, 
         max_trials = 64,
@@ -922,7 +924,7 @@ class UsefulnessTuner(TopicModelTuner):
         self.initial_topic_array = initial_topic_array
         self.min_dropout = min_dropout
         self.max_dropout = max_dropout
-        self.tune_dropout = tune_dropout
+        self.tune_weight_decay = tune_weight_decay
 
         self.study = self.create_study()
 
@@ -944,7 +946,7 @@ class UsefulnessTuner(TopicModelTuner):
             reconstruction_weight = trial.suggest_float('reconstruction_weight', 0.2, 1, log = False),
         )
 
-        if self.tune_dropout:
+        if self.tune_weight_decay:
             #params['encoder_dropout'] = trial.suggest_float('encoder_dropout', self.min_dropout, self.max_dropout, log = True)
             params['weight_decay'] = trial.suggest_float('weight_decay', 1e-5, 1e-1, log = True)
 
@@ -1013,7 +1015,7 @@ class SpeedyTuner(UsefulnessTuner):
         test_column = 'test_set_cells',
         min_topics = 5, max_topics = 55,
         min_dropout = 0.001, max_dropout = 0.05,
-        tune_dropout = False,
+        tune_weight_decay = False,
         train_size = 0.8,
         max_trials = 64,
         min_trials = 32,
@@ -1023,6 +1025,7 @@ class SpeedyTuner(UsefulnessTuner):
         pruner = 'sha',
         sampler = 'tpe',
         stop_condition = 8,
+        min_reconstruction_weight = 0.5,
         usefulness_function = None,
         initial_topic_array = False,*,
         save_name,
@@ -1042,9 +1045,10 @@ class SpeedyTuner(UsefulnessTuner):
         self.initial_topic_array = initial_topic_array
         self.min_dropout = min_dropout
         self.max_dropout = max_dropout
-        self.tune_dropout = tune_dropout
+        self.tune_weight_decay = tune_weight_decay
         self.optimize_usefulness = False
         self.usefulness_function = usefulness_function
+        self.min_reconstruction_weight = min_reconstruction_weight
 
         self.study = self.create_study()
 
@@ -1063,6 +1067,18 @@ class SpeedyTuner(UsefulnessTuner):
         else:
             raise ValueError('Pruner {} is not an option'.format(str(self.pruner)))
 
+    def suggest_parameters(self, trial):
+
+        params = dict(
+            num_topics = trial.suggest_int('num_topics', self.min_topics, self.max_topics, log=True),
+            reconstruction_weight = trial.suggest_float('reconstruction_weight', self.min_reconstruction_weight, 1, log = False),
+        )
+
+        if self.tune_weight_decay:
+            #params['encoder_dropout'] = trial.suggest_float('encoder_dropout', self.min_dropout, self.max_dropout, log = True)
+            params['weight_decay'] = trial.suggest_float('weight_decay', 1e-5, 1e-1, log = True)
+
+        return params
 
     def run_trial(
             self,
@@ -1191,6 +1207,10 @@ class SpeedyTopicTuner(SpeedyTuner):
         params = dict(
             num_topics = trial.suggest_int('num_topics', self.min_topics, self.max_topics, log=True),
         )
+
+        if self.tune_weight_decay:
+            params['weight_decay'] = trial.suggest_float('weight_decay', 1e-6, 1e-1, log = True)
+
         return params
 
     def get_tuner(self, worker_number = 0, parallel = False):
@@ -1211,46 +1231,36 @@ class SpeedyTopicTuner(SpeedyTuner):
             raise ValueError('Sampler {} is not an option'.format(str(self.sampler)))
 
 
-
-def beta_stratified_terminate(trials, 
-        min_trials = 16, 
-        max_trials = 32, 
-        n_failures = 8):
-
-    trials = [t.state == ts.PRUNED or t.state == ts.COMPLETE for t in trials]
-
-    if len(trials) < min_trials or len(trials) < n_failures:
-        return False
-    elif len(trials) >= max_trials:
-        return True
-    
-    best_trial_no = np.argmin([t.value for t in trials])
-
-    failures = 0
-    for trial in trials[best_trial_no:]:
-        if trial.state == ts.PRUNED or trial.state == ts.COMPLETE:
-            failures+=1
-
-    if failures > n_failures:
-        return True
-
-    return False
-
-
-def weight_trials(n_trials, parallel = True,*, study,
-    reconstruction_weight):
-
-    allowed_states = [ts.PRUNED, ts.COMPLETE]
-    if parallel:
-        allowed_states.append(ts.RUNNING)
-
-    mask = np.array([t.params['reconstruction_weight'] == reconstruction_weight 
-                    for t in study.trials if t.state in allowed_states])
-
-    assert len(mask) == n_trials
-
+'''from mira.topic_model.beta_tpe import BetaStratifiedTPESampler
 
 class BetaMetaTuner(SpeedyTuner):
-    pass
-
     
+    def suggest_parameters(self, trial):
+
+        params = dict(
+            num_topics = trial.suggest_int('num_topics', self.min_topics, self.max_topics, log=True),
+            reconstruction_weight = trial.suggest_categorical('reconstruction_weight', [2,1,2/3,1/2] )
+        )
+        return params
+
+    def get_tuner(self, worker_number = 0, parallel = False):
+        if isinstance(self.sampler, optuna.samplers.BaseSampler):
+            self.sampler._rng = np.random.RandomState(self.seed + worker_number)
+            return self.sampler
+        elif self.sampler == 'tpe':
+
+            params = optuna.samplers.TPESampler.hyperopt_parameters()
+            params['n_startup_trials'] = 3
+
+            return BetaStratifiedTPESampler(
+                seed = self.seed + worker_number,
+                constant_liar=parallel,
+                min_trials = self.min_trials,
+                max_trials = self.iters,
+                n_failures = self.stop_condition,
+                **params,
+                multivariate = True,
+            )
+
+        else:
+            raise ValueError('Sampler {} is not an option'.format(str(self.sampler)))'''

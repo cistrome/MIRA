@@ -1,5 +1,6 @@
 from functools import partial
 import sched
+from select import epoll
 from statistics import mean
 from unittest import result
 from scipy import interpolate
@@ -9,6 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import AdamW as Adam
+from torch.optim import SGD
 from pyro.infer import SVI, TraceMeanField_ELBO
 from tqdm.auto import tqdm, trange
 import numpy as np
@@ -91,6 +93,16 @@ def get_fc_stack(layer_dims = [256, 128, 128, 128], dropout = 0.2, skip_nonlin =
     ])
 
 
+def _mask_drop(x, dropout_rate = 1/10, training = False):
+
+    if training:
+        return torch.multiply(
+                    torch.empty_like(x, requires_grad = False).bernoulli_(1-dropout_rate),
+                    x
+            )
+    else:
+        return x
+
 class Decoder(nn.Module):
     
     def __init__(self, covar_channels = 32,*,
@@ -98,9 +110,12 @@ class Decoder(nn.Module):
         super().__init__()
         self.beta = nn.Linear(num_topics, num_exog_features, bias = False)
         self.bn = nn.BatchNorm1d(num_exog_features)
+
         dropout_rate = 1 - np.sqrt(1-dropout)
         self.drop = nn.Dropout(dropout_rate)
         self.drop2 = nn.Dropout(dropout_rate)
+        self.drop3 = _mask_drop
+
         self.num_topics = num_topics
         self.num_covariates = num_covariates
 
@@ -119,8 +134,6 @@ class Decoder(nn.Module):
 
     def forward(self, theta, covariates, nullify_covariates = False):
         
-        #self.theta = theta
-        
         X = self.drop(theta)
 
         self.covariate_signal = self.get_batch_effect(X, covariates, 
@@ -128,10 +141,10 @@ class Decoder(nn.Module):
 
         biological_signal = self.get_biological_effect(self.drop2(X))
         
-        #self.biological_signal = torch.hstack([biological_signal, theta])
         self.biological_signal = biological_signal
 
-        return F.softmax(biological_signal + self.covariate_signal, dim=1)
+        return F.softmax(biological_signal + \
+                self.drop3(self.covariate_signal, training = self.training), dim=1)
 
 
     def get_biological_effect(self, theta):
@@ -152,7 +165,6 @@ class Decoder(nn.Module):
 
 
     def get_softmax_denom(self, theta, covariates):
-
         return (self.get_biological_effect(theta) + self.get_batch_effect(theta, covariates)).exp().sum(-1)
 
 
@@ -167,6 +179,8 @@ class OneCycleLR_Wrapper(torch.optim.lr_scheduler.OneCycleLR):
 
 
 class BaseModel(torch.nn.Module, BaseEstimator):
+
+    _decoder_model = Decoder
 
     @classmethod
     def load(cls, filename):
@@ -217,9 +231,9 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             nb_parameterize_logspace = True,
             embedding_size = None,
             kl_strategy = 'cyclic',
-            reconstruction_weight = 0.8,
+            reconstruction_weight = 1.,
             dataset_loader_workers = 0,
-            weight_decay = 0.005,
+            weight_decay = 0.0015,
             ):
         '''
         Learns regulatory "topics" from single-cell multiomics data. Topics capture 
@@ -364,21 +378,21 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         return self.num_epochs//3
 
     def _recommend_batchsize(self, n_samples):
-        if n_samples >= 4000 and n_samples <= 10000:
+        if n_samples >= 5000 and n_samples <= 15000:
             return 64
-        elif n_samples > 10000:
+        elif n_samples > 15000:
             return 128
         else:
             return 32
 
     def _recommend_hidden(self, n_samples):
-        if n_samples < 2000:
+        if n_samples < 2400:
             return 64
         else:
             return 128
 
     def _recommend_num_layers(self, n_samples):
-        if n_samples < 2000:
+        if n_samples < 2400:
             return 2
         else:
             return 3
@@ -395,11 +409,14 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         assert isinstance(n_samples, int) and n_samples > 0
 
+        batchsize = self._recommend_batchsize(n_samples)
+        epochs = 24 if not finetune else 48
+
         params = {
-            'batch_size' : self._recommend_batchsize(n_samples),
+            'batch_size' : batchsize,
             'hidden' : self._recommend_hidden(n_samples),
             'num_layers' : self._recommend_num_layers(n_samples),
-            'num_epochs' : 24 if not finetune else 48,
+            'num_epochs' : epochs,
             'num_topics' : self._recommend_num_topics(n_samples),
         }
 
@@ -503,7 +520,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             else:
                 logger.info('Moving model to CPU for inference.')
 
-        self.decoder = Decoder(
+        self.decoder = self._decoder_model(
             num_exog_features=self.num_exog_features, 
             num_topics=self.num_topics, 
             num_covariates= self.num_covariates,
@@ -595,6 +612,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def _get_1cycle_scheduler(self, n_batches_per_epoch):
         
         return pyro.optim.lr_scheduler.PyroLRScheduler(OneCycleLR_Wrapper, 
+            #{'optimizer' : SGD, 'optim_args' : {'lr' : self.min_learning_rate, 'weight_decay' : self.weight_decay}, 
+            #'base_momentum' : 0.75, 'max_momentum' : 0.9,
             {'optimizer' : Adam, 'optim_args' : {'lr' : self.min_learning_rate, 'betas' : (self.beta, 0.999), 'weight_decay' : self.weight_decay}, 
             'max_lr' : self.max_learning_rate, 
             'steps_per_epoch' : n_batches_per_epoch, 'epochs' : self.num_epochs, 'div_factor' : self.max_learning_rate/self.min_learning_rate,
@@ -617,6 +636,23 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             return 1.
         else:
             return max(tau/0.5, n_cycles/total_steps)
+
+    @staticmethod
+    def _get_stepup_cyclic_KL(step_num, *, n_epochs, n_batches_per_epoch):
+        
+        total_steps = n_epochs * n_batches_per_epoch
+        n_cycles = 3
+        steps_per_cycle = total_steps/n_cycles
+
+        tau = ((step_num+1) % steps_per_cycle)/steps_per_cycle
+
+        if tau > 0.5 or step_num >= (0.95 * total_steps):
+            x = 1.
+        else:
+            x = max(tau/0.5, n_cycles/total_steps)
+
+        #return x * ( 0.5**max( n_cycles - (step_num+1)//steps_per_cycle - 1, 0) )
+        return x / max( n_cycles - (step_num+1)//steps_per_cycle, 1.)
 
 
     @property
@@ -742,8 +778,9 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         def lr_function(e):
             return learning_rates[e]/learning_rates[0]
 
-        scheduler = pyro.optim.LambdaLR({'optimizer': Adam, 
-            'optim_args': {'lr': learning_rates[0], 'betas' : (0.95, 0.999), 'weight_decay' : self.weight_decay}, 
+        scheduler = pyro.optim.LambdaLR(
+            {'optimizer': Adam, 'optim_args': {'lr': learning_rates[0], 'betas' : (0.90, 0.999), 'weight_decay' : self.weight_decay},
+            #{'optimizer' : SGD, 'optim_args' : {'lr' : self.min_learning_rate, 'momentum' : 0.8, 'weight_decay' : self.weight_decay},
             'lr_lambda' : lr_function})
 
         self.svi = SVI(self.model, self.guide, scheduler, loss=TraceMeanField_ELBO())
@@ -995,7 +1032,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.svi = SVI(self.model, self.guide, scheduler, loss=TraceMeanField_ELBO())
         self.training_loss = []
         
-        anneal_fn = partial(self._get_cyclic_KL_factor if self.kl_strategy == 'cyclic' else self._get_monotonic_kl_factor, 
+        anneal_fn = partial(self._get_stepup_cyclic_KL if self.kl_strategy == 'cyclic' else self._get_monotonic_kl_factor, 
             n_epochs = self.num_epochs, n_batches_per_epoch = n_batches)
 
         step_count = 0
@@ -1186,6 +1223,13 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             feature_names = self.features,
             topic_dendogram = self.cluster_topics(),
         )
+
+    @adi.wraps_modelfunc(tmi.fetch_features, 
+        fill_kwargs=['dataset'])
+    def _untransformed_Z(self, batch_size = 512, bar = True,*, dataset):
+
+        return self._run_encoder_fn(self.encoder.untransformed_Z, 
+                dataset, batch_size = batch_size, bar = bar)
 
 
     @adi.wraps_modelfunc(tmi.fetch_topic_comps_and_linkage_matrix, 

@@ -64,8 +64,22 @@ class ExpressionEncoder(torch.nn.Module):
         
         return theta.detach().cpu().numpy()
 
+
+    def untransformed_Z(self, X, read_depth, covariates, extra_features):
+
+        theta = self.forward(X, read_depth, covariates, extra_features)[0]
+        return theta.detach().cpu().numpy()
+
     def read_depth(self, X, read_depth, covariates, extra_features):
         return self.forward(X, read_depth, covariates, extra_features)[2].detach().cpu().numpy()
+
+    def pseudoinputs(self, X):
+        X = self.fc_layers[1:].forward(X)
+
+        theta_loc = X[:, :self.num_topics]
+        theta_scale = F.softplus(X[:, self.num_topics:(2*self.num_topics)])# + 1e-5
+
+        return theta_loc, theta_scale
 
 
 class ExpressionTopicModel(BaseModel):

@@ -6,7 +6,7 @@ import pyro.distributions as dist
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.optim import AdamW as Adam
+from torch.optim import AdamW, Adam
 from pyro.infer import SVI, TraceMeanField_ELBO
 from tqdm.notebook import tqdm, trange
 import numpy as np
@@ -15,7 +15,7 @@ from math import ceil
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 logger = logging.getLogger(__name__)
-from mira.topic_model.mine import WassersteinDualFlat, WassersteinDual
+from mira.topic_model.mine import WassersteinDual
 from pyro import poutine
 from functools import partial
 
@@ -32,7 +32,7 @@ class CovariateModelMixin(BaseModel):
             num_layers = 3,
             num_epochs = 40,
             decoder_dropout = 0.2,
-            encoder_dropout = 0.02,
+            encoder_dropout = 0.015,
             use_cuda = True,
             seed = 0,
             min_learning_rate = 1e-6,
@@ -43,13 +43,13 @@ class CovariateModelMixin(BaseModel):
             nb_parameterize_logspace = True,
             embedding_size = None,
             kl_strategy = 'cyclic',
-            reconstruction_weight = 0.8,
+            reconstruction_weight = 1.,
             dataset_loader_workers = 0,
             dependence_lr = 1e-4,
-            dependence_beta = 1000,
+            dependence_beta = 1,
             dependence_hidden = 64,
             dependence_model = WassersteinDual,
-            weight_decay = 0.005,
+            weight_decay = 0.0015,
             ):
         super().__init__()
 
@@ -101,25 +101,21 @@ class CovariateModelMixin(BaseModel):
         return self._get_dependence_loss(batch_size=batch_size,
             dataset=dataset, bar = bar)
 
+    
+    def _scaled_dependence_loss(self, model, guide, **batch):
+
+        return -self.dependence_network(
+            self.decoder.biological_signal.detach(),
+            self.decoder.covariate_signal.detach(),
+        ).item() * self.dependence_beta * self.decoder.biological_signal.detach().shape[0]
+
 
     def _get_dependence_loss(self, batch_size = 512, bar =False,*, dataset):
 
-        def dependence_loss(model, guide, **batch):
-
-            TraceMeanField_ELBO().loss(self.model, self.guide, **batch)
-
-            dependence_loss = -self.dependence_network(
-                self.decoder.biological_signal.detach(),
-                self.decoder.covariate_signal.detach(),
-            ).item()
-
-            return dependence_loss * self.dependence_beta / self._get_loss_adjustment(batch)
-
-
         return self._evaluate_vae_loss(
-                self.model, [dependence_loss],
+                self.model, [TraceMeanField_ELBO().loss, self._scaled_dependence_loss],
                 dataset=dataset, batch_size = batch_size, bar = bar
-            )
+            )[-1]
 
 
     def get_loss_fn(self):
@@ -127,17 +123,10 @@ class CovariateModelMixin(BaseModel):
 
 
     def _distortion_rate_loss(self, batch_size = 512, bar = False,*,dataset):
-
-        def dependence_fwd(model, guide, **batch):
-
-            return -self.dependence_network(
-                self.decoder.biological_signal.detach(),
-                self.decoder.covariate_signal.detach(),
-            ).item() * self.dependence_beta / self._get_loss_adjustment(batch)
         
         self.eval()
         vae_loss, rate, dependence_loss = self._evaluate_vae_loss(
-                self.model, [TraceMeanField_ELBO().loss, TraceMeanFieldLatentKL().loss, dependence_fwd],
+                self.model, [TraceMeanField_ELBO().loss, TraceMeanFieldLatentKL().loss, self._scaled_dependence_loss],
                 dataset=dataset, batch_size = batch_size,
                 bar = bar,
             )
@@ -157,17 +146,17 @@ class CovariateModelMixin(BaseModel):
         bioloss = self.get_loss_fn()(self.model, self.guide, **batch,
             anneal_factor = anneal_factor, batch_size_adjustment = batch_size_adjustment)
 
-        dependence_loss = -self.dependence_network(
+        disentangle_multiplier = torch.tensor(
+                    disentanglement_coef * self.dependence_beta * batch_size_adjustment * self.batch_size, 
+                    requires_grad = False
+                )
+
+        dependence_loss = disentangle_multiplier * -self.dependence_network(
             self.decoder.biological_signal,
             self.decoder.covariate_signal,
         )
 
-        disentangle_multiplier = torch.tensor(
-                    anneal_factor * self.reconstruction_weight * self.dependence_beta * batch_size_adjustment, 
-                    requires_grad = False
-                )
-
-        loss = bioloss + disentangle_multiplier * dependence_loss
+        loss = bioloss + dependence_loss
 
         loss.backward()
         
@@ -199,22 +188,6 @@ class CovariateModelMixin(BaseModel):
             div_factor= self.max_learning_rate/self.min_learning_rate, three_phase=False)
 
 
-    @staticmethod
-    def _get_step_disentanglement_coef(step_num, *, n_epochs, n_batches_per_epoch):
-        
-        total_steps = n_epochs * n_batches_per_epoch
-        n_cycles = 3
-        #tau = ((step_num+1) % (total_steps/n_cycles))/(total_steps/n_cycles)
-        
-        cyclenum = (step_num + 1)//(total_steps//n_cycles)
-
-        return 10**(-n_cycles + cyclenum+1)
-
-
-    def _get_monotonic_disentanglement_coef(step_num, *, n_epochs, n_batches_per_epoch):
-        return 1.
-
-
     def _step(self, batch, 
             model_optimizer, dependence_optimizer, #objective_optimizer,
             model_parameters, dependence_parameters, # objective_parameters,
@@ -234,13 +207,15 @@ class CovariateModelMixin(BaseModel):
                  anneal_factor = anneal_factor, batch_size_adjustment=batch_size_adjustment,
                  disentanglement_coef = disentanglement_coef)
 
-        self.dependence_step(batch, dependence_optimizer, dependence_parameters)
+        ave_MI = self.dependence_step(batch, dependence_optimizer, dependence_parameters)
 
         return {
             'total_loss' : total_loss,
             'ELBO_loss' : bioloss,
             'disentanglement_loss' : dependence_loss,
             'anneal_factor' : anneal_factor,
+            'average_MI' : ave_MI,
+            'disentanglement_coef' : disentanglement_coef,
         }
 
 
@@ -286,12 +261,12 @@ class CovariateModelMixin(BaseModel):
 
         parameters = self.get_model_parameters(data_loader)
 
-        model_optimizer = Adam(parameters[0], lr = learning_rates[0], 
+        model_optimizer = AdamW(parameters[0], lr = learning_rates[0], 
             betas = (0.90, 0.999), weight_decay = self.weight_decay)
 
         scheduler = torch.optim.lr_scheduler.LambdaLR(model_optimizer, lr_function)
 
-        dependence_optimizer = Adam(parameters[1], lr = self.dependence_lr, weight_decay = 1e-3)
+        dependence_optimizer = Adam(parameters[1], lr = self.dependence_lr)
         
         optimizers = (model_optimizer, dependence_optimizer)
         batches_complete, step_loss = 0,0
@@ -352,21 +327,20 @@ class CovariateModelMixin(BaseModel):
 
         parameters = self.get_model_parameters(data_loader)
 
-        model_optimizer = Adam(parameters[0], lr = self.min_learning_rate, 
+        model_optimizer = AdamW(parameters[0], lr = self.min_learning_rate, 
             betas = (self.beta, 0.999), weight_decay = self.weight_decay)
         scheduler = self._get_1cycle_scheduler(model_optimizer, n_batches)
 
-        dependence_optimizer = Adam(parameters[1], lr = self.dependence_lr,
-            weight_decay = 1e-3)
+        dependence_optimizer = Adam(parameters[1], lr = self.dependence_lr)
 
         optimizers = (model_optimizer, dependence_optimizer)
 
         self.training_loss = []
         
-        anneal_fn = partial(self._get_cyclic_KL_factor if self.kl_strategy == 'cyclic' else self._get_monotonic_kl_factor, 
+        anneal_fn = partial(self._get_stepup_cyclic_KL if self.kl_strategy == 'cyclic' else self._get_monotonic_kl_factor, 
             n_epochs = self.num_epochs, n_batches_per_epoch = n_batches)
 
-        disentangle_fn = partial(self._get_step_disentanglement_coef, 
+        disentangle_fn = partial(self._get_cyclic_KL_factor, 
             n_epochs = self.num_epochs, n_batches_per_epoch = n_batches)
 
         step_count = 0
@@ -395,7 +369,7 @@ class CovariateModelMixin(BaseModel):
                         for k, v in metrics.items():
                             writer.add_scalar(k, v, step_count)
 
-                    running_loss+=metrics['total_loss']
+                    running_loss+=metrics['average_MI']
                     step_count+=1
 
                 except ValueError:
@@ -404,12 +378,12 @@ class CovariateModelMixin(BaseModel):
                 if epoch < self.num_epochs:
                     scheduler.step()
             
-            epoch_loss = running_loss/(n_observations * self.num_exog_features)
+            epoch_loss = running_loss/n_observations
             self.training_loss.append(epoch_loss)
             recent_losses = self.training_loss[-5:]
 
             if training_bar:
-                t.set_description("Epoch {} done. Recent losses: {}".format(
+                t.set_description("Epoch {} done. Recent MIs: {}".format(
                     str(epoch + 1),
                     ' --> '.join('{:.3e}'.format(loss) for loss in recent_losses)
                 ))
