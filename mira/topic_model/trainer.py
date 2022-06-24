@@ -901,6 +901,7 @@ class UsefulnessTuner(TopicModelTuner):
         model_survival_rate=1/4,
         optimize_usefulness = False,
         stop_condition = 8,
+        log_steps = False,
         initial_topic_array = False,*,
         usefulness_function,
         save_name,
@@ -925,7 +926,7 @@ class UsefulnessTuner(TopicModelTuner):
         self.min_dropout = min_dropout
         self.max_dropout = max_dropout
         self.tune_weight_decay = tune_weight_decay
-
+        self.log_steps = log_steps
         self.study = self.create_study()
 
 
@@ -1108,9 +1109,9 @@ class SpeedyTuner(UsefulnessTuner):
                 print('Evaluating: ' + _format_params(params))
 
             epoch_test_scores = []
-            for epoch, train_loss in model._internal_fit(train_counts, writer = trial_writer):
+            for epoch, train_loss in model._internal_fit(train_counts, writer = trial_writer if self.log_steps else None):
                 
-                distortion, rate, test_loss = model.distortion_rate_loss(test_counts, bar = False)
+                distortion, rate, metrics = model.distortion_rate_loss(test_counts, bar = False)
                 test_rd = distortion + rate
 
                 if not parallel:
@@ -1118,10 +1119,12 @@ class SpeedyTuner(UsefulnessTuner):
                     print('\rProgress: ' + '|' + '\u25A0'*num_hashtags + ' '*(25-num_hashtags) + '|', end = '')
 
                 epoch_test_scores.append(test_rd)
-                trial_writer.add_scalar('test_distortion', distortion, epoch)
-                trial_writer.add_scalar('test_rate', rate, epoch)
-                trial_writer.add_scalar('test_loss', test_rd, epoch)
+                trial_writer.add_scalar('holdout_distortion', distortion, epoch)
+                trial_writer.add_scalar('holdout_rate', rate, epoch)
+                trial_writer.add_scalar('holdout_loss', test_rd, epoch)
 
+                for metric_name, value in metrics.items():
+                    trial_writer.add_scalar('holdout_' + metric_name, value, epoch)
                 
                 trial.report(min(epoch_test_scores[-model.num_epochs//6:]), epoch)
 
@@ -1129,7 +1132,7 @@ class SpeedyTuner(UsefulnessTuner):
                     must_prune = True
                     break
 
-            distortion, rate, test_loss = model.distortion_rate_loss(test_counts, bar = False)
+            distortion, rate, metrics = model.distortion_rate_loss(test_counts, bar = False)
             trial_score = distortion + rate
 
             metrics = {
@@ -1138,6 +1141,7 @@ class SpeedyTuner(UsefulnessTuner):
                     'distortion' : distortion,
                     'rate' : rate,
                     'trial_score' : trial_score,
+                    **metrics,
                     'test_score' : 1.,
                     'worker_number' : worker_number,
                 }

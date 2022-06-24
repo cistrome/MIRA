@@ -28,6 +28,7 @@ import mira.topic_model.ilr_tools as ilr
 from torch.utils.data import DataLoader
 import time
 from torch.distributions import kl_divergence
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -444,6 +445,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         torch.manual_seed(self.seed)
         pyro.set_rng_seed(self.seed)
         np.random.seed(self.seed)
+        random.seed(self.seed)
 
     def get_endog_fn(self):
         raise NotImplementedError()
@@ -651,8 +653,9 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         else:
             x = max(tau/0.5, n_cycles/total_steps)
 
-        #return x * ( 0.5**max( n_cycles - (step_num+1)//steps_per_cycle - 1, 0) )
-        return x / max( n_cycles - (step_num+1)//steps_per_cycle, 1.)
+        return x * ( np.sqrt(0.5)**max( n_cycles - (step_num+1)//steps_per_cycle - 1, 0) )
+        #return x / max( n_cycles - (step_num+1)//steps_per_cycle, 1.)
+        #return x * min((step_num+1)//steps_per_cycle + 1, n_cycles)/n_cycles
 
 
     @property
@@ -1373,7 +1376,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         distortion = vae_loss - rate
 
-        return distortion, rate, vae_loss/self.num_exog_features #loss_vae/self.num_exog_features
+        return distortion, rate, {} #loss_vae/self.num_exog_features
 
     
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,

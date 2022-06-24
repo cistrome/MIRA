@@ -135,7 +135,7 @@ class CovariateModelMixin(BaseModel):
         rate += dependence_loss
         vae_loss+= dependence_loss
 
-        return distortion, rate, vae_loss/self.num_exog_features #loss_vae/self.num_exog_features
+        return distortion, rate, {'disentanglement_loss' : dependence_loss } #loss_vae/self.num_exog_features
 
 
     def model_step(self, batch, opt, parameters, last_batch_z = None,
@@ -340,7 +340,7 @@ class CovariateModelMixin(BaseModel):
         anneal_fn = partial(self._get_stepup_cyclic_KL if self.kl_strategy == 'cyclic' else self._get_monotonic_kl_factor, 
             n_epochs = self.num_epochs, n_batches_per_epoch = n_batches)
 
-        disentangle_fn = partial(self._get_cyclic_KL_factor, 
+        disentangle_fn = partial(self._get_stepup_cyclic_KL, 
             n_epochs = self.num_epochs, n_batches_per_epoch = n_batches)
 
         step_count = 0

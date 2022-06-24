@@ -51,7 +51,7 @@ class NonlinDecoder(LinearDecoder):
 
 class ExpressionVampModel(ExpressionTopicModel):
 
-    _decoder_model = LinearDecoder
+    _decoder_model = NonlinDecoder
     
     @scope(prefix= 'rna')
     def model(self,*,endog_features, exog_features, covariates, read_depth, extra_features, 
