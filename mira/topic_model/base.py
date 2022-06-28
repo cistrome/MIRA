@@ -140,11 +140,9 @@ class Decoder(nn.Module):
         self.covariate_signal = self.get_batch_effect(X, covariates, 
             nullify_covariates = nullify_covariates)
 
-        biological_signal = self.get_biological_effect(self.drop2(X))
-        
-        self.biological_signal = biological_signal
+        self.biological_signal = self.get_biological_effect(self.drop2(X))
 
-        return F.softmax(biological_signal + \
+        return F.softmax(self.biological_signal + \
                 self.drop3(self.covariate_signal, training = self.training), dim=1)
 
 
@@ -406,7 +404,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         )
 
 
-    def recommend_parameters(self, n_samples, finetune = False):
+    def recommend_parameters(self, n_samples, n_features, finetune = False):
 
         assert isinstance(n_samples, int) and n_samples > 0
 
@@ -445,7 +443,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         torch.manual_seed(self.seed)
         pyro.set_rng_seed(self.seed)
         np.random.seed(self.seed)
-        random.seed(self.seed)
 
     def get_endog_fn(self):
         raise NotImplementedError()
@@ -639,6 +636,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         else:
             return max(tau/0.5, n_cycles/total_steps)
 
+
     @staticmethod
     def _get_stepup_cyclic_KL(step_num, *, n_epochs, n_batches_per_epoch):
         
@@ -653,9 +651,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         else:
             x = max(tau/0.5, n_cycles/total_steps)
 
-        return x * ( np.sqrt(0.5)**max( n_cycles - (step_num+1)//steps_per_cycle - 1, 0) )
-        #return x / max( n_cycles - (step_num+1)//steps_per_cycle, 1.)
-        #return x * min((step_num+1)//steps_per_cycle + 1, n_cycles)/n_cycles
+        return x * min((step_num+1)//steps_per_cycle + 1, n_cycles)/n_cycles
 
 
     @property

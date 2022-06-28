@@ -15,7 +15,7 @@ from math import ceil
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 logger = logging.getLogger(__name__)
-from mira.topic_model.mine import WassersteinDual
+from mira.topic_model.mine import WassersteinDualRobust
 from pyro import poutine
 from functools import partial
 
@@ -46,9 +46,9 @@ class CovariateModelMixin(BaseModel):
             reconstruction_weight = 1.,
             dataset_loader_workers = 0,
             dependence_lr = 1e-4,
-            dependence_beta = 1,
+            dependence_beta = 1.,
             dependence_hidden = 64,
-            dependence_model = WassersteinDual,
+            dependence_model = WassersteinDualRobust,
             weight_decay = 0.0015,
             ):
         super().__init__()
@@ -92,8 +92,8 @@ class CovariateModelMixin(BaseModel):
             )
         ).to(self.device)
 
-    #def _get_min_resources(self):
-    #    return self.num_epochs//3
+    def _recommend_num_layers(self, n_samples):
+        return 3
 
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
         fill_kwargs=['dataset'])
@@ -194,14 +194,6 @@ class CovariateModelMixin(BaseModel):
             anneal_factor = 1., batch_size_adjustment = 1.,
             disentanglement_coef = 1.):
 
-        #try:
-        #    last_batch_z = self.decoder.covariate_signal.detach()
-
-        #    if not last_batch_z.shape[0] == batch['exog_features'].shape[0]:
-        #        last_batch_z = None
-
-        #except AttributeError:
-            #last_batch_z = None
         
         total_loss, bioloss, dependence_loss = self.model_step(batch, model_optimizer, model_parameters,
                  anneal_factor = anneal_factor, batch_size_adjustment=batch_size_adjustment,
@@ -340,7 +332,7 @@ class CovariateModelMixin(BaseModel):
         anneal_fn = partial(self._get_stepup_cyclic_KL if self.kl_strategy == 'cyclic' else self._get_monotonic_kl_factor, 
             n_epochs = self.num_epochs, n_batches_per_epoch = n_batches)
 
-        disentangle_fn = partial(self._get_stepup_cyclic_KL, 
+        disentangle_fn = partial(self._get_cyclic_KL_factor, 
             n_epochs = self.num_epochs, n_batches_per_epoch = n_batches)
 
         step_count = 0

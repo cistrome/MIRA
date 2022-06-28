@@ -145,11 +145,16 @@ def wraps_modelfunc(
     return run
 
 ## GENERAL ACCESSORS ##
-def fetch_layer(self, adata, layer):
+def fetch_layer(self, adata, layer, copy = True):
     if layer is None:
-        return adata.X.copy()
+        x = adata.X
     else:
-        return adata.layers[layer].copy()
+        x = adata.layers[layer]
+
+    if copy:
+        return x.copy()
+    else:
+        return x
 
 
 def fetch_adata_shape(self, adata):

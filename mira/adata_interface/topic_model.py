@@ -33,8 +33,9 @@ class InMemoryDataset(Dataset):
 
         adata = adata[:, self.features]
 
-        self.exog_features = fetch_layer(self, adata, counts_layer)
-        self.endog_features = fetch_layer(self, adata[:, highly_variable], counts_layer)
+        self.exog_features = fetch_layer(self, adata, counts_layer, copy = False)
+        self.endog_features = fetch_layer(self, adata[:, highly_variable], counts_layer,
+                        copy = False)
 
         self.covariates = fetch_columns(self, adata, covariates_keys)
         self.extra_features = fetch_columns(self, adata, extra_features_keys)

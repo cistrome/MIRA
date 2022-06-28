@@ -126,8 +126,7 @@ def _print_topic_histogram(study):
 def _clear_page():
 
     if NOTEBOOK_MODE:
-        #clear_output(wait=True)
-        pass
+        clear_output(wait=True)
     else:
         print('------------------------------------------------------')
 
@@ -1028,6 +1027,7 @@ class SpeedyTuner(UsefulnessTuner):
         stop_condition = 8,
         min_reconstruction_weight = 0.5,
         usefulness_function = None,
+        log_steps = False,
         initial_topic_array = False,*,
         save_name,
     ):
@@ -1050,6 +1050,7 @@ class SpeedyTuner(UsefulnessTuner):
         self.optimize_usefulness = False
         self.usefulness_function = usefulness_function
         self.min_reconstruction_weight = min_reconstruction_weight
+        self.log_steps = log_steps
 
         self.study = self.create_study()
 

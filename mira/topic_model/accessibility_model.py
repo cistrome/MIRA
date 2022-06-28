@@ -66,8 +66,7 @@ class DANEncoder(nn.Module):
         if embedding_size is None:
             embedding_size = hidden
 
-        self.dropout_rate = dropout
-        self.drop = nn.Dropout(dropout)
+        self.word_dropout_rate = 0.05
         self.embedding = nn.Embedding(num_endog_features + 1, embedding_size, padding_idx=0)
         self.num_topics = num_topics
         self.calc_readdepth = True
@@ -81,7 +80,7 @@ class DANEncoder(nn.Module):
        
         if self.training:
             corrupted_idx = torch.multiply(
-                torch.empty_like(idx).bernoulli_(1-self.dropout_rate),
+                torch.empty_like(idx).bernoulli_(1-self.word_dropout_rate),
                 idx
             )
         else:
@@ -167,16 +166,8 @@ class AccessibilityTopicModel(BaseModel):
     def _get_min_resources(self):
         return self.num_epochs//2
 
-    #def _get_loss_adjustment(self, batch):
-    #    adjustment = super()._get_loss_adjustment(batch)
-    #    return adjustment * 1.5e6/(150.99925507*batch['read_depth'].mean() +  330028.22965241596)
-
-
-    def recommend_parameters(self, n_samples, finetune = False):
-        params = super().recommend_parameters(n_samples)
-        params['num_layers'] = 2
-
-        return params
+    def _recommend_num_layers(self, n_samples):
+        return 2
 
     def _get_padded_idx_matrix(self, accessibility_matrix):
 
