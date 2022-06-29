@@ -1,7 +1,8 @@
 
 
 from mira.topic_model.base import BaseModel, EarlyStopping, ModelParamError, TraceMeanFieldLatentKL
-import pyro
+from mira.topic_model.expression_model import ExpressionTopicModel
+from mira.topic_model.accessibility_model import AccessibilityTopicModel
 import pyro.distributions as dist
 import torch
 import torch.nn as nn
@@ -18,9 +19,10 @@ logger = logging.getLogger(__name__)
 from mira.topic_model.mine import WassersteinDualRobust
 from pyro import poutine
 from functools import partial
+import matplotlib.pyplot as plt
 
 
-class CovariateModelMixin(BaseModel):
+class CovariateModelMixin:
 
     def __init__(self, endogenous_key = None,
             exogenous_key = None,
@@ -85,6 +87,8 @@ class CovariateModelMixin(BaseModel):
     def _get_weights(self, on_gpu = True, inference_mode = False):
         super()._get_weights(on_gpu=on_gpu, inference_mode=inference_mode)
 
+        assert(self.num_covariates > 0), 'If no covariates are present, use the normal topic model.'
+
         self.dependence_network = self.dependence_model(
             self.dependence_model.get_statistics_network(
                 2*self.num_exog_features, 
@@ -94,6 +98,18 @@ class CovariateModelMixin(BaseModel):
 
     def _recommend_num_layers(self, n_samples):
         return 3
+
+    def _recommend_dependence_beta(self, n_samples):
+        if isinstance(self, ExpressionTopicModel):
+            return 1.
+        else:
+            return 4.
+
+    def recommend_parameters(self, n_samples, n_features, finetune = False):
+        parameters = super().recommend_parameters(n_samples, n_features, finetune = finetune)
+        parameters['dependence_beta'] = self._recommend_dependence_beta(n_samples)
+        return parameters
+
 
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
         fill_kwargs=['dataset'])
@@ -147,7 +163,7 @@ class CovariateModelMixin(BaseModel):
             anneal_factor = anneal_factor, batch_size_adjustment = batch_size_adjustment)
 
         disentangle_multiplier = torch.tensor(
-                    disentanglement_coef * self.dependence_beta * batch_size_adjustment * self.batch_size, 
+                    disentanglement_coef * batch_size_adjustment * self.batch_size, 
                     requires_grad = False
                 )
 
@@ -194,21 +210,23 @@ class CovariateModelMixin(BaseModel):
             anneal_factor = 1., batch_size_adjustment = 1.,
             disentanglement_coef = 1.):
 
-        
-        total_loss, bioloss, dependence_loss = self.model_step(batch, model_optimizer, model_parameters,
-                 anneal_factor = anneal_factor, batch_size_adjustment=batch_size_adjustment,
-                 disentanglement_coef = disentanglement_coef)
+        try:
+            total_loss, bioloss, dependence_loss = self.model_step(batch, model_optimizer, model_parameters,
+                    anneal_factor = anneal_factor, batch_size_adjustment=batch_size_adjustment,
+                    disentanglement_coef = disentanglement_coef)
 
-        ave_MI = self.dependence_step(batch, dependence_optimizer, dependence_parameters)
+            ave_MI = self.dependence_step(batch, dependence_optimizer, dependence_parameters)
 
-        return {
-            'total_loss' : total_loss,
-            'ELBO_loss' : bioloss,
-            'disentanglement_loss' : dependence_loss,
-            'anneal_factor' : anneal_factor,
-            'average_MI' : ave_MI,
-            'disentanglement_coef' : disentanglement_coef,
-        }
+            return {
+                'total_loss' : total_loss,
+                'ELBO_loss' : bioloss,
+                'disentanglement_loss' : dependence_loss,
+                'anneal_factor' : anneal_factor,
+                'average_MI' : ave_MI,
+                'disentanglement_coef' : disentanglement_coef,
+            }
+        except ValueError:
+            raise ModelParamError()
 
 
     def get_model_parameters(self, data_loader):
@@ -222,9 +240,128 @@ class CovariateModelMixin(BaseModel):
         return params, self.dependence_network.parameters()#, self.objective_network.parameters()
 
 
+    '''@adi.wraps_modelfunc(fetch = tmi.fit_adata, 
+        fill_kwargs=['features','highly_variable','dataset'])
+    def get_disentanglement_coef_bounds(self, eval_every = 6, 
+        max_disentanglement_coef = 10,*,
+        features, highly_variable, dataset):
+        
+        num_epochs = self.num_epochs//3
+
+        self._instantiate_model(
+            features = features, highly_variable = highly_variable
+        )
+
+        data_loader = self.get_dataloader(dataset, training=True,
+            batch_size = self.batch_size)
+
+        self._get_dataset_statistics(dataset)
+
+        n_batches = len(dataset)//self.batch_size
+        eval_steps = ceil((n_batches * num_epochs)/eval_every)
+
+        learning_rate = np.exp(
+            (np.log(self.min_learning_rate) + np.log(self.max_learning_rate))/2
+        )
+
+        parameters = self.get_model_parameters(data_loader)
+
+        model_optimizer = AdamW(parameters[0], lr = learning_rate, 
+            betas = (0.90, 0.999), weight_decay = self.weight_decay)
+
+        dependence_optimizer = Adam(parameters[1], lr = self.dependence_lr)
+
+        warmup_steps = eval_steps//2
+        gradient_steps = eval_steps - warmup_steps
+
+        disentanglement_coefs = np.concatenate([
+            np.zeros(warmup_steps), 
+            np.linspace(0, 
+                max_disentanglement_coef, gradient_steps + 1)
+        ])
+        
+        optimizers = (model_optimizer, dependence_optimizer)
+        batches_complete, step_MI, step_count = 0,0,0
+        average_MIs = []
+
+        try:
+
+            t = trange(eval_steps-2, desc = 'Learning rate range test', leave = True)
+            _t = iter(t)
+
+            for epoch in range(num_epochs + 1):
+
+                self.train()
+                for batch in self.transform_batch(data_loader, bar = False):
+
+                    metrics = self._step(batch, *optimizers, *parameters,
+                            anneal_factor = 1/self.reconstruction_weight, 
+                            batch_size_adjustment = self._get_loss_adjustment(batch),
+                            disentanglement_coef = disentanglement_coefs[step_count] * self.dependence_beta)
+                            
+                    step_MI += metrics['average_MI']
+
+                    batches_complete+=1
+                    
+                    if batches_complete % eval_every == 0 and batches_complete > 0:
+                        step_count+=1
+                        average_MIs.append(
+                            step_MI/eval_every
+                        )
+
+                        step_MI = 0.
+                        try:
+                            next(_t)
+                        except StopIteration:
+                            break
+
+        except (ModelParamError, KeyboardInterrupt) as err:
+            pass
+            
+        self.gradient_disentanglement_coef = np.array(disentanglement_coefs[:len(average_MIs)])
+        self.gradient_MI = np.array(average_MIs)
+
+
+    def plot_disentanglement_coef_bounds(self, figsize = (6,3), ax= None):
+
+        try:
+            self.gradient_disentanglement_coef
+        except AttributeError:
+            raise Exception('User must run "get_disentanglement_coef_bounds" before running this function')
+
+        if ax is None:
+            fig, ax = plt.subplots(1,1,figsize = figsize)
+
+        nonzero_mask = self.gradient_disentanglement_coef > 0
+        ax.plot(
+            self.gradient_disentanglement_coef[nonzero_mask], 
+            self.gradient_MI[nonzero_mask], 
+            '--o',
+            c = 'black', label = 'Mutual Information',
+            )
+
+        ax.axvline(self.dependence_beta, color = 'black', label = 'Current Coefficient')
+
+        legend_kwargs = dict(loc="upper left", markerscale = 1, frameon = False, fontsize='large', bbox_to_anchor=(1.0, 1.05))
+        ax.legend(**legend_kwargs)
+
+        ax.spines['right'].set_visible(False)
+        ax.spines['top'].set_visible(False)
+        ax.set(xlabel = 'Disentanglement Coefficient', 
+            ylabel = 'Mutual Information')
+
+        return ax
+
+
+    def set_disentanglement_coef(self, value):
+        self.set_params(
+            dependence_beta = value,
+        )'''
+
+
     @adi.wraps_modelfunc(fetch = tmi.fit_adata, 
         fill_kwargs=['features','highly_variable','dataset'])
-    def get_learning_rate_bounds(self, num_epochs = 6, eval_every = 10, 
+    def get_learning_rate_bounds(self, num_epochs = 3, eval_every = 3, 
         lower_bound_lr = 1e-6, upper_bound_lr = 1,*,
         features, highly_variable, dataset):
         
@@ -246,8 +383,6 @@ class CovariateModelMixin(BaseModel):
                 eval_steps+1)
             )
 
-        self.learning_rates = learning_rates
-
         def lr_function(e):
             return learning_rates[e]/learning_rates[0]
 
@@ -263,7 +398,7 @@ class CovariateModelMixin(BaseModel):
         optimizers = (model_optimizer, dependence_optimizer)
         batches_complete, step_loss = 0,0
         learning_rate_losses = []
-        
+
         try:
 
             t = trange(eval_steps-2, desc = 'Learning rate range test', leave = True)
@@ -274,32 +409,37 @@ class CovariateModelMixin(BaseModel):
                 self.train()
                 for batch in self.transform_batch(data_loader, bar = False):
 
-                    step_loss += self._step(batch, *optimizers, *parameters,
-                            anneal_factor = 1/self.reconstruction_weight, batch_size_adjustment = self._get_loss_adjustment(batch),
-                            disentanglement_coef = 1.)['total_loss']
+                    metrics = self._step(batch, *optimizers, *parameters,
+                            anneal_factor = 1/self.reconstruction_weight, 
+                            batch_size_adjustment = self._get_loss_adjustment(batch),
+                            disentanglement_coef = self.dependence_beta)
+                            
+                    step_loss += metrics['ELBO_loss'].item()
 
                     batches_complete+=1
                     
                     if batches_complete % eval_every == 0 and batches_complete > 0:
                         scheduler.step()
-                        learning_rate_losses.append(step_loss/(self.batch_size * self.num_exog_features))
-                        step_loss = 0.0
+                        learning_rate_losses.append(
+                            step_loss/(eval_every * self.batch_size * self.num_exog_features)
+                        )
+
+                        step_loss = 0.
                         try:
                             next(_t)
                         except StopIteration:
                             break
 
-        except ValueError as err:
-            print(repr(err))
-            logger.error(str(err) + '\nProbably gradient overflow from too high learning rate, stopping test early.')
-
+        except ModelParamError as err:
+            pass
+            
         self.gradient_lr = np.array(learning_rates[:len(learning_rate_losses)])
         self.gradient_loss = np.array(learning_rate_losses)
 
         return self.trim_learning_rate_bounds()
 
 
-    def _fit(self, writer = None, training_bar = True, reinit = True,*,
+    def _fit(self, writer = None, training_bar = True, reinit = True, log_every = 10,*,
             dataset, features, highly_variable):
         
         if reinit:
@@ -353,15 +493,15 @@ class CovariateModelMixin(BaseModel):
 
                     metrics = self._step(batch, *optimizers, *parameters, 
                         anneal_factor = anneal_factor, batch_size_adjustment = self._get_loss_adjustment(batch),
-                        disentanglement_coef = disentanglement_coef)
+                        disentanglement_coef = disentanglement_coef * self.dependence_beta)
 
                     metrics['learning_rate'] = float(scheduler._last_lr[0])
                         
-                    if not writer is None:
+                    if not writer is None and step_count % log_every == 0:
                         for k, v in metrics.items():
                             writer.add_scalar(k, v, step_count)
 
-                    running_loss+=metrics['average_MI']
+                    running_loss+=metrics['total_loss']
                     step_count+=1
 
                 except ValueError:
@@ -375,7 +515,7 @@ class CovariateModelMixin(BaseModel):
             recent_losses = self.training_loss[-5:]
 
             if training_bar:
-                t.set_description("Epoch {} done. Recent MIs: {}".format(
+                t.set_description("Epoch {} done. Recent losses: {}".format(
                     str(epoch + 1),
                     ' --> '.join('{:.3e}'.format(loss) for loss in recent_losses)
                 ))
