@@ -1,27 +1,19 @@
 
 import torch
-import torch.distributions.constraints as constraints
 import torch.nn.functional as F
-import pyro.distributions as dist
-from mira.topic_model.base import BaseModel, get_fc_stack, encoder_layer
-from pyro.contrib.autoname import scope
-import pyro
+from mira.topic_model.base import BaseModel, get_fc_stack
 import numpy as np
 import warnings
 from scipy.sparse import isspmatrix
 from functools import partial
-from pyro import poutine
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 import mira.tools.enrichr_enrichments as enrichr
 from mira.plots.enrichment_plot import plot_enrichments as mira_plot_enrichments
-from pyro.distributions.torch_distribution import ExpandedDistribution
-from pyro.distributions.torch_distribution import TorchDistribution
-from torch import nn
+
+
 import logging
 logger = logging.getLogger(__name__)
-
-
 
 class ExpressionEncoder(torch.nn.Module):
 
@@ -82,7 +74,7 @@ class ExpressionEncoder(torch.nn.Module):
         return theta_loc, theta_scale
 
 
-class ExpressionTopicModel(BaseModel):
+class ExpressionModel:
 
     encoder_model = ExpressionEncoder
 
@@ -112,61 +104,6 @@ class ExpressionTopicModel(BaseModel):
             )
 
         return np.clip(np.nan_to_num(r_ij), -10, 10)
-
-
-    @scope(prefix= 'rna')
-    def model(self,*,endog_features, exog_features, covariates, read_depth, extra_features, 
-        anneal_factor = 1., batch_size_adjustment = 1.):
-
-        with poutine.scale(None, batch_size_adjustment):
-            theta_loc, theta_scale = super().model()
-            pyro.module("decoder", self.decoder)
-
-            dispersion = pyro.param('dispersion', read_depth.new_ones(self.num_exog_features).to(self.device) * 5., constraint = constraints.positive)
-            dispersion = dispersion.to(self.device)
-
-            with pyro.plate("cells", endog_features.shape[0]):
-
-                with poutine.scale(None, anneal_factor):
-                    
-                    theta = pyro.sample(
-                        "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
-                    )
-
-                    read_scale = pyro.sample('read_depth', dist.LogNormal(torch.log(read_depth), 1.).to_event(1))
-
-                theta = theta/theta.sum(-1, keepdim = True)
-                expr_rate = self.decoder(theta, covariates)
-                
-                if not self.nb_parameterize_logspace:
-                    mu = torch.multiply(read_scale, expr_rate)
-                    probs = mu/(mu + dispersion)
-                    X = pyro.sample('obs', dist.NegativeBinomial(total_count = dispersion, probs = probs).to_event(1), obs = exog_features)
-                else:
-                    logits = (read_scale * expr_rate).log() - (dispersion).log()
-                    X = pyro.sample('obs', dist.NegativeBinomial(total_count = dispersion, logits = logits).to_event(1), obs = exog_features)
-
-
-    @scope(prefix= 'rna')
-    def guide(self,*,endog_features, exog_features, covariates, 
-            read_depth, extra_features, anneal_factor = 1., batch_size_adjustment = 1.):
-
-        with poutine.scale(None, batch_size_adjustment):
-            super().guide()
-
-            theta_loc, theta_scale, rd_loc, rd_scale = self.encoder(endog_features, read_depth, covariates, extra_features)
-            
-            with pyro.plate("cells", endog_features.shape[0]):
-
-                with poutine.scale(None, anneal_factor):
-
-                    theta = pyro.sample(
-                        "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
-                    )
-
-                    read_depth = pyro.sample(
-                        "read_depth", dist.LogNormal(rd_loc.reshape((-1,1)), rd_scale.reshape((-1,1))).to_event(1)
-                    )
 
     def _get_dataset_statistics(self, dataset):
         super()._get_dataset_statistics(dataset)

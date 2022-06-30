@@ -1,5 +1,5 @@
-from mira.topic_model.expression_model import ExpressionEncoder, ExpressionTopicModel
-from mira.topic_model.accessibility_model import DANEncoder, AccessibilityTopicModel, \
+from mira.topic_model.expression_model import ExpressionEncoder
+from mira.topic_model.accessibility_model import DANEncoder, \
         ZeroPaddedBinaryMultinomial, ZeroPaddedMultinomial
 import pyro.distributions as dist
 import torch
@@ -46,9 +46,10 @@ class DPModel:
     def _recommend_num_topics(self, n_samples):
         #boxcox transform of the number of samples
         return max(int(
-                (n_samples**0.3 - 1)/0.3
+                self.boxcox(n_samples, 0.3)
             ), 50)
     
+
     @staticmethod
     def boxcox(x, a):
         return ( x**a - 1)/a
@@ -66,6 +67,7 @@ class DPModel:
 
         return self.boxcox(transformed, box_cox).dot(basis)
     
+
     def _t(self, val):
         return torch.tensor(val, requires_grad = False, device = self.device)
 
@@ -73,7 +75,7 @@ class DPModel:
 class DP_ExpressionEncoder(ExpressionEncoder, DP_EncoderMixin):
     pass
 
-class ExpressionDirichletProcessModel(DPModel, ExpressionTopicModel):
+class ExpressionDirichletProcessModel(DPModel):
     
     encoder_model = DP_ExpressionEncoder
     
@@ -110,7 +112,7 @@ class ExpressionDirichletProcessModel(DPModel, ExpressionTopicModel):
                     X = pyro.sample('obs', dist.NegativeBinomial(total_count = dispersion, logits = logits).to_event(1), obs = exog_features)
 
 
-    @scope(prefix= 'rna')
+    @scope(prefix='rna')
     def guide(self,*,endog_features, exog_features, covariates, read_depth, 
             extra_features, anneal_factor = 1., batch_size_adjustment = 1.):
         pyro.module("encoder", self.encoder)
@@ -143,7 +145,7 @@ class DP_AccessibilityEncoder(DANEncoder, DP_EncoderMixin):
     pass
 
 
-class AccessibilityDirichletProcessModel(DPModel, AccessibilityTopicModel):
+class AccessibilityDirichletProcessModel(DPModel):
     
     encoder_model = DP_AccessibilityEncoder
 

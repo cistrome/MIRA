@@ -38,7 +38,6 @@ class ZeroPaddedBinaryMultinomial(pyro.distributions.Multinomial):
 
 class ZeroPaddedMultinomial(pyro.distributions.Multinomial):
 
-
     def log_prob(self, value):
 
         count, idx = value
@@ -108,7 +107,7 @@ class DANEncoder(nn.Module):
         return theta.detach().cpu().numpy()
 
 
-class AccessibilityTopicModel(BaseModel):
+class AccessibilityModel:
 
     encoder_model = DANEncoder
     count_model = 'binary'
@@ -116,52 +115,6 @@ class AccessibilityTopicModel(BaseModel):
     @property
     def peaks(self):
         return self.features
-            
-    @scope(prefix='atac')
-    def model(self,*, endog_features, exog_features, 
-        read_depth, covariates, extra_features, anneal_factor = 1.,
-        batch_size_adjustment = 1.):
-
-        with poutine.scale(None, batch_size_adjustment):
-
-            theta_loc, theta_scale = super().model()
-            
-            with pyro.plate("cells", endog_features.shape[0]):
-
-                with poutine.scale(None, anneal_factor):
-                    theta = pyro.sample(
-                        "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
-                    )
-
-                theta = theta/theta.sum(-1, keepdim = True)            
-                peak_probs = self.decoder(theta, covariates)
-                
-                if self.count_model == 'binary':
-                    pyro.sample(
-                        'obs', ZeroPaddedBinaryMultinomial(total_count = 1, probs = peak_probs), obs = exog_features,
-                    )
-                else:
-                    pyro.sample(
-                        'obs', ZeroPaddedMultinomial(probs = peak_probs, validate_args = False), obs = (exog_features, endog_features),
-                    )
-
-    @scope(prefix = 'atac')
-    def guide(self, *, endog_features, exog_features, read_depth, covariates, 
-        extra_features, anneal_factor = 1.,
-        batch_size_adjustment = 1.):
-
-        with poutine.scale(None, batch_size_adjustment):
-            super().guide()
-        
-            with pyro.plate("cells", endog_features.shape[0]):
-                
-                theta_loc, theta_scale = self.encoder(endog_features, read_depth, covariates, extra_features)
-
-                with poutine.scale(None, anneal_factor):
-                        
-                    theta = pyro.sample(
-                        "theta", dist.LogNormal(theta_loc, theta_scale).to_event(1)
-                    )
 
     def _get_min_resources(self):
         return self.num_epochs//2

@@ -1,7 +1,6 @@
 from functools import partial
 from scipy import interpolate
 import pyro
-import pyro.distributions as dist
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,7 +8,6 @@ from torch.optim import AdamW as Adam
 from pyro.infer import SVI, TraceMeanField_ELBO
 from tqdm.auto import tqdm, trange
 import numpy as np
-import torch.distributions.constraints as constraints
 import logging
 from math import ceil
 import time
@@ -175,6 +173,7 @@ class Decoder(nn.Module):
 
 class ModelParamError(ValueError):
     pass
+
 
 class OneCycleLR_Wrapper(torch.optim.lr_scheduler.OneCycleLR):
 
@@ -385,8 +384,10 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def _recommend_batchsize(self, n_samples):
         if n_samples >= 5000 and n_samples <= 15000:
             return 64
-        elif n_samples > 15000:
+        elif n_samples > 20000 and n_samples <= 100000:
             return 128
+        elif n_samples > 100000:
+            return 256 # smoothest updates
         else:
             return 32
 
@@ -548,66 +549,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.to(self.device)
 
 
-    #,*, endog_features, exog_features, read_depth, anneal_factor = 1.
-    def model(self):
-        
-        pyro.module("decoder", self.decoder)
-
-        _alpha, _beta = self._get_gamma_parameters(self.initial_pseudocounts, self.num_topics)
-        with pyro.plate("topics", self.num_topics):
-            initial_counts = pyro.sample("a", dist.Gamma(self._to_tensor(_alpha), self._to_tensor(_beta)))
-
-        theta_loc = self._get_prior_mu(initial_counts, self.K)
-        theta_scale = self._get_prior_std(initial_counts, self.K)
-
-        return theta_loc.to(self.device), theta_scale.to(self.device)
-
-
-    def guide(self):
-
-        #assert(self.initial_pseudocounts > self.num_topics), 'Initial counts must be greater than the number of topics.'
-
-        _counts_mu, _counts_var = self._get_lognormal_parameters_from_moments(
-            *self._get_gamma_moments(self.initial_pseudocounts, self.num_topics)
-        )
-
-        pseudocount_mu = pyro.param('pseudocount_mu', _counts_mu * torch.ones((self.num_topics,)).to(self.device))
-
-        pseudocount_std = pyro.param('pseudocount_std', np.sqrt(_counts_var) * torch.ones((self.num_topics,)).to(self.device), 
-                constraint = constraints.positive)
-
-        pyro.module("encoder", self.encoder)
-
-        with pyro.plate("topics", self.num_topics) as k:
-            initial_counts = pyro.sample("a", dist.LogNormal(pseudocount_mu, pseudocount_std))
-
-
-
-    @staticmethod
-    def _get_gamma_parameters(I, K):
-        return 2., 2*K/I
-
-    @staticmethod
-    def _get_gamma_moments(I,K):
-        return I/K, 0.5 * (I/K)**2
-
-    @staticmethod
-    def _get_lognormal_parameters_from_moments(m, v):
-        m_squared = m**2
-        mu = np.log(m_squared / np.sqrt(v + m_squared))
-        var = np.log(v/m_squared + 1)
-
-        return mu, var
-
-    @staticmethod
-    def _get_prior_mu(a, K):
-        return a.log() - 1/K * torch.sum(a.log())
-
-    @staticmethod
-    def _get_prior_std(a, K):
-        return torch.sqrt(1/a * (1-2/K) + 1/(K * a))
-
-    
     def transform_batch(self, data_loader, bar = True, desc = ''):
 
         for batch in tqdm(data_loader, desc = desc) if bar else data_loader:
@@ -617,8 +558,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def _get_1cycle_scheduler(self, n_batches_per_epoch):
         
         return pyro.optim.lr_scheduler.PyroLRScheduler(OneCycleLR_Wrapper, 
-            #{'optimizer' : SGD, 'optim_args' : {'lr' : self.min_learning_rate, 'weight_decay' : self.weight_decay}, 
-            #'base_momentum' : 0.75, 'max_momentum' : 0.9,
             {'optimizer' : Adam, 'optim_args' : {'lr' : self.min_learning_rate, 'betas' : (self.beta, 0.999), 'weight_decay' : self.weight_decay}, 
             'max_lr' : self.max_learning_rate, 
             'steps_per_epoch' : n_batches_per_epoch, 'epochs' : self.num_epochs, 'div_factor' : self.max_learning_rate/self.min_learning_rate,
@@ -706,18 +645,15 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     def _step(self, batch, anneal_factor, batch_size_adjustment):
 
-        try:
-            return {
-                'loss' : float(
-                        self.svi.step(**batch, 
-                            anneal_factor = anneal_factor,
-                            batch_size_adjustment = batch_size_adjustment
-                        )
-                    ),
-                'anneal_factor' : anneal_factor
-                }
-        except ValueError:
-            raise ModelParamError()
+        return {
+            'loss' : float(
+                    self.svi.step(**batch, 
+                        anneal_factor = anneal_factor,
+                        batch_size_adjustment = batch_size_adjustment
+                    )
+                ),
+            'anneal_factor' : anneal_factor
+            }
 
     @adi.wraps_modelfunc(fetch = tmi.fit_adata, 
         fill_kwargs=['features','highly_variable','dataset'])
@@ -803,8 +739,12 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
                 self.train()
                 for batch in self.transform_batch(data_loader, bar = False):
+                    
+                    try:
+                        step_loss += self._step(batch, 1/self.reconstruction_weight, self._get_loss_adjustment(batch))['loss']
+                    except ValueError:
+                        raise ModelParamError()
 
-                    step_loss += self._step(batch, 1/self.reconstruction_weight, self._get_loss_adjustment(batch))['loss']
                     batches_complete+=1
                     
                     if batches_complete % eval_every == 0 and batches_complete > 0:
@@ -818,8 +758,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         except ModelParamError as err:
             pass
-            #print(repr(err))
-            #logger.error(str(err) + '\nProbably gradient overflow from too high learning rate, stopping test early.')
 
         self.gradient_lr = np.array(learning_rates[:len(learning_rate_losses)])
         self.gradient_loss = np.array(learning_rate_losses)
@@ -1064,14 +1002,14 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                     metrics = self._step(batch, anneal_factor, self._get_loss_adjustment(batch))
                     
                 except ValueError:
-                    raise ModelParamError('Gradient overflow caused parameter values that were too large to evaluate. Try setting a lower learning rate.')
+                    raise ModelParamError('Gradient overflow caused parameter values that were too large to evaluate.\nTry setting a lower maximum learning rate or changing the model seed.')
 
                 if not writer is None and step_count % log_every == 0:
                     for k, v in metrics.items():
                         writer.add_scalar(k, v, step_count)
 
-                    running_loss+=metrics['loss']
-                    step_count+=1
+                running_loss+=metrics['loss']
+                step_count+=1
 
                 if epoch < self.num_epochs:
                     scheduler.step()
@@ -1233,7 +1171,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             topic_feature_dists = self.get_topic_feature_distribution(),
             topic_feature_activations = self._score_features(),
             feature_names = self.features,
-            topic_dendogram = self.cluster_topics(),
+            #topic_dendogram = self.cluster_topics(),
         )
 
     @adi.wraps_modelfunc(tmi.fetch_features, 
@@ -1341,11 +1279,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def _evaluate_vae_loss(self, model, losses, 
         batch_size = 512, bar = False,*, dataset):
 
-        #try:
-        #    self.svi
-        #except AttributeError:
-        #    raise AttributeError('This function only works after training, not before training or after loading from disk.')
-
         self.eval()
         self._set_seeds()
         
@@ -1355,9 +1288,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         results = []
         for batch in self.transform_batch(data_loader, bar = bar):
             with torch.no_grad():
-                #running_loss += float(
-                #    loss(model, self.guide, **batch, anneal_factor = 1.0)
-                #)
+
                 results.append(
                     list(map(lambda loss_fn : float(loss_fn(model, self.guide, **batch, anneal_factor = 1.)), 
                         losses))
