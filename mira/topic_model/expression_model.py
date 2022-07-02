@@ -1,4 +1,5 @@
 
+from tokenize import Name
 import torch
 import torch.nn.functional as F
 from mira.topic_model.base import BaseModel, get_fc_stack
@@ -108,60 +109,51 @@ class ExpressionModel:
     def _get_dataset_statistics(self, dataset):
         super()._get_dataset_statistics(dataset)
 
-        skim_endog = dataset[0][0]
+        skim_endog = dataset[0]['endog_features']
         cummulative_counts = np.zeros(skim_endog.shape[1])
-
         for i in range(len(dataset)):
-            cummulative_counts = cummulative_counts + dataset[i][0].toarray().reshape(-1)
-
+            cummulative_counts = cummulative_counts + dataset[i]['endog_features'].toarray().reshape(-1)
+            
         self.residual_pi = cummulative_counts/cummulative_counts.sum()
 
 
     @adi.wraps_modelfunc(tmi.fetch_features, partial(adi.add_obs_col, colname = 'model_read_scale'),
-        ['dataset'])
-    def _get_read_depth(self, *, dataset, batch_size = 512):
+        ['data_loader'])
+    def _get_read_depth(self, *, data_loader, batch_size = 512):
 
-        return self._run_encoder_fn(self.encoder.read_depth, dataset, 
+        return self._run_encoder_fn(self.encoder.read_depth, data_loader, 
             batch_size=batch_size, bar = False, desc = 'Calculating reads scale')
 
 
-    def get_endog_fn(self):
-
-        def preprocess_endog(X):
+    def preprocess_endog(self, X):
+    
+        assert(isinstance(X, np.ndarray) or isspmatrix(X))
         
-            assert(isinstance(X, np.ndarray) or isspmatrix(X))
-            
-            if isspmatrix(X):
-                X = X.toarray()
+        if isspmatrix(X):
+            X = X.toarray()
 
-            assert(len(X.shape) == 2)
-            assert(X.shape[1] == self.num_endog_features)
-            
-            assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
-
-            X = self._residual_transform(X, self.residual_pi).astype(np.float32)
-
-            return X
-
-        return preprocess_endog
-
-
-    def get_exog_fn(self):
+        assert(len(X.shape) == 2)
+        assert(X.shape[1] == self.num_endog_features)
         
-        def preprocess_exog(X):
+        assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
 
-            assert(isinstance(X, np.ndarray) or isspmatrix(X))
-            if isspmatrix(X):
-                X = X.toarray()
+        X = self._residual_transform(X, self.residual_pi).astype(np.float32)
 
-            assert(len(X.shape) == 2)
-            assert(X.shape[1] == self.num_exog_features)
-            
-            assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
+        return X
 
-            return X.astype(np.float32)
 
-        return preprocess_exog
+    def preprocess_exog(self, X):
+
+        assert(isinstance(X, np.ndarray) or isspmatrix(X))
+        if isspmatrix(X):
+            X = X.toarray()
+
+        assert(len(X.shape) == 2)
+        assert(X.shape[1] == self.num_exog_features)
+        
+        assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
+
+        return X.astype(np.float32)
 
 
     def _get_save_data(self):

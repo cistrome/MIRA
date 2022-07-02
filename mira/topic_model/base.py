@@ -23,8 +23,6 @@ import time
 from torch.distributions import kl_divergence
 from collections import defaultdict
 import os
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -442,6 +440,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             else:
                 yield start, end
 
+
     def _set_seeds(self):
         if self.seed is None:
             self.seed = int(time.time() * 1e7)%(2**32-1)
@@ -449,19 +448,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         torch.manual_seed(self.seed)
         pyro.set_rng_seed(self.seed)
         np.random.seed(self.seed)
-
-    def get_endog_fn(self):
-        raise NotImplementedError()
-                   
-    def get_exog_fn(self):
-        raise NotImplementedError()
-
-    def get_rd_fn(self):
         
-        def preprocess_read_depth(X):
-            return np.array(X.sum(-1)).reshape((-1,1)).astype(np.float32)
+
+    def preprocess_read_depth(self, X):
+        return np.array(X.sum(-1)).reshape((-1,1)).astype(np.float32)
         
-        return preprocess_read_depth
 
     def get_training_sampler(self):
         
@@ -469,7 +460,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             shuffle = True, drop_last=True,)
         
 
-    def _get_dataset_statistics(self, dataset):
+    def _get_dataset_statistics(self, data_loader):
         pass
 
     def _get_loss_adjustment(self, batch):
@@ -630,10 +621,10 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             }
 
     @adi.wraps_modelfunc(fetch = tmi.fit_adata, 
-        fill_kwargs=['features','highly_variable','dataset'])
+        fill_kwargs=['features','highly_variable','data_loader'])
     def get_learning_rate_bounds(self, num_epochs = 3, eval_every = 3, 
         lower_bound_lr = 1e-6, upper_bound_lr = 5,*,
-        features, highly_variable, dataset):
+        features, highly_variable, data_loader):
         '''
         Use the learning rate range test (LRRT) to determine minimum and maximum learning
         rates that enable the model to traverse the gradient of the loss. 
@@ -677,12 +668,9 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             features = features, highly_variable = highly_variable
         )
 
-        data_loader = self.get_dataloader(dataset, training=True,
-            batch_size=self.batch_size)
+        self._get_dataset_statistics(data_loader.dataset)
 
-        self._get_dataset_statistics(dataset)
-
-        n_batches = len(dataset)//self.batch_size
+        n_batches = len(data_loader)
         eval_steps = ceil((n_batches * num_epochs)/eval_every)
 
         learning_rates = np.exp(
@@ -911,8 +899,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     @adi.wraps_modelfunc(tmi.fit_adata, adi.return_output,
-        fill_kwargs=['features','highly_variable','dataset'])
-    def instantiate_model(self,*, features, highly_variable, dataset):
+        fill_kwargs=['features','highly_variable','data_loader'])
+    def instantiate_model(self,*, features, highly_variable, data_loader):
         '''
         Given the exogenous and enxogenous features provided, instantiate weights
         of neural network. Called internally by `fit`.
@@ -934,21 +922,19 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     def _fit(self, writer = None, training_bar = True, reinit = True, log_every = 10,*,
-            dataset, features, highly_variable):
+            data_loader, features, highly_variable):
         
         if reinit:
             self._instantiate_model(
                 features = features, highly_variable = highly_variable, 
             )
 
-        self._get_dataset_statistics(dataset)
+        self._get_dataset_statistics(data_loader.dataset)
 
         early_stopper = EarlyStopping(tolerance=3, patience=1e-4, convergence_check=False)
 
-        n_batches = len(dataset)//self.batch_size
-        n_observations = len(dataset)
-        data_loader = self.get_dataloader(dataset, training=True,
-            batch_size=self.batch_size)
+        n_batches = len(data_loader)
+        n_observations = len(data_loader.dataset)
 
         scheduler = self._get_1cycle_scheduler(n_batches)
         self.svi = SVI(self.model, self.guide, scheduler, loss=TraceMeanField_ELBO())
@@ -1015,9 +1001,9 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     @adi.wraps_modelfunc(tmi.fit_adata, adi.return_output,
-        fill_kwargs=['features','highly_variable','dataset'])
+        fill_kwargs=['features','highly_variable','data_loader'])
     def fit(self, writer = None, reinit = True, log_every = 10,*,
-        features, highly_variable, dataset):
+        features, highly_variable, data_loader):
         '''
         Initializes new weights, then fits model to data.
 
@@ -1046,14 +1032,14 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             To learn about topic model tuning, see :ref:`mira.topics.TopicModelTuner`.
         '''
         for _ in self._fit(writer = writer, reinit = reinit, log_every = log_every,
-            features = features, highly_variable = highly_variable, dataset = dataset):
+            features = features, highly_variable = highly_variable, data_loader = data_loader):
             pass
 
         return self
 
 
     @adi.wraps_modelfunc(tmi.fit, adi.return_output,
-        fill_kwargs=['features','highly_variable','dataset'])
+        fill_kwargs=['features','highly_variable','data_loader'])
     def write_disk_dataset(self,*,
                 features, highly_variable, data_loader, dirname):
 
@@ -1067,24 +1053,21 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     @adi.wraps_modelfunc(tmi.fit_adata, adi.return_output,
-        fill_kwargs=['features','highly_variable','dataset'])
+        fill_kwargs=['features','highly_variable','data_loader'])
     def _internal_fit(self, writer = None, log_every = 10,*,
-            features, highly_variable, dataset):
+            features, highly_variable, data_loader):
 
         return self._fit(training_bar = False, writer = writer, log_every = log_every,
             features = features, highly_variable = highly_variable, 
-            dataset=dataset)
+            data_loader=data_loader)
 
 
-    def _run_encoder_fn(self, fn, dataset, batch_size = 512, bar = True, desc = 'Predicting latent vars'):
+    def _run_encoder_fn(self, fn, data_loader, batch_size = 512, bar = True, desc = 'Predicting latent vars'):
 
         assert(isinstance(batch_size, int) and batch_size > 0)
         
         self.eval()
         logger.debug('Predicting latent variables ...')
-
-        data_loader = self.get_dataloader(dataset, training=False,
-            batch_size=self.batch_size)
 
         results = []
         for batch in self.transform_batch(data_loader, bar = bar, desc = desc):
@@ -1111,8 +1094,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     @adi.wraps_modelfunc(tmi.fetch_features, tmi.add_topic_comps,
-        fill_kwargs=['dataset'])
-    def predict(self, batch_size = 512, bar = True,*, dataset):
+        fill_kwargs=['data_loader'])
+    def predict(self, batch_size = 512, bar = True,*, data_loader):
         '''
         Predict the topic compositions of cells in the data. Adds the 
         topic compositions to the `.obsm` field of the adata object.
@@ -1155,7 +1138,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         return dict(
             cell_topic_dists = self._run_encoder_fn(self.encoder.topic_comps, 
-                dataset, batch_size = batch_size, bar = bar),
+                data_loader, batch_size = batch_size, bar = bar),
             topic_feature_dists = self.get_topic_feature_distribution(),
             topic_feature_activations = self._score_features(),
             feature_names = self.features,
@@ -1163,11 +1146,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         )
 
     @adi.wraps_modelfunc(tmi.fetch_features, 
-        fill_kwargs=['dataset'])
-    def _untransformed_Z(self, batch_size = 512, bar = True,*, dataset):
+        fill_kwargs=['data_loader'])
+    def _untransformed_Z(self, batch_size = 512, bar = True,*, data_loader):
 
         return self._run_encoder_fn(self.encoder.untransformed_Z, 
-                dataset, batch_size = batch_size, bar = bar)
+                data_loader, batch_size = batch_size, bar = bar)
 
 
     @adi.wraps_modelfunc(tmi.fetch_topic_comps_and_linkage_matrix, 
@@ -1265,14 +1248,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     def _evaluate_vae_loss(self, model, losses, 
-        batch_size = 512, bar = False,*, dataset):
+        bar = False,*, data_loader):
 
         self.eval()
         self._set_seeds()
-        
-        data_loader = self.get_dataloader(dataset, training=False, 
-            batch_size = batch_size)
-        
+                
         results = []
         for batch in self.transform_batch(data_loader, bar = bar):
             with torch.no_grad():
@@ -1282,23 +1262,22 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                         losses))
                 )
 
-        return list(map(lambda x : sum(x)/len(dataset), list(zip(*results))))
+        return list(map(lambda x : sum(x)/len(data_loader.dataset), list(zip(*results))))
 
 
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
-        fill_kwargs=['dataset'])
-    def distortion_rate_loss(self, batch_size = 512, bar = False,*, dataset):
+        fill_kwargs=['data_loader'])
+    def distortion_rate_loss(self,  bar = False,*, data_loader):
         
-        return self._distortion_rate_loss(batch_size= batch_size,
-            dataset = dataset)
+        return self._distortion_rate_loss(data_loader = data_loader)
 
 
-    def _distortion_rate_loss(self, batch_size = 512, bar = False,*,dataset):
+    def _distortion_rate_loss(self, batch_size = 512, bar = False,*,data_loader):
 
         self.eval()
         vae_loss, rate = self._evaluate_vae_loss(
                 self.model, [TraceMeanField_ELBO().loss, TraceMeanFieldLatentKL().loss],
-                dataset=dataset, batch_size = batch_size,
+                data_loader=data_loader, batch_size = batch_size,
                 bar = bar,
             )
 
@@ -1308,8 +1287,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
-        fill_kwargs=['dataset'])
-    def score(self, batch_size = 512, *, dataset):
+        fill_kwargs=['data_loader'])
+    def score(self, batch_size = 512, *, data_loader):
         '''
         Get normalized ELBO loss for data. This method is only available on
         topic models that have not been loaded from disk.
@@ -1349,7 +1328,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.eval()
         return self._evaluate_vae_loss(
                 self.model, TraceMeanField_ELBO().loss,
-                dataset=dataset, batch_size = batch_size
+                data_loader=data_loader, batch_size = batch_size
             )/self.num_exog_features
 
     

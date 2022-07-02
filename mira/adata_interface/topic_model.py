@@ -14,6 +14,19 @@ from torch.utils.data import DataLoader
 from functools import partial
 import anndata
 from tqdm.auto import tqdm
+from collections import defaultdict
+
+
+def _transpose_list_of_dict(list_of_dicts):
+    
+    keys = list_of_dicts[0].keys()
+    dict_of_lists = defaultdict(list)
+    
+    for l in list_of_dicts:
+        for k in keys:
+            dict_of_lists[k].append(l[k])
+            
+    return dict(dict_of_lists)
 
 
 class OnDiskDataset(Dataset):
@@ -94,7 +107,8 @@ class OnDiskDataset(Dataset):
 
 class InMemoryDataset(Dataset):
 
-    def __init__(self, model, adata):
+    @classmethod
+    def get_features(cls, model, adata):
 
         if model.exogenous_key is None:
             predict_mask = np.ones(adata.shape[-1]).astype(bool)
@@ -110,50 +124,63 @@ class InMemoryDataset(Dataset):
             highly_variable = adata.var_vector(model.endogenous_key)
             logger.info('Using highly-variable genes from col: ' + model.endogenous_key)
 
-        self.features = adata.var_names.values
+        features = adata.var_names.values
+        highly_variable = highly_variable
+
+        return features, highly_variable
+
+
+    def __init__(self, adata,*,
+        features, highly_variable, covariates_keys, extra_features_keys,
+        counts_layer):
+
+        assert len(features) == len(highly_variable)
+
+        self.features = features
         self.highly_variable = highly_variable
 
-        adata = adata[:, self.features]
-
-        self.exog_features = fetch_layer(self, adata, model.counts_layer, copy = False)
-        self.endog_features = fetch_layer(self, adata[:, highly_variable], 
-                                model.counts_layer, copy = False)
-
-        self.covariates = fetch_columns(self, adata, model.covariates_keys)
-        self.extra_features = fetch_columns(self, adata, model.extra_features_keys)
+        self.exog_features = fetch_layer(self, adata[:, self.features], counts_layer, copy = False)
+        self.covariates = fetch_columns(self, adata, covariates_keys)
+        self.extra_features = fetch_columns(self, adata, extra_features_keys)
 
         assert isinstance(self.exog_features, sparse.spmatrix)
         assert isinstance(self.exog_features, sparse.spmatrix)
-
 
     def __len__(self):
         return self.exog_features.shape[0]
 
+
     def __getitem__(self, idx):
-        return self.endog_features[idx], \
-            self.exog_features[idx], \
-            self.covariates[idx] if not self.covariates is None else [], \
-            self.extra_features[idx] if not self.extra_features is None else []
+        return {
+            'endog_features' : self.exog_features[idx, self.highly_variable],
+            'exog_features' : self.exog_features[idx],
+            'covariates' : self.covariates[idx] if not self.covariates is None else [],
+            'extra_features' : self.extra_features[idx] if not self.extra_features is None else []
+        }
 
 
     @staticmethod
     def collate_batch(batch,*,model):
 
-        endog, exog, covariates, extra_features = list(zip(*batch))
-        endog, exog = sparse.vstack(endog), sparse.vstack(exog)
+        def collate(*, endog_features, exog_features, 
+                covariates, extra_features):
 
-        features = {
-            'endog_features' : model.preprocess_endog(endog),
-            'exog_features' : model.preprocess_exog(exog),
-            'read_depth' : model.preprocess_read_depth(exog),
-            'covariates' : np.array(covariates).astype(np.float32),
-            'extra_features' : np.array(extra_features).astype(np.float32),
-        }
+            endog, exog = sparse.vstack(endog_features), sparse.vstack(exog_features)
 
-        return {
-            k : torch.tensor(v, requires_grad = False).to(model.device)
-            for k, v in features.items()
-        }
+            features = {
+                'endog_features' : model.preprocess_endog(endog),
+                'exog_features' : model.preprocess_exog(exog),
+                'read_depth' : model.preprocess_read_depth(exog),
+                'covariates' : np.array(covariates).astype(np.float32),
+                'extra_features' : np.array(extra_features).astype(np.float32),
+            }
+
+            return {
+                k : torch.tensor(v, requires_grad = False).to(model.device)
+                for k, v in features.items()
+            }
+
+        return collate(**_transpose_list_of_dict(batch))
 
 
     def get_dataloader(self,
@@ -183,12 +210,9 @@ class InMemoryDataset(Dataset):
             self, 
             batch_size = batch_size, 
             **extra_kwargs,
-            collate_fn= partial(self.collate_batch,
-                preprocess_endog = model.get_endog_fn(), 
-                preprocess_exog = model.get_exog_fn(), 
-                preprocess_read_depth = model.get_rd_fn(),
-            )
+            collate_fn= partial(self.collate_batch, model = model)
         )
+
 
 def add_test_column(adata, output):
     test_column, test_cell_mask = output
@@ -221,12 +245,21 @@ def fetch_columns(self, adata, cols):
 
 def fit_adata(self, adata):
 
-    dataset = InMemoryDataset(self, adata)
+    features, highly_variable = InMemoryDataset.get_features(self, adata)
+
+    dataset = InMemoryDataset(
+        adata, 
+        features=features,
+        highly_variable=highly_variable,
+        covariates_keys=self.covariates_keys,
+        extra_features_keys=self.extra_features_keys,
+        counts_layer=self.counts_layer
+    )
 
     return dict(
         features = dataset.features,
         highly_variable = dataset.highly_variable,
-        dataloader = dataset.get_dataloader(
+        data_loader = dataset.get_dataloader(
             self, training=True
         )
     )
@@ -251,11 +284,11 @@ def fit(self, adata_or_dirname):
 
 def fetch_features(self, adata):
 
-    return {'dataloader' : InMemoryDataset(
+    return {'data_loader' : InMemoryDataset(
+                adata,
                 features = self.features,
                 highly_variable = self.highly_variable,
                 counts_layer = self.counts_layer,
-                adata = adata,
                 covariates_keys = self.covariates_keys,
                 extra_features_keys = self.extra_features_keys
                 ).get_dataloader(
