@@ -1,47 +1,130 @@
 
 import numpy as np
 import logging
+logger = logging.getLogger(__name__)
+
 from scipy import sparse
 from mira.adata_interface.core import fetch_layer, add_obs_col, \
         add_obsm, project_matrix, add_varm
 from torch.utils.data import Dataset
+import os
+import glob
+import torch
+from torch.utils.data import DataLoader
+from functools import partial
+import anndata
+from tqdm.auto import tqdm
 
-def collate_batch(batch,*,
-    preprocess_endog, 
-    preprocess_exog, 
-    preprocess_read_depth):
 
-    endog, exog, covariates, extra_features = list(zip(*batch))
-    endog, exog = sparse.vstack(endog), sparse.vstack(exog)
+class OnDiskDataset(Dataset):
 
-    return {
-        'endog_features' : preprocess_endog(endog),
-        'exog_features' : preprocess_exog(exog),
-        'read_depth' : preprocess_read_depth(exog),
-        'covariates' : np.array(covariates).astype(np.float32),
-        'extra_features' : np.array(extra_features).astype(np.float32),
-    }
+    @classmethod
+    def write_to_disk(cls, batch_size = 128,*,
+            dirname, features, 
+            highly_variable, data_loader):
+
+        os.mkdir(dirname)
+        os.mkdir(os.path.join(dirname, 'batches'))
+
+        meta = {
+            'features' : features,
+            'highly_variable' : highly_variable,
+            'batch_size' : batch_size,
+        }
+        
+        torch.save(meta, os.path.join(dirname, 'dataset_meta.pth'))
+        
+        for i, batch in tqdm(enumerate(data_loader), desc = 'Writing dataset to disk'):
+
+            torch.save(
+                batch, 
+                os.path.join( dirname, 'batches', '{i}.pth'.format(str(i)) )
+            )
+
+
+    def __init__(self, 
+        dirname = './dataset',
+        seed = 0):
+
+        assert os.path.isdir(dirname)
+        assert os.path.isdir(os.path.join(dirname, 'batches'))
+        assert os.path.exists(os.path.join(dirname, 'dataset_meta.pth'))
+
+        self.dirname = dirname
+
+        self.dataset_meta = torch.load(
+            os.path.join(dirname, 'dataset_meta.pth')
+        )
+
+        self.batch_names = glob.glob(
+            os.path.join(dirname, 'batches', '*.pth')
+        )
+
+        self.random_state = np.random.RandomState(seed)
+
+        self.num_batches = len(self.batch_names)
+
+    def __len__(self):
+        return self.num_batches
+
+    def __getitem__(self, idx):
+        return torch.load(
+            self.batch_names[idx]
+        )
+
+    def get_dataloader(self,
+        model,
+        training = False,
+        shuffle_only = False,
+        batch_size = None):
+
+        extra_kwargs = {}
+        if model.dataset_loader_workers > 0:
+            extra_kwargs.update(dict(
+                num_workers = model.dataset_loader_workers,
+                prefetch_factor = 5
+            ))
+
+        return DataLoader(
+            self, 
+            **extra_kwargs,
+            shuffle = training,
+        )
 
 
 class InMemoryDataset(Dataset):
 
-    def __init__(self,*, features, highly_variable, covariates_keys, extra_features_keys,
-        counts_layer, adata):
+    def __init__(self, model, adata):
 
-        self.features = features
+        if model.exogenous_key is None:
+            predict_mask = np.ones(adata.shape[-1]).astype(bool)
+        else:
+            predict_mask = adata.var_vector(model.exogenous_key)
+            logger.info('Predicting expression from genes from col: ' + model.exogenous_key)
+                
+        adata = adata[:, predict_mask]
+
+        if model.endogenous_key is None:
+            highly_variable = np.ones(adata.shape[-1]).astype(bool)
+        else:
+            highly_variable = adata.var_vector(model.endogenous_key)
+            logger.info('Using highly-variable genes from col: ' + model.endogenous_key)
+
+        self.features = adata.var_names.values
         self.highly_variable = highly_variable
 
         adata = adata[:, self.features]
 
-        self.exog_features = fetch_layer(self, adata, counts_layer, copy = False)
-        self.endog_features = fetch_layer(self, adata[:, highly_variable], counts_layer,
-                        copy = False)
+        self.exog_features = fetch_layer(self, adata, model.counts_layer, copy = False)
+        self.endog_features = fetch_layer(self, adata[:, highly_variable], 
+                                model.counts_layer, copy = False)
 
-        self.covariates = fetch_columns(self, adata, covariates_keys)
-        self.extra_features = fetch_columns(self, adata, extra_features_keys)
+        self.covariates = fetch_columns(self, adata, model.covariates_keys)
+        self.extra_features = fetch_columns(self, adata, model.extra_features_keys)
 
         assert isinstance(self.exog_features, sparse.spmatrix)
         assert isinstance(self.exog_features, sparse.spmatrix)
+
 
     def __len__(self):
         return self.exog_features.shape[0]
@@ -53,7 +136,59 @@ class InMemoryDataset(Dataset):
             self.extra_features[idx] if not self.extra_features is None else []
 
 
-logger = logging.getLogger(__name__)
+    @staticmethod
+    def collate_batch(batch,*,model):
+
+        endog, exog, covariates, extra_features = list(zip(*batch))
+        endog, exog = sparse.vstack(endog), sparse.vstack(exog)
+
+        features = {
+            'endog_features' : model.preprocess_endog(endog),
+            'exog_features' : model.preprocess_exog(exog),
+            'read_depth' : model.preprocess_read_depth(exog),
+            'covariates' : np.array(covariates).astype(np.float32),
+            'extra_features' : np.array(extra_features).astype(np.float32),
+        }
+
+        return {
+            k : torch.tensor(v, requires_grad = False).to(model.device)
+            for k, v in features.items()
+        }
+
+
+    def get_dataloader(self,
+        model,
+        training = False,
+        shuffle_only = False,
+        batch_size = None):
+
+        if batch_size is None:
+            batch_size = model.batch_size
+
+        if training:
+            extra_kwargs = dict(
+                shuffle = True, drop_last = True,
+            )
+            if model.dataset_loader_workers > 0:
+                extra_kwargs.update(dict(
+                    num_workers = model.dataset_loader_workers,
+                    prefetch_factor = 5
+                ))
+        elif shuffle_only:
+            extra_kwargs = {'shuffle' : True}
+        else:
+            extra_kwargs = {}
+
+        return DataLoader(
+            self, 
+            batch_size = batch_size, 
+            **extra_kwargs,
+            collate_fn= partial(self.collate_batch,
+                preprocess_endog = model.get_endog_fn(), 
+                preprocess_exog = model.get_exog_fn(), 
+                preprocess_read_depth = model.get_rd_fn(),
+            )
+        )
 
 def add_test_column(adata, output):
     test_column, test_cell_mask = output
@@ -72,6 +207,7 @@ def fetch_split_train_test(self, adata):
         test_data = adata[adata.obs_vector(self.test_column)]
     )
 
+
 def fetch_columns(self, adata, cols):
 
     assert(isinstance(cols, list) or cols is None)
@@ -85,44 +221,46 @@ def fetch_columns(self, adata, cols):
 
 def fit_adata(self, adata):
 
-    if self.exogenous_key is None:
-        predict_mask = np.ones(adata.shape[-1]).astype(bool)
-    else:
-        predict_mask = adata.var_vector(self.exogenous_key)
-        logger.info('Predicting expression from genes from col: ' + self.exogenous_key)
-            
-    adata = adata[:, predict_mask]
-
-    if self.endogenous_key is None:
-        highly_variable = np.ones(adata.shape[-1]).astype(bool)
-    else:
-        highly_variable = adata.var_vector(self.endogenous_key)
-        logger.info('Using highly-variable genes from col: ' + self.endogenous_key)
-
-    features = adata.var_names.values
+    dataset = InMemoryDataset(self, adata)
 
     return dict(
-        features = features,
-        highly_variable = highly_variable,
-        dataset = InMemoryDataset(
-            features = features,
-            highly_variable = highly_variable,
-            counts_layer = self.counts_layer,
-            covariates_keys = self.covariates_keys,
-            extra_features_keys = self.extra_features_keys,
-            adata = adata
+        features = dataset.features,
+        highly_variable = dataset.highly_variable,
+        dataloader = dataset.get_dataloader(
+            self, training=True
         )
     )
 
+
+def fit_on_disk_dataset(self, dirname):
+    pass
+
+
+def fit(self, adata_or_dirname):
+
+    if isinstance(adata_or_dirname, str):
+        return fit_on_disk_dataset(self, adata_or_dirname)
+    elif isinstance(adata_or_dirname, anndata.AnnData):
+        return fit_adata(self, adata_or_dirname)
+    else:
+        raise ValueError(
+            'Passed data of type {}, only str (dirname for on disk dataset) or AnnData are supported'\
+                .format(type(adata_or_dirname))
+        )
+
+
 def fetch_features(self, adata):
 
-    return {'dataset' : InMemoryDataset(
+    return {'dataloader' : InMemoryDataset(
                 features = self.features,
                 highly_variable = self.highly_variable,
                 counts_layer = self.counts_layer,
                 adata = adata,
                 covariates_keys = self.covariates_keys,
-                extra_features_keys = self.extra_features_keys)
+                extra_features_keys = self.extra_features_keys
+                ).get_dataloader(
+                    self, training=False
+                )
             }
 
 
@@ -168,8 +306,8 @@ def add_topic_comps(adata, output, add_key = 'X_topic_compositions',
             output['feature_names'], output['topic_feature_activations']).T,
             add_key='topic_feature_activations')
 
-    logger.info('Added key to uns: topic_dendogram')
-    adata.uns['topic_dendogram'] = output['topic_dendogram']
+    #logger.info('Added key to uns: topic_dendogram')
+    #adata.uns['topic_dendogram'] = output['topic_dendogram']
 
 
 def add_umap_features(adata, output, add_key = 'X_umap_features'):

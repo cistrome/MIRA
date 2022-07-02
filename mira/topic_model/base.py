@@ -22,6 +22,7 @@ from torch.utils.data import DataLoader
 import time
 from torch.distributions import kl_divergence
 from collections import defaultdict
+import os
 
 
 logger = logging.getLogger(__name__)
@@ -384,10 +385,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def _recommend_batchsize(self, n_samples):
         if n_samples >= 5000 and n_samples <= 15000:
             return 64
-        elif n_samples > 20000 and n_samples <= 100000:
+        elif n_samples > 30000:
             return 128
-        elif n_samples > 100000:
-            return 256 # smoothest updates
         else:
             return 32
 
@@ -469,31 +468,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         return dict(batch_size = self.batch_size, 
             shuffle = True, drop_last=True,)
         
-    def get_dataloader(self, dataset, training = False,
-        batch_size = 512):
-
-        if training:
-            extra_kwargs = dict(
-                shuffle = True, drop_last = True,
-            )
-            if self.dataset_loader_workers > 0:
-                extra_kwargs.update(dict(
-                    num_workers = self.dataset_loader_workers,
-                    prefetch_factor = 5
-                ))
-        else:
-            extra_kwargs = {}
-
-        return DataLoader(
-            dataset, 
-            batch_size = batch_size, 
-            **extra_kwargs,
-            collate_fn= partial(tmi.collate_batch,
-                preprocess_endog = self.get_endog_fn(), 
-                preprocess_exog = self.get_exog_fn(), 
-                preprocess_read_depth = self.get_rd_fn(),
-            )
-        )
 
     def _get_dataset_statistics(self, dataset):
         pass
@@ -552,8 +526,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def transform_batch(self, data_loader, bar = True, desc = ''):
 
         for batch in tqdm(data_loader, desc = desc) if bar else data_loader:
-            yield {k : torch.tensor(v, requires_grad = False).to(self.device)
-                for k, v in batch.items()}
+            yield batch
+
 
     def _get_1cycle_scheduler(self, n_batches_per_epoch):
         
@@ -722,7 +696,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         scheduler = pyro.optim.LambdaLR(
             {'optimizer': Adam, 'optim_args': {'lr': learning_rates[0], 'betas' : (0.90, 0.999), 'weight_decay' : self.weight_decay},
-            #{'optimizer' : SGD, 'optim_args' : {'lr' : self.min_learning_rate, 'momentum' : 0.8, 'weight_decay' : self.weight_decay},
             'lr_lambda' : lr_function})
 
         self.svi = SVI(self.model, self.guide, scheduler, loss=TraceMeanField_ELBO())
@@ -973,7 +946,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         early_stopper = EarlyStopping(tolerance=3, patience=1e-4, convergence_check=False)
 
         n_batches = len(dataset)//self.batch_size
-        n_observations = len(dataset)//self.batch_size
+        n_observations = len(dataset)
         data_loader = self.get_dataloader(dataset, training=True,
             batch_size=self.batch_size)
 
@@ -1077,6 +1050,21 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             pass
 
         return self
+
+
+    @adi.wraps_modelfunc(tmi.fit, adi.return_output,
+        fill_kwargs=['features','highly_variable','dataset'])
+    def write_disk_dataset(self,*,
+                features, highly_variable, data_loader, dirname):
+
+        tmi.OnDiskDataset.write_to_disk(
+            batch_size = self.batch_size,
+            features = features, 
+            highly_variable = highly_variable,
+            dirname = dirname,
+            data_loader = data_loader
+        )
+
 
     @adi.wraps_modelfunc(tmi.fit_adata, adi.return_output,
         fill_kwargs=['features','highly_variable','dataset'])

@@ -39,8 +39,8 @@ def wraps_functional(
         @wraps(func)
         def _run(adata, *args, **kwargs):
             
-            if not isinstance(adata, AnnData):
-                raise TypeError('First argument of this function must be an AnnData object')
+            #if not isinstance(adata, AnnData):
+            #    raise TypeError('First argument of this function must be an AnnData object')
 
             if not len(args) == 0:
                 raise TypeError('Positional arguments are not allowed for this function')
@@ -107,8 +107,8 @@ def wraps_modelfunc(
         @wraps(func)
         def _run(self, adata, *args, **kwargs):
 
-            if not isinstance(adata, AnnData):
-                raise TypeError('First argument of this function must be an AnnData object')
+            #if not isinstance(adata, AnnData):
+            #    raise TypeError('First argument of this function must be an AnnData object')
 
             if not len(args) == 0:
                 raise TypeError('Positional arguments are not allowed for this function')
