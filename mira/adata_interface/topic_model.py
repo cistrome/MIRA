@@ -30,6 +30,7 @@ def _transpose_list_of_dict(list_of_dicts):
             
     return dict(dict_of_lists)
 
+
 class TopicModelDataset:
 
     @staticmethod
@@ -221,7 +222,82 @@ class InMemoryDataset(TopicModelDataset, Dataset):
         }
 
 
+def fit_adata(self, adata):
 
+    features, highly_variable = InMemoryDataset.get_features(self, adata)
+
+    dataset = InMemoryDataset(
+        adata, 
+        features=features,
+        highly_variable=highly_variable,
+        covariates_keys=self.covariates_keys,
+        extra_features_keys=self.extra_features_keys,
+        counts_layer=self.counts_layer
+    )
+
+    return dict(
+        features = dataset.features,
+        highly_variable = dataset.highly_variable,
+        dataset = dataset,
+    )
+
+
+def fit_on_disk_dataset(self, dirname):
+    
+    dataset = OnDiskDataset(
+        dirname = dirname, 
+        seed = self.seed
+    )
+    
+    return dict(
+        features = dataset.features,
+        highly_variable = dataset.highly_variable,
+        dataset = dataset,
+    )
+
+
+def fit(self, adata_or_dirname):
+
+    if isinstance(adata_or_dirname, str):
+        return fit_on_disk_dataset(self, adata_or_dirname)
+    elif isinstance(adata_or_dirname, anndata.AnnData):
+        return fit_adata(self, adata_or_dirname)
+    else:
+        raise ValueError(
+            'Passed data of type {}, only str (dirname for on disk dataset) or AnnData are supported'\
+                .format(type(adata_or_dirname))
+        )
+
+
+def fetch_features(self, adata_or_dirname):
+
+    if isinstance(adata_or_dirname, str):
+
+        dataset = OnDiskDataset(dirname=adata_or_dirname)
+        assert all(self.features == dataset.features)
+        assert all(self.highly_variable == dataset.highly_variable)
+
+        return {'dataset' : dataset}
+
+    elif isinstance(adata_or_dirname, anndata.AnnData):
+
+        return {'dataset' : InMemoryDataset(
+                adata_or_dirname,
+                features = self.features,
+                highly_variable = self.highly_variable,
+                counts_layer = self.counts_layer,
+                covariates_keys = self.covariates_keys,
+                extra_features_keys = self.extra_features_keys
+                )
+            }
+
+    else:
+        raise ValueError(
+            'Passed data of type {}, only str (dirname for on disk dataset) or AnnData are supported'\
+                .format(type(adata_or_dirname))
+        )
+
+    
 def add_test_column(adata, output):
     test_column, test_cell_mask = output
 
@@ -249,63 +325,6 @@ def fetch_columns(self, adata, cols):
        return np.hstack([
             adata.obs_vector(col).astype(np.float32)[:, np.newaxis] for col in cols
         ])
-
-
-def fit_adata(self, adata):
-
-    features, highly_variable = InMemoryDataset.get_features(self, adata)
-
-    dataset = InMemoryDataset(
-        adata, 
-        features=features,
-        highly_variable=highly_variable,
-        covariates_keys=self.covariates_keys,
-        extra_features_keys=self.extra_features_keys,
-        counts_layer=self.counts_layer
-    )
-
-    return dict(
-        features = dataset.features,
-        highly_variable = dataset.highly_variable,
-        dataset = dataset,
-    )
-
-
-def fit_on_disk_dataset(self, dirname):
-    
-    dataset = OnDiskDataset(dirname = dirname, seed = 0)
-    
-    return dict(
-        features = dataset.features,
-        highly_variable = dataset.highly_variable,
-        dataset = dataset,
-    )
-
-
-def fit(self, adata_or_dirname):
-
-    if isinstance(adata_or_dirname, str):
-        return fit_on_disk_dataset(self, adata_or_dirname)
-    elif isinstance(adata_or_dirname, anndata.AnnData):
-        return fit_adata(self, adata_or_dirname)
-    else:
-        raise ValueError(
-            'Passed data of type {}, only str (dirname for on disk dataset) or AnnData are supported'\
-                .format(type(adata_or_dirname))
-        )
-
-
-def fetch_features(self, adata):
-
-    return {'dataset' : InMemoryDataset(
-                adata,
-                features = self.features,
-                highly_variable = self.highly_variable,
-                counts_layer = self.counts_layer,
-                covariates_keys = self.covariates_keys,
-                extra_features_keys = self.extra_features_keys
-                )
-            }
 
 
 def fetch_topic_comps(self, adata, key = 'X_topic_compositions'):

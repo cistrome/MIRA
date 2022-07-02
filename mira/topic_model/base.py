@@ -1276,7 +1276,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
-        fill_kwargs=['dataset'])
+        fill_kwargs=['dataset'], requires_adata = False)
     def distortion_rate_loss(self, batch_size = 512, bar = False,*, dataset):
         
         return self._distortion_rate_loss(batch_size= batch_size,
@@ -1298,7 +1298,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
-        fill_kwargs=['dataset'])
+        fill_kwargs=['dataset'], requires_adata = False)
     def score(self, batch_size = 512, *, dataset):
         '''
         Get normalized ELBO loss for data. This method is only available on
