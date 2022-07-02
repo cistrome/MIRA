@@ -168,8 +168,8 @@ def add_topic_comps(adata, output, add_key = 'X_topic_compositions',
             output['feature_names'], output['topic_feature_activations']).T,
             add_key='topic_feature_activations')
 
-    logger.info('Added key to uns: topic_dendogram')
-    adata.uns['topic_dendogram'] = output['topic_dendogram']
+    #logger.info('Added key to uns: topic_dendogram')
+    #adata.uns['topic_dendogram'] = output['topic_dendogram']
 
 
 def add_umap_features(adata, output, add_key = 'X_umap_features'):
