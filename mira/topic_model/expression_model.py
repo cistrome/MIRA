@@ -109,10 +109,14 @@ class ExpressionModel:
     def _get_dataset_statistics(self, dataset):
         super()._get_dataset_statistics(dataset)
 
-        skim_endog = dataset[0]['endog_features']
-        cummulative_counts = np.zeros(skim_endog.shape[1])
-        for i in range(len(dataset)):
-            cummulative_counts = cummulative_counts + dataset[i]['endog_features'].toarray().reshape(-1)
+        def convert(x):
+            return x['endog_features'].toarray().reshape(-1)
+
+        for x in dataset:
+            try:
+                cummulative_counts = cummulative_counts + convert(x)
+            except NameError:
+                cummulative_counts = convert(x)
             
         self.residual_pi = cummulative_counts/cummulative_counts.sum()
 

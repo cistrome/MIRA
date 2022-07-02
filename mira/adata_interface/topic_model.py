@@ -1,4 +1,5 @@
 
+import chunk
 import numpy as np
 import logging
 logger = logging.getLogger(__name__)
@@ -6,7 +7,7 @@ logger = logging.getLogger(__name__)
 from scipy import sparse
 from mira.adata_interface.core import fetch_layer, add_obs_col, \
         add_obsm, project_matrix, add_varm
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, IterableDataset
 import os
 import glob
 import torch
@@ -15,6 +16,7 @@ from functools import partial
 import anndata
 from tqdm.auto import tqdm
 from collections import defaultdict
+import pickle
 
 
 def _transpose_list_of_dict(list_of_dicts):
@@ -28,31 +30,96 @@ def _transpose_list_of_dict(list_of_dicts):
             
     return dict(dict_of_lists)
 
+class TopicModelDataset:
 
-class OnDiskDataset(Dataset):
+    @staticmethod
+    def collate_batch(batch,*,model):
+
+        def collate(*, endog_features, exog_features, 
+                covariates, extra_features):
+
+            endog, exog = sparse.vstack(endog_features), sparse.vstack(exog_features)
+
+            features = {
+                'endog_features' : model.preprocess_endog(endog),
+                'exog_features' : model.preprocess_exog(exog),
+                'read_depth' : model.preprocess_read_depth(exog),
+                'covariates' : np.array(covariates).astype(np.float32),
+                'extra_features' : np.array(extra_features).astype(np.float32),
+            }
+
+            return {
+                k : torch.tensor(v, requires_grad = False).to(model.device)
+                for k, v in features.items()
+            }
+
+        return collate(**_transpose_list_of_dict(batch))
+
+
+    def get_dataloader(self,
+        model,
+        training = False,
+        batch_size = None):
+
+        if batch_size is None:
+            batch_size = model.batch_size
+
+        if training:
+            extra_kwargs = dict(
+                drop_last = True,
+            )
+            if model.dataset_loader_workers > 0:
+                extra_kwargs.update(dict(
+                    num_workers = model.dataset_loader_workers,
+                    prefetch_factor = 5
+                ))
+
+            if not isinstance(self, IterableDataset):
+                extra_kwargs['shuffle'] = True
+                
+        else:
+            extra_kwargs = {}
+
+        return DataLoader(
+            self, 
+            batch_size = batch_size, 
+            **extra_kwargs,
+            collate_fn= partial(self.collate_batch, model = model)
+        )
+
+
+class OnDiskDataset(TopicModelDataset, IterableDataset):
 
     @classmethod
     def write_to_disk(cls, batch_size = 128,*,
             dirname, features, 
-            highly_variable, data_loader):
+            highly_variable, dataset):
+
+        chunk_size = batch_size * 8
+
+        chunked_data = DataLoader(
+            dataset, 
+            shuffle = True,
+            batch_size = chunk_size,
+            collate_fn= lambda x : x,
+        )
 
         os.mkdir(dirname)
-        os.mkdir(os.path.join(dirname, 'batches'))
+        os.mkdir(os.path.join(dirname, 'chunks'))
 
         meta = {
             'features' : features,
             'highly_variable' : highly_variable,
-            'batch_size' : batch_size,
+            'length' : len(dataset)
         }
         
-        torch.save(meta, os.path.join(dirname, 'dataset_meta.pth'))
+        with open(os.path.join(dirname, 'dataset_meta.pkl'), 'wb') as f:
+            pickle.dump(meta, f)
         
-        for i, batch in tqdm(enumerate(data_loader), desc = 'Writing dataset to disk'):
-
-            torch.save(
-                batch, 
-                os.path.join( dirname, 'batches', '{i}.pth'.format(str(i)) )
-            )
+        for i, chunk in enumerate(tqdm(chunked_data, desc = 'Writing dataset to disk')):
+            
+            with open(os.path.join( dirname, 'chunks', '{}.pkl'.format(str(i)) ), 'wb') as f:
+                pickle.dump(chunk, f)
 
 
     def __init__(self, 
@@ -60,52 +127,47 @@ class OnDiskDataset(Dataset):
         seed = 0):
 
         assert os.path.isdir(dirname)
-        assert os.path.isdir(os.path.join(dirname, 'batches'))
-        assert os.path.exists(os.path.join(dirname, 'dataset_meta.pth'))
+        assert os.path.isdir(os.path.join(dirname, 'chunks'))
+        assert os.path.exists(os.path.join(dirname, 'dataset_meta.pkl'))
 
         self.dirname = dirname
 
-        self.dataset_meta = torch.load(
-            os.path.join(dirname, 'dataset_meta.pth')
-        )
+        with open(os.path.join(dirname, 'dataset_meta.pkl'), 'rb') as f:
+            self.dataset_meta = pickle.load(f)
 
-        self.batch_names = glob.glob(
-            os.path.join(dirname, 'batches', '*.pth')
+        self.features = self.dataset_meta['features']
+        self.highly_variable = self.dataset_meta['highly_variable']
+
+        self.chunk_names = glob.glob(
+            os.path.join(dirname, 'chunks', '*.pkl')
         )
 
         self.random_state = np.random.RandomState(seed)
+        self.num_chunks = len(self.chunk_names)
 
-        self.num_batches = len(self.batch_names)
 
     def __len__(self):
-        return self.num_batches
+        return self.dataset_meta['length']
 
-    def __getitem__(self, idx):
-        return torch.load(
-            self.batch_names[idx]
+
+    def __iter__(self):
+        
+        chunk_load_order = self.random_state.permutation(
+            self.num_chunks
         )
 
-    def get_dataloader(self,
-        model,
-        training = False,
-        shuffle_only = False,
-        batch_size = None):
+        for chunk_num in chunk_load_order:
 
-        extra_kwargs = {}
-        if model.dataset_loader_workers > 0:
-            extra_kwargs.update(dict(
-                num_workers = model.dataset_loader_workers,
-                prefetch_factor = 5
-            ))
+            with open( os.path.join(self.dirname, 'chunks', str(chunk_num) + '.pkl'), 'rb' ) as f:
+                chunk = pickle.load(f)
 
-        return DataLoader(
-            self, 
-            **extra_kwargs,
-            shuffle = training,
-        )
+                chunk_yield_order = self.random_state.permutation(len(chunk))
+
+                for item_num in chunk_yield_order:
+                    yield chunk[item_num]
 
 
-class InMemoryDataset(Dataset):
+class InMemoryDataset(TopicModelDataset, Dataset):
 
     @classmethod
     def get_features(cls, model, adata):
@@ -146,9 +208,9 @@ class InMemoryDataset(Dataset):
         assert isinstance(self.exog_features, sparse.spmatrix)
         assert isinstance(self.exog_features, sparse.spmatrix)
 
+
     def __len__(self):
         return self.exog_features.shape[0]
-
 
     def __getitem__(self, idx):
         return {
@@ -158,60 +220,6 @@ class InMemoryDataset(Dataset):
             'extra_features' : self.extra_features[idx] if not self.extra_features is None else []
         }
 
-
-    @staticmethod
-    def collate_batch(batch,*,model):
-
-        def collate(*, endog_features, exog_features, 
-                covariates, extra_features):
-
-            endog, exog = sparse.vstack(endog_features), sparse.vstack(exog_features)
-
-            features = {
-                'endog_features' : model.preprocess_endog(endog),
-                'exog_features' : model.preprocess_exog(exog),
-                'read_depth' : model.preprocess_read_depth(exog),
-                'covariates' : np.array(covariates).astype(np.float32),
-                'extra_features' : np.array(extra_features).astype(np.float32),
-            }
-
-            return {
-                k : torch.tensor(v, requires_grad = False).to(model.device)
-                for k, v in features.items()
-            }
-
-        return collate(**_transpose_list_of_dict(batch))
-
-
-    def get_dataloader(self,
-        model,
-        training = False,
-        shuffle_only = False,
-        batch_size = None):
-
-        if batch_size is None:
-            batch_size = model.batch_size
-
-        if training:
-            extra_kwargs = dict(
-                shuffle = True, drop_last = True,
-            )
-            if model.dataset_loader_workers > 0:
-                extra_kwargs.update(dict(
-                    num_workers = model.dataset_loader_workers,
-                    prefetch_factor = 5
-                ))
-        elif shuffle_only:
-            extra_kwargs = {'shuffle' : True}
-        else:
-            extra_kwargs = {}
-
-        return DataLoader(
-            self, 
-            batch_size = batch_size, 
-            **extra_kwargs,
-            collate_fn= partial(self.collate_batch, model = model)
-        )
 
 
 def add_test_column(adata, output):
@@ -259,14 +267,19 @@ def fit_adata(self, adata):
     return dict(
         features = dataset.features,
         highly_variable = dataset.highly_variable,
-        data_loader = dataset.get_dataloader(
-            self, training=True
-        )
+        dataset = dataset,
     )
 
 
 def fit_on_disk_dataset(self, dirname):
-    pass
+    
+    dataset = OnDiskDataset(dirname = dirname, seed = 0)
+    
+    return dict(
+        features = dataset.features,
+        highly_variable = dataset.highly_variable,
+        dataset = dataset,
+    )
 
 
 def fit(self, adata_or_dirname):
@@ -284,15 +297,13 @@ def fit(self, adata_or_dirname):
 
 def fetch_features(self, adata):
 
-    return {'data_loader' : InMemoryDataset(
+    return {'dataset' : InMemoryDataset(
                 adata,
                 features = self.features,
                 highly_variable = self.highly_variable,
                 counts_layer = self.counts_layer,
                 covariates_keys = self.covariates_keys,
                 extra_features_keys = self.extra_features_keys
-                ).get_dataloader(
-                    self, training=False
                 )
             }
 

@@ -14,7 +14,8 @@ def return_output(adata, output):
 def wraps_functional(
     fetch,
     add = return_output,
-    fill_kwargs = []
+    fill_kwargs = [],
+    requires_adata = True,
 ):
 
     def run(func):
@@ -39,8 +40,8 @@ def wraps_functional(
         @wraps(func)
         def _run(adata, *args, **kwargs):
             
-            #if not isinstance(adata, AnnData):
-            #    raise TypeError('First argument of this function must be an AnnData object')
+            if requires_adata and not isinstance(adata, AnnData):
+                raise TypeError('First argument of this function must be an AnnData object')
 
             if not len(args) == 0:
                 raise TypeError('Positional arguments are not allowed for this function')
@@ -82,7 +83,8 @@ def wraps_functional(
 def wraps_modelfunc(
     fetch = lambda self, adata : {},
     add = return_output,
-    fill_kwargs = []
+    fill_kwargs = [],
+    requires_adata = True,
 ):
 
     def run(func):
@@ -107,8 +109,8 @@ def wraps_modelfunc(
         @wraps(func)
         def _run(self, adata, *args, **kwargs):
 
-            #if not isinstance(adata, AnnData):
-            #    raise TypeError('First argument of this function must be an AnnData object')
+            if requires_adata and not isinstance(adata, AnnData):
+                raise TypeError('First argument of this function must be an AnnData object')
 
             if not len(args) == 0:
                 raise TypeError('Positional arguments are not allowed for this function')
