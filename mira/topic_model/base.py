@@ -384,10 +384,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def _recommend_batchsize(self, n_samples):
         if n_samples >= 5000 and n_samples <= 15000:
             return 64
-        elif n_samples > 20000 and n_samples <= 100000:
+        elif n_samples > 24000 and n_samples <= 100000:
             return 128
-        elif n_samples > 100000:
-            return 256 # smoothest updates
         else:
             return 32
 
