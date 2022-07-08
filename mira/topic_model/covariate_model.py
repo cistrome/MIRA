@@ -51,6 +51,8 @@ class CovariateModel(BaseModel):
             dependence_hidden = 64,
             dependence_model = WassersteinDualRobust,
             weight_decay = 0.0015,
+            min_momentum = 0.85,
+            max_momentum = 0.95,
             ):
         super().__init__()
 
@@ -82,6 +84,8 @@ class CovariateModel(BaseModel):
         self.dependence_beta = dependence_beta
         self.dependence_hidden = dependence_hidden
         self.weight_decay = weight_decay
+        self.min_momentum = min_momentum
+        self.max_momentum = max_momentum
 
     def _get_weights(self, on_gpu = True, inference_mode = False):
         super()._get_weights(on_gpu=on_gpu, inference_mode=inference_mode)
@@ -135,7 +139,8 @@ class CovariateModel(BaseModel):
         return TraceMeanField_ELBO().differentiable_loss
 
 
-    def _distortion_rate_loss(self, batch_size = 512, bar = False,*,dataset):
+    def _distortion_rate_loss(self, batch_size = 512, bar = False, 
+            _beta_weight = 1.,*,dataset):
         
         self.eval()
         vae_loss, rate, dependence_loss = self._evaluate_vae_loss(
@@ -148,7 +153,7 @@ class CovariateModel(BaseModel):
         rate += dependence_loss
         vae_loss+= dependence_loss
 
-        return distortion, rate, {'disentanglement_loss' : dependence_loss } #loss_vae/self.num_exog_features
+        return distortion, rate * _beta_weight, {'disentanglement_loss' : dependence_loss } #loss_vae/self.num_exog_features
 
 
     def model_step(self, batch, opt, parameters, last_batch_z = None,
@@ -198,6 +203,8 @@ class CovariateModel(BaseModel):
         return torch.optim.lr_scheduler.OneCycleLR(optimizer, self.max_learning_rate, 
             epochs=self.num_epochs, steps_per_epoch=n_batches_per_epoch, 
             anneal_strategy='cos', cycle_momentum=True, 
+            base_momentum = self.min_momentum,
+            max_momentum = self.max_momentum,
             div_factor= self.max_learning_rate/self.min_learning_rate, three_phase=False)
 
 
@@ -234,8 +241,9 @@ class CovariateModel(BaseModel):
         return params, self.dependence_network.parameters()
 
 
-    @adi.wraps_modelfunc(fetch = tmi.fit_adata, 
-        fill_kwargs=['features','highly_variable','dataset'])
+    @adi.wraps_modelfunc(fetch = tmi.fit, 
+        fill_kwargs=['features','highly_variable','dataset'],
+        requires_adata = False)
     def get_learning_rate_bounds(self, num_epochs = 3, eval_every = 3, 
         lower_bound_lr = 1e-6, upper_bound_lr = 1,*,
         features, highly_variable, dataset):
@@ -244,12 +252,12 @@ class CovariateModel(BaseModel):
             features = features, highly_variable = highly_variable
         )
 
-        data_loader = self.get_dataloader(dataset, training=True,
-            batch_size = self.batch_size)
+        data_loader = dataset.get_dataloader(self, 
+            training=True, batch_size=self.batch_size)
 
         self._get_dataset_statistics(dataset)
 
-        n_batches = len(dataset)//self.batch_size
+        n_batches = len(data_loader)
         eval_steps = ceil((n_batches * num_epochs)/eval_every)
 
         learning_rates = np.exp(
@@ -329,11 +337,11 @@ class CovariateModel(BaseModel):
 
         early_stopper = EarlyStopping(tolerance=3, patience=1e-4, convergence_check=False)
 
-        n_batches = len(dataset)//self.batch_size
-        n_observations = len(dataset)
+        data_loader = dataset.get_dataloader(self, 
+            training=True, batch_size=self.batch_size)
 
-        data_loader = self.get_dataloader(dataset, training=True,
-            batch_size = self.batch_size)
+        n_batches = len(data_loader)
+        n_observations = len(dataset)
 
         parameters = self.get_model_parameters(data_loader)
 
@@ -365,6 +373,7 @@ class CovariateModel(BaseModel):
             for batch in self.transform_batch(data_loader, bar = False):
                 
                 anneal_factor = anneal_fn(step_count)/self.reconstruction_weight
+                self._last_anneal_factor = anneal_factor
                 disentanglement_coef = disentangle_fn(step_count)
 
                 try:

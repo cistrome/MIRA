@@ -122,10 +122,10 @@ class ExpressionModel:
 
 
     @adi.wraps_modelfunc(tmi.fetch_features, partial(adi.add_obs_col, colname = 'model_read_scale'),
-        ['data_loader'])
-    def _get_read_depth(self, *, data_loader, batch_size = 512):
+        ['dataset'])
+    def _get_read_depth(self, *, dataset, batch_size = 512):
 
-        return self._run_encoder_fn(self.encoder.read_depth, data_loader, 
+        return self._run_encoder_fn(self.encoder.read_depth, dataset, 
             batch_size=batch_size, bar = False, desc = 'Calculating reads scale')
 
 

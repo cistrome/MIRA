@@ -182,6 +182,37 @@ class OneCycleLR_Wrapper(torch.optim.lr_scheduler.OneCycleLR):
         super().__init__(optimizer, max_lr, **kwargs)
 
 
+def load_model(filename):
+    '''
+    Load a pre-trained topic model from disk.
+    
+    Parameters
+    ----------
+    filename : str
+        File name of saved topic model
+
+    Examples
+    --------
+
+    .. code-block:: python
+
+        >>> rna_model = mira.topics.ExpressionTopicModel.load('rna_model.pth')
+        >>> atac_model = mira.topics.AccessibilityTopicModel.load('atac_model.pth')
+
+    '''
+
+    data = torch.load(filename, map_location=torch.device('cpu'))
+
+    _class = type(
+        data['cls_name'], data['cls_bases'], {}
+    )
+
+    model = _class(**data['params'])
+    model._set_weights(data['fit_params'], data['weights'])
+
+    return model
+    
+
 class BaseModel(torch.nn.Module, BaseEstimator):
 
     _decoder_model = Decoder
@@ -238,6 +269,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             reconstruction_weight = 1.,
             dataset_loader_workers = 0,
             weight_decay = 0.0015,
+            min_momentum = 0.85,
+            max_momentum = 0.95,
             ):
         '''
         Learns regulatory "topics" from single-cell multiomics data. Topics capture 
@@ -377,17 +410,17 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.reconstruction_weight = reconstruction_weight
         self.dataset_loader_workers = dataset_loader_workers
         self.weight_decay = weight_decay
+        self.min_momentum = min_momentum
+        self.max_momentum = max_momentum
 
     def _get_min_resources(self):
-        return self.num_epochs//3
+        return self.num_epochs#//3
 
     def _recommend_batchsize(self, n_samples):
         if n_samples >= 5000 and n_samples <= 15000:
             return 64
-        elif n_samples > 20000 and n_samples <= 100000:
+        elif n_samples > 20000:
             return 128
-        elif n_samples > 100000:
-            return 256 # smoothest updates
         else:
             return 32
 
@@ -427,6 +460,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         }
 
         return params
+
 
     @adi.wraps_modelfunc(fetch = tmi.fit_adata, 
         fill_kwargs=['features','highly_variable','dataset'])
@@ -537,10 +571,19 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def _get_1cycle_scheduler(self, n_batches_per_epoch):
         
         return pyro.optim.lr_scheduler.PyroLRScheduler(OneCycleLR_Wrapper, 
-            {'optimizer' : Adam, 'optim_args' : {'lr' : self.min_learning_rate, 'betas' : (self.beta, 0.999), 'weight_decay' : self.weight_decay}, 
+            {'optimizer' : Adam, 
+            'optim_args' : {'lr' : self.min_learning_rate, 
+                'betas' : (self.beta, 0.999), 
+                'weight_decay' : self.weight_decay}, 
             'max_lr' : self.max_learning_rate, 
-            'steps_per_epoch' : n_batches_per_epoch, 'epochs' : self.num_epochs, 'div_factor' : self.max_learning_rate/self.min_learning_rate,
-            'cycle_momentum' : True, 'three_phase' : False, 'verbose' : False})
+            'steps_per_epoch' : n_batches_per_epoch, 'epochs' : self.num_epochs, 
+            'div_factor' : self.max_learning_rate/self.min_learning_rate,
+            'cycle_momentum' : True, 
+            'three_phase' : False, 
+            'verbose' : False,
+            'base_momentum' : 0.85,
+            'max_momentum' : 0.95,
+            })
 
     @staticmethod
     def _get_monotonic_kl_factor(step_num, *, n_epochs, n_batches_per_epoch):
@@ -568,7 +611,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         n_cycles = 3
         steps_per_cycle = total_steps/n_cycles
 
-        tau = ((step_num+1) % steps_per_cycle)/steps_per_cycle
+        tau = (step_num % steps_per_cycle)/steps_per_cycle
 
         if tau > 0.5 or step_num >= (0.95 * total_steps):
             x = 1.
@@ -950,10 +993,10 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         early_stopper = EarlyStopping(tolerance=3, patience=1e-4, convergence_check=False)
 
-        n_batches = len(dataset)//self.batch_size
         n_observations = len(dataset)
         data_loader = dataset.get_dataloader(self, training=True,
             batch_size=self.batch_size)
+        n_batches = len(data_loader)
 
         scheduler = self._get_1cycle_scheduler(n_batches)
         self.svi = SVI(self.model, self.guide, scheduler, loss=TraceMeanField_ELBO())
@@ -974,7 +1017,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             for batch in self.transform_batch(data_loader, bar = False):
                 
                 anneal_factor = anneal_fn(step_count)/self.reconstruction_weight
-                
+                self._last_anneal_factor = anneal_factor
+
                 try:
                     
                     metrics = self._step(batch, anneal_factor, self._get_loss_adjustment(batch))
@@ -1277,13 +1321,14 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
         fill_kwargs=['dataset'], requires_adata = False)
-    def distortion_rate_loss(self, batch_size = 512, bar = False,*, dataset):
+    def distortion_rate_loss(self, batch_size = 512, bar = False, 
+            _beta_weight = 1.,*, dataset):
         
-        return self._distortion_rate_loss(batch_size= batch_size,
+        return self._distortion_rate_loss(batch_size= batch_size, _beta_weight = _beta_weight,
             dataset = dataset)
 
 
-    def _distortion_rate_loss(self, batch_size = 512, bar = False,*,dataset):
+    def _distortion_rate_loss(self, batch_size = 512, _beta_weight = 1., bar = False,*,dataset):
 
         self.eval()
         vae_loss, rate = self._evaluate_vae_loss(
@@ -1294,7 +1339,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         distortion = vae_loss - rate
 
-        return distortion, rate, {} #loss_vae/self.num_exog_features
+        return distortion, rate * _beta_weight, {} #loss_vae/self.num_exog_features
 
     
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
@@ -1442,6 +1487,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     def _get_save_data(self):
         return dict(
+            cls_name = self.__class__.__name__,
+            cls_bases = self.__class__.__bases__, 
             weights = self.state_dict(),
             params = self.get_params(),
             fit_params = dict(

@@ -5,7 +5,7 @@ from mira.topic_model.dirichlet_process import \
         ExpressionDirichletProcessModel, AccessibilityDirichletProcessModel
 from mira.topic_model.dirichlet_model import \
         ExpressionDirichletModel, AccessibilityDirichletModel
-from mira.topic_model.base import BaseModel
+from mira.topic_model.base import BaseModel, logger
 import numpy as np
 
 def TopicModel(
@@ -23,6 +23,13 @@ def TopicModel(
 
     assert(latent_space in ['dp', 'dirichlet'])
     assert(feature_type in ['expression','accessibility'])
+
+    if latent_space == 'dp' and n_samples < 40000:
+        logger.warn(
+            'The dirichlet process model is intended for atlas-level experiments.\n'
+            'For smaller datasets, please use the "dirichlet" latent space, and use the tuner'
+            'to find the optimal number of topics.'
+        )
 
     basename = 'model'
     if isinstance(covariates_keys, (list, np.ndarray)) \
