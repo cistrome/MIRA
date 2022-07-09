@@ -1,20 +1,22 @@
 
 from pydoc_data.topics import topics
 import numpy as np
-from sklearn.model_selection import KFold, ShuffleSplit, train_test_split
+from sklearn.model_selection import KFold, train_test_split
 from functools import partial
 import os
 import optuna
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 from optuna.trial import TrialState as ts
+from optuna.study._optimize import _run_trial
+import gc
+
 from joblib import Parallel, delayed
 import time
 
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)  # Setup the root logger.
-optuna.logging.set_verbosity(optuna.logging.CRITICAL)
 from mira.topic_model.base import logger as baselogger
 from mira.topic_model.base import ModelParamError
 from optuna.exceptions import ExperimentalWarning
@@ -28,6 +30,7 @@ import torch
 from mira.topic_model.pruner import MemoryPercentileStepPruner
 from mira.plots.pareto_front_plot import plot_intermediate_values, plot_pareto_front
 from mira.topic_model.gp_sampler import GP_RateDistortionSampler
+
 
 class DisableLogger:
     def __init__(self, logger):
@@ -91,8 +94,8 @@ def _get_trial_desc(study, trial):
 
     def get_score(trial):
         try:
-            return trial.values[0]
-        except TypeError:
+            return trial.value
+        except AttributeError:
             return np.inf
 
     best_so_far = all(
@@ -107,7 +110,7 @@ def _get_trial_desc(study, trial):
 
     if trial.state == ts.COMPLETE:
         return ' #{:<3} | {} | completed, score: {:.4e} | params: {}'\
-            .format(str(trial.number), was_best, trial.values[0], _format_params(trial.params))
+            .format(str(trial.number), was_best, get_score(trial), _format_params(trial.params))
     elif trial.state == ts.PRUNED:
         return ' #{:<3} | {} | pruned at step: {:<12} | params: {}'\
             .format(str(trial.number), ' ', str(_get_batches_trained(trial)), _format_params(trial.params))
@@ -116,9 +119,9 @@ def _get_trial_desc(study, trial):
             .format(str(trial.number), ' ', str(trial.params))
 
 
-def _log_progress(tuner, study, trial,*, worker_number):
+def _log_progress(tuner, study, trial):
     
-    logger.info('Worker {}: '.format(worker_number) + _get_trial_desc(study, trial))
+    logger.info(_get_trial_desc(study, trial))
 
     if trial.number in [t.number for t in study.best_trials]:
         logger.info('New best!')
@@ -147,8 +150,7 @@ def _print_topic_histogram(study):
 def _clear_page():
 
     if NOTEBOOK_MODE:
-        #clear_output(wait=True)
-        pass
+        clear_output(wait=True)
     else:
         print('------------------------------------------------------')
 
@@ -195,7 +197,7 @@ class TopicModelTuner:
 
     objective = 'minimize'
     serial_dashboard = _print_study
-    parallel_dashboard = _log_progress
+    parallel_dashboard = lambda s,x,y : None #_log_progress
 
     @classmethod
     def load_study(cls, study_name, storage = 'sqlite:///mira-tuning.db'):
@@ -897,7 +899,7 @@ class SpeedyTuner(TopicModelTuner):
 
     objective = ['minimize']
     serial_dashboard = _print_study
-    parallel_dashboard = _log_progress
+    parallel_dashboard = lambda s,x,y : None #_log_progress
 
     @classmethod
     def train_test_split(cls, adata, 
@@ -917,7 +919,7 @@ class SpeedyTuner(TopicModelTuner):
         model_dir = 'models',
         storage = 'sqlite:///mira-tuning.db',
         pruner = 'sha',
-        sampler = 'gp',
+        sampler = 'tpe',
         log_steps = False,
         log_every = 10,
         initial_topic_array = False,
@@ -944,12 +946,33 @@ class SpeedyTuner(TopicModelTuner):
         self.tune_topics_only = tune_topics_only
         self.study = self.create_study()
 
+
+    def create_study(self):
+
+        return optuna.create_study(
+            directions = self.objective,
+            study_name = self.study_name,
+            storage = self.storage,
+            load_if_exists= True,
+        )
+
     @property
     def n_completed_trials(self):
         return len([
             trial for trial in self.study.trials
             if trial.state == ts.PRUNED or trial.state == ts.COMPLETE
         ])
+
+    def _set_failed(self, t):
+        if t.state == optuna.trial.TrialState.RUNNING:
+            self.study.tell(t.number, None, ts.FAIL)
+
+    def purge(self):
+
+        # remove zombie trials
+        for t in self.study.trials:
+            self._set_failed(t)
+            
 
     def tune(self, model, train, test, n_workers = 1):
         '''
@@ -975,27 +998,37 @@ class SpeedyTuner(TopicModelTuner):
 
         '''
 
-        self.study.set_user_attr('n_workers', n_workers)
-
-        # remove zombie trials
-        for t in self.study.trials:
-            if t.state == optuna.trial.TrialState.RUNNING:
-                self.study.tell(t.number, None, ts.FAIL)
-
         assert isinstance(n_workers, int) and n_workers > 0
-
-        if self.initial_topic_array and len(self.study.trials) == 0:
-            self.enqueue_initial_trials(max(5, n_workers))
+        parallel = n_workers > 1
         
         model.cpu()
 
         if self.n_completed_trials > 0:
             logger.warn('Resuming study with {} trials.'.format(self.n_completed_trials))
 
+        num_running = len([t for t in self.study.trials if t.state == ts.RUNNING])
+        if num_running > 0:
+            logger.warn('{} running trials. Use "purge" method to stop trails if no longer running.'.format(num_running))
+
+        if parallel and model.dataset_loader_workers > 0:
+            logger.warn('Parrallelized tuning on one node with muliprocessed data loading is not permitted. Setting "dataset_loader_workers" to zero.')
+            model.dataset_loader_workers = 0
+
+        if not torch.cuda.is_available():
+            logger.warn('GPU is not available, will not speed up training.')
+        
+        self.study = optuna.create_study(
+            directions = self.objective,
+            pruner = self.get_pruner(model = model),
+            sampler = self.get_tuner(parallel=parallel),
+            study_name = self.study_name,
+            storage = self.storage,
+            load_if_exists= True,
+        )
+
         tune_func = partial(
-                self._tune, parallel = n_workers>1, n_workers = n_workers,
-                            model = model, train = train, test = test,
-            )
+                self._tune_step, parallel = parallel, model = model, train = train, test = test
+        )
 
         remaining_trials = self.iters - self.n_completed_trials
         try:
@@ -1005,82 +1038,22 @@ class SpeedyTuner(TopicModelTuner):
 
         if remaining_trials > 0:
 
-            worker_iters = np.array([remaining_trials//n_workers]*n_workers)
-            remaining_iters = remaining_trials % n_workers
-            if remaining_iters > 0:
-                worker_iters[np.arange(remaining_iters)]+=1
+            def delay_initial(r):
+                for i in range(r):
+                    if i < n_workers:
+                        time.sleep(0.5)
+                    yield i
 
-            worker_iters = worker_iters[worker_iters > 0]
+            try:
 
-            Parallel(n_jobs=len(worker_iters), verbose = 0)\
-                (delayed(tune_func)(worker_number = i, iters = n_iters) for i, n_iters in enumerate(worker_iters))
+                Parallel(n_jobs= n_workers, verbose = 0)\
+                    (delayed(tune_func)() for i in delay_initial(remaining_trials))
+
+            except (KeyboardInterrupt, FailureToImproveException):
+                pass
 
             self.print()
             time.sleep(0.05)
-
-        return self.study
-
-
-    def _tune(self, worker_number = 0, iters = 5, n_workers = 1, parallel = False,
-        *,model, train, test):
-
-        time.sleep(0.5 * worker_number)
-
-        self.cv = self.get_cv()
-
-        if parallel and model.dataset_loader_workers > 0:
-            logger.warn('Worker {}: Parrallelized tuning on one node with muliprocessed data loading is not permitted. Setting "dataset_loader_workers" to zero.'.format(str(worker_number)))
-            model.dataset_loader_workers = 0
-        
-        self.study = optuna.create_study(
-            directions = self.objective,
-            pruner = self.get_pruner(n_workers = n_workers, model = model),
-            sampler = self.get_tuner(worker_number = worker_number, parallel=parallel,
-                n_workers = n_workers),
-            study_name = self.study_name,
-            storage = self.storage,
-            load_if_exists= True,
-        )
-
-        self.study.set_user_attr("n_workers", n_workers)
-        
-        trial_func = partial(
-            self.run_trial,
-            parallel = parallel,
-            train = train,
-            test = test,
-            model = model,
-            worker_number = worker_number,
-        )
-
-        if not torch.cuda.is_available():
-            logger.warn('Worker {}: GPU is not available, will not speed up training.'.format(str(worker_number)))
-
-        print_callback = self.serial_dashboard if not parallel else partial(self.parallel_dashboard, worker_number = worker_number)
-        stop_callback = self.get_stop_callback()
-
-        with DisableLogger(baselogger), DisableLogger(interfacelogger), DisableLogger(corelogger):
-
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-            
-                np.random.seed(self.seed + worker_number)
-
-                logger.info('Worker {}: Running {} trials.'\
-                        .format(str(worker_number), str(iters))
-                )
-                
-                try:
-                    self.study.optimize(
-                        trial_func, n_trials = iters, 
-                        callbacks = [print_callback] + ([stop_callback] if not stop_callback is None else []),
-                        catch = (ModelParamError, ValueError),
-                    )
-                except (KeyboardInterrupt, FailureToImproveException):
-                    pass
-
-        if not parallel:
-            self.print()
 
         return self.study
 
@@ -1093,11 +1066,61 @@ class SpeedyTuner(TopicModelTuner):
         else:
             return self.stop_condition
 
-    def get_cv(self):
-        return None
 
-    def get_train_data(self, data):
-        return data
+    def get_pruner(self,*, model):
+
+        if self.pruner == 'sha':
+            return optuna.pruners.SuccessiveHalvingPruner(
+                min_resource = model._get_min_resources(),
+                reduction_factor = 2,
+            )
+        elif isinstance(self.pruner, optuna.pruners.BasePruner) or self.pruner is None:
+            return self.pruner
+        else:
+            raise ValueError('Pruner {} is not an option'.format(str(self.pruner)))
+
+
+    def get_tuner(self, parallel = False):
+
+        if isinstance(self.sampler, optuna.samplers.BaseSampler):
+            return self.sampler
+
+        elif self.sampler == 'gp':
+            return GP_RateDistortionSampler(
+                seed = self.seed, 
+                constant_liar = parallel,
+                tau = 10,
+            )
+
+        elif self.sampler == 'tpe':
+
+            params = optuna.samplers.TPESampler.hyperopt_parameters()
+            params['n_startup_trials'] = 5
+
+            return optuna.samplers.TPESampler(
+                seed = self.seed,
+                constant_liar=parallel,
+                **params,
+            )
+        else:
+            raise ValueError('Sampler {} is not an option'.format(str(self.sampler)))
+
+
+    def get_model_save_name(self, trial_number):
+
+        return os.path.join(
+            self.model_dir, self.study_name, '{}.pth'.format(str(trial_number))
+        )
+
+
+    def save_model(self, model, savename):
+
+        savedir = os.path.dirname(savename)
+
+        if not os.path.isdir(savedir):
+            os.makedirs(savedir)
+
+        model.save(savename)
 
 
     def suggest_parameters(self, trial):
@@ -1120,85 +1143,18 @@ class SpeedyTuner(TopicModelTuner):
 
         return params
 
-    def get_pruner(self,*, model, n_workers):
-
-        if self.pruner == 'sha':
-            return optuna.pruners.SuccessiveHalvingPruner(
-                min_resource = model._get_min_resources(),
-                reduction_factor = 2,
-            )
-        elif isinstance(self.pruner, optuna.pruners.BasePruner) or self.pruner is None:
-            return self.pruner
-        else:
-            raise ValueError('Pruner {} is not an option'.format(str(self.pruner)))
-
-
-    def get_tuner(self, worker_number = 0, parallel = False,
-            n_workers = 1):
-
-        if isinstance(self.sampler, optuna.samplers.BaseSampler):
-            self.sampler._rng = np.random.RandomState(self.seed + worker_number)
-            return self.sampler
-
-        elif self.sampler == 'gp':
-            return GP_RateDistortionSampler(
-                seed = self.seed + worker_number,
-                constant_liar = parallel,
-                tau = 10,
-            )
-
-        elif self.sampler == 'tpe':
-
-            params = optuna.samplers.TPESampler.hyperopt_parameters()
-            params['n_startup_trials'] = 5
-
-            return optuna.samplers.TPESampler(
-                seed = self.seed + worker_number,
-                constant_liar=parallel,
-                **params,
-            )
-        else:
-            raise ValueError('Sampler {} is not an option'.format(str(self.sampler)))
-
-
-    def enqueue_initial_trials(self, n_trials = 5):
-
-        for num_topics in np.geomspace(self.min_topics, self.max_topics, n_trials + 2)[1:-1]:
-            self.study.enqueue_trial(
-                {
-                    'num_topics' : int(num_topics),
-                    'reconstruction_weight' : 0.5
-                }
-            )
-
-
-    def get_model_save_name(self, trial_number):
-
-        return os.path.join(
-            self.model_dir, self.study_name, '{}.pth'.format(str(trial_number))
-        )
-
-
-    def save_model(self, model, savename):
-
-        savedir = os.path.dirname(savename)
-
-        if not os.path.isdir(savedir):
-            os.makedirs(savedir)
-
-        model.save(savename)
-
 
     def run_trial(
-            self,
-            trial,
-            parallel,*,
+            self, trial,*,
+            parallel,
             model,
-            train, test,
-            worker_number,
+            train, 
+            test,
         ):
         
         must_prune = False
+        self.study.sampler.reseed_rng()
+
         params = self.suggest_parameters(trial)
 
         logger.info(
@@ -1256,7 +1212,6 @@ class SpeedyTuner(TopicModelTuner):
                     'rate' : rate,
                     'trial_score' : trial_score,
                     **metrics,
-                    'worker_number' : worker_number,
             }
 
             params['study_name'] = self.study_name
@@ -1281,6 +1236,39 @@ class SpeedyTuner(TopicModelTuner):
             self.save_model(model, path)
 
         return trial_score
+
+
+    def _tune_step(self,*,
+            parallel,
+            model,
+            train, test,
+        ):
+
+        with DisableLogger(baselogger), DisableLogger(interfacelogger), DisableLogger(corelogger):
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+
+                interior_func = partial(
+                    self.run_trial,
+                    parallel = parallel,
+                    model = model,
+                    train = train,
+                    test = test,
+                )
+
+                try:
+                    trial = _run_trial(self.study, interior_func, (ModelParamError, ValueError))
+                finally:
+                    gc.collect()
+
+                print_callback = self.serial_dashboard if not parallel else self.parallel_dashboard
+                stop_callback = self.get_stop_callback()
+
+                print_callback(self.study, trial)
+                stop_callback(self.study, trial)
+
+        return trial
 
 
     def fetch_weights(self, model, trial_num):
