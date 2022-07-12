@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class ExpressionEncoder(torch.nn.Module):
 
     def __init__(self,embedding_size=None,*,num_endog_features, num_topics, 
-                hidden, dropout, num_layers,
+                hidden, dropout, num_layers, embedding_dropout,
                 num_exog_features, num_covariates, num_extra_features):
         super().__init__()
 

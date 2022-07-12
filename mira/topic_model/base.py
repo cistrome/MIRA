@@ -119,7 +119,7 @@ class Decoder(nn.Module):
         dropout_rate = 1 - np.sqrt(1-dropout)
         self.drop = nn.Dropout(dropout_rate)
         self.drop2 = nn.Dropout(dropout_rate)
-        self.drop3 = _mask_drop
+        self.drop3 = partial(_mask_drop, dropout_rate = dropout_rate)
 
         self.num_topics = num_topics
         self.num_covariates = num_covariates
@@ -254,7 +254,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             hidden = 128,
             num_layers = 3,
             num_epochs = 40,
-            decoder_dropout = 0.2,
+            decoder_dropout = 0.16,
             encoder_dropout = 0.015,
             use_cuda = True,
             seed = 0,
@@ -271,6 +271,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             weight_decay = 0.0015,
             min_momentum = 0.85,
             max_momentum = 0.95,
+            embedding_dropout = 0.05,
             ):
         '''
         Learns regulatory "topics" from single-cell multiomics data. Topics capture 
@@ -412,6 +413,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.weight_decay = weight_decay
         self.min_momentum = min_momentum
         self.max_momentum = max_momentum
+        self.embedding_dropout = embedding_dropout
 
     def _get_min_resources(self):
         return self.num_epochs#//3
@@ -442,6 +444,27 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         return int(
             (n_samples**0.2 - 1)/0.2
         )
+
+
+    def suggest_parameters(self, tuner, trial):
+
+        params = dict(        
+            num_topics = trial.suggest_int('num_topics', tuner.min_topics, 
+            tuner.max_topics, log=True),
+        )
+
+        if not tuner.tune_topics_only:
+            params.update(dict(
+                encoder_dropout = trial.suggest_float('encoder_dropout', 0.00001, 0.1, log = True),
+                num_layers = trial.suggest_categorical('num_layers', (2,3,)),
+                hidden = trial.suggest_categorical('hidden', [64, 128, 256]),
+                min_momentum = trial.suggest_float('min_momentum', 0.8, 0.9, log = True),
+                max_momentum = trial.suggest_float('max_momentum', 0.91, 0.98, log = True),
+                weight_decay = trial.suggest_float('weight_decay', 0.000001, 0.01, log = True),
+                decoder_dropout = trial.suggest_float('decoder_dropout', 0.05, 0.2)
+            ))
+
+        return params
 
 
     def recommend_parameters(self, n_samples, n_features, finetune = False):
@@ -554,6 +577,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             num_topics = self.num_topics, 
             num_covariates = self.num_covariates,
             num_extra_features = self.num_extra_features,
+            embedding_dropout = self.embedding_dropout,
             hidden = self.hidden, 
             dropout = self.encoder_dropout, 
             num_layers = self.num_layers
@@ -609,7 +633,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         
         total_steps = n_epochs * n_batches_per_epoch
         n_cycles = 3
-        steps_per_cycle = total_steps/n_cycles
+        steps_per_cycle = total_steps/n_cycles + 1
 
         tau = (step_num % steps_per_cycle)/steps_per_cycle
 

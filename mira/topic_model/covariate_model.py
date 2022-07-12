@@ -32,7 +32,7 @@ class CovariateModel(BaseModel):
             hidden = 128,
             num_layers = 3,
             num_epochs = 40,
-            decoder_dropout = 0.2,
+            decoder_dropout = 0.16,
             encoder_dropout = 0.015,
             use_cuda = True,
             seed = 0,
@@ -53,6 +53,7 @@ class CovariateModel(BaseModel):
             weight_decay = 0.0015,
             min_momentum = 0.85,
             max_momentum = 0.95,
+            embedding_dropout = 0.05,
             ):
         super().__init__()
 
@@ -86,6 +87,7 @@ class CovariateModel(BaseModel):
         self.weight_decay = weight_decay
         self.min_momentum = min_momentum
         self.max_momentum = max_momentum
+        self.embedding_dropout = embedding_dropout
 
     def _get_weights(self, on_gpu = True, inference_mode = False):
         super()._get_weights(on_gpu=on_gpu, inference_mode=inference_mode)

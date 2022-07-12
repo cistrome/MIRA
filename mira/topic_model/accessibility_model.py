@@ -58,14 +58,14 @@ class ZeroPaddedMultinomial(pyro.distributions.Multinomial):
 
 class DANEncoder(nn.Module):
 
-    def __init__(self, embedding_size = None, *,num_endog_features, num_topics,
+    def __init__(self, embedding_size = None, *,num_endog_features, num_topics, embedding_dropout,
         hidden, dropout, num_layers, num_exog_features, num_covariates, num_extra_features):
         super().__init__()
 
         if embedding_size is None:
             embedding_size = hidden
 
-        self.word_dropout_rate = 0.05
+        self.word_dropout_rate = embedding_dropout
         self.embedding = nn.Embedding(num_endog_features + 1, embedding_size, padding_idx=0)
         self.num_topics = num_topics
         self.calc_readdepth = True
@@ -215,7 +215,20 @@ class AccessibilityModel:
 
         return preprocess_exog'''
 
-    def get_rd_fn(self):
+
+    def preprocess_endog(self, X):
+        
+        return self._get_padded_idx_matrix(
+                self._binarize_matrix(X, self.num_endog_features)
+                ).astype(np.int32)
+
+    def preprocess_exog(self, X):
+
+        return self._get_padded_idx_matrix(
+                self._binarize_matrix(X, self.num_exog_features)
+                ).astype(np.int64)
+
+    '''def get_rd_fn(self):
         
         def preprocess_read_depth(X):
             return np.array((X > 0).sum(-1)).reshape((-1,1)).astype(np.float32)
@@ -255,7 +268,20 @@ class AccessibilityModel:
         if self.count_model == 'binary':
             return preprocess_exog_binary
 
-        return preprocess_exog
+        return preprocess_exog'''
+
+    def suggest_parameters(self, tuner, trial):
+
+        params = super().suggest_parameters(tuner, trial)
+
+        if not tuner.tune_topics_only:
+
+            params.update(dict(
+                embedding_size = trial.suggest_categorical('embedding_size', [64, 128, 256]),
+                embedding_dropout = trial.suggest_float('embedding_dropout', 0.0001, 0.3, log = True),
+            ))
+
+        return params
 
     def get_dataloader(self, dataset, training = False, batch_size = 512):
         
