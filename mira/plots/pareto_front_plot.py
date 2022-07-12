@@ -1,4 +1,5 @@
 
+from xml.dom.minidom import Attr
 import matplotlib
 import numpy as np
 from mira.plots.factor_influence_plot import layout_labels
@@ -21,21 +22,30 @@ def get_RD_scores(trials):
     
     return trial_num, scores
 
+
 def get_trial_attr(trial, attr):
     
     attr = attr.lower()
     
     if attr == 'value' or attr == 'elbo':
+        if trial.value is None:
+            return np.nan
+
         return trial.value
-    
-    if attr == 'usefulness':
-        return trial.user_attrs[attr] if attr in trial.user_attrs else np.inf
     
     try:
         return trial.params[attr]
     except KeyError:
+        pass
+
+    try:
         return trial.user_attrs[attr]
     except KeyError():
+        pass
+
+    try:
+        return getattr(trial, attr)
+    except AttributeError:
         raise KeyError('Attr {} not found in params or user_attrs of trial'.format(attr))
     
 
@@ -162,20 +172,48 @@ def plot_pareto_front(trials,
     
 
 def plot_intermediate_values(trials, palette = 'Greys', 
-                             ax = None, figsize = (10,7),
-                             linecolor = 'black'):
+                            na_color = 'lightgrey',
+                            add_legend = True,
+                            log_hue = False,
+                            hue = 'value',
+                            vmin = None,
+                            vmax = None,
+                            ax = None, 
+                            figsize = (10,7)):
     
     if ax is None:
         fig, ax = plt.subplots(1,1,figsize = figsize)
+
+    def get_or_nan(trial):
+        try:
+            return get_trial_attr(trial, hue)
+        except KeyError:
+            return np.nan
+
+    trial_values = np.array([ get_or_nan(t) for t in trials ] )
+
+    cbar_params = dict(orientation = 'vertical', pad = 0.01, shrink = 0.5, 
+                                 aspect = 15, anchor = (1.05, 0.5), label = hue)
+
+    legend_params = dict(loc="upper center", bbox_to_anchor=(0.5, -0.05), frameon = False, 
+                ncol = 4, title_fontsize='x-large', fontsize='large', markerscale = 1)
+
+
+    colors = map_colors(ax, trial_values, 
+                palette = palette, 
+                na_color = na_color,
+                log = log_hue,
+                vmin = vmin, vmax = vmax,
+                cbar_kwargs=cbar_params, 
+                legend_kwargs=legend_params,
+                add_legend = add_legend)
     
-    trials = sorted(trials, key = lambda t : -t.values[0] if t.state == ts.COMPLETE else -np.inf)
-    
-    for i, trial in enumerate(trials):
+    for trial, _c in zip(trials, colors):
         
         ax.plot(
             list(trial.intermediate_values.keys()),
             list(trial.intermediate_values.values()),
-            c = get_cmap(palette)((i/len(trials))**2 + 0.05),
+            c = _c,
         )
         
     ax.set(yscale = 'log',
@@ -183,11 +221,5 @@ def plot_intermediate_values(trials, palette = 'Greys',
           )
     ax.spines['right'].set_visible(False)
     ax.spines['top'].set_visible(False)
-    
-    #ax.vlines(min_resource, ymin = 0, ymax = trials[-1].values[0] * 0.97,
-    #             color = linecolor)
-    
-    #ax.vlines(2*min_resource, ymin = 0, ymax = trials[-1].values[0] * 0.97,
-    #             color = linecolor)
 
     return ax

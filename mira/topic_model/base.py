@@ -254,8 +254,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             hidden = 128,
             num_layers = 3,
             num_epochs = 40,
-            decoder_dropout = 0.16,
-            encoder_dropout = 0.015,
+            decoder_dropout = 0.1,
+            encoder_dropout = 0.001,
             use_cuda = True,
             seed = 0,
             min_learning_rate = 1e-6,
@@ -268,7 +268,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             kl_strategy = 'cyclic',
             reconstruction_weight = 1.,
             dataset_loader_workers = 0,
-            weight_decay = 0.0015,
+            weight_decay = 0.001,
             min_momentum = 0.85,
             max_momentum = 0.95,
             embedding_dropout = 0.05,
@@ -419,18 +419,21 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         return self.num_epochs#//3
 
     def _recommend_batchsize(self, n_samples):
-        if n_samples >= 5000 and n_samples <= 15000:
-            return 64
-        elif n_samples > 20000:
-            return 128
-        else:
+        if n_samples < 5000:
             return 32
+        elif n_samples < 20000:
+            return 64
+        else:
+            return 128
+
 
     def _recommend_hidden(self, n_samples):
         if n_samples < 2400:
             return 64
-        else:
+        elif n_samples < 20000:
             return 128
+        else:
+            return 256
 
     def _recommend_num_layers(self, n_samples):
         if n_samples < 2400:
@@ -514,6 +517,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 raise StopIteration()
             else:
                 yield start, end
+
 
     def _set_seeds(self):
         if self.seed is None:

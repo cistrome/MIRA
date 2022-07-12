@@ -31,7 +31,7 @@ from torch.utils.tensorboard import SummaryWriter
 import torch
 from mira.topic_model.pruner import MemoryPercentileStepPruner
 from mira.plots.pareto_front_plot import plot_intermediate_values, plot_pareto_front
-from mira.topic_model.gp_sampler import GP_RateDistortionSampler
+from mira.topic_model.gp_sampler import ELBOGP, SuccessiveHalvingPruner
 from optuna.storages import RedisStorage
 
 
@@ -106,7 +106,11 @@ def terminate_after_n_failures(study, trial,
     n_failures=5,
     min_trials = 32):
 
-    if len(study.trials) < min_trials or len(study.trials) < n_failures:
+    trials = [trial for trial in study.trials
+            if trial.state == ts.PRUNED or trial.state == ts.COMPLETE]
+
+
+    if len(trials) < min_trials or len(trials) < n_failures:
         return
     
     try:
@@ -115,8 +119,8 @@ def terminate_after_n_failures(study, trial,
         return 
 
     failures = 0
-    for trial in study.trials[best_trial_no:]:
-        if trial.state == ts.PRUNED or trial.state == ts.COMPLETE:
+    for trial in trials:
+        if trial.number > best_trial_no:
             failures+=1
 
     if failures > n_failures:
@@ -149,6 +153,9 @@ def _get_trial_desc(study, trial):
 
     def get_score(trial):
         try:
+            if trial.value is None:
+                return np.inf
+
             return trial.value
         except AttributeError:
            pass
@@ -270,6 +277,11 @@ class SpeedyTuner:
 
     
     def __init__(self,
+        model,
+        save_name,
+        min_topics,
+        max_topics,*,
+        n_jobs = 1,
         max_trials = 64,
         min_trials = 24,
         stop_condition = 8,
@@ -277,16 +289,14 @@ class SpeedyTuner:
         tensorboard_logdir = 'runs',
         model_dir = 'models',
         storage = 'sqlite:///mira-tuning.db',
-        pruner = 'sha',
-        sampler = 'tpe',
+        pruner = 'default',
+        sampler = 'default',
         log_steps = False,
         log_every = 10,
-        initial_topic_array = False,
-        tune_topics_only = True,*,
-        save_name,
-        min_topics,
-        max_topics,
+        tune_topics_only = False,
     ):
+        self.model = model
+        self.n_jobs = n_jobs
         self.min_topics, self.max_topics = min_topics, max_topics
         self.iters = max_trials
         self.seed = seed
@@ -297,7 +307,6 @@ class SpeedyTuner:
         self.tensorboard_logdir = tensorboard_logdir
         self.stop_condition = stop_condition
         self.min_trials = min_trials
-        self.initial_topic_array = initial_topic_array
         self.optimize_usefulness = False
         self.log_steps = log_steps
         self.log_every = log_every
@@ -341,8 +350,11 @@ class SpeedyTuner:
         else:
             return lambda s,t : None
             
+    @property
+    def parallel(self):
+        return self.n_jobs > 1
 
-    def tune(self, model, train, test, n_workers = 1):
+    def fit(self, train, test = None):
         '''
         Run Bayesian optimization scheme for topic model hyperparameters. This
         function launches multiple concurrent training processes to evaluate 
@@ -356,7 +368,7 @@ class SpeedyTuner:
             Anndata of expression or accessibility data.
             Cells must be labeled with test or train set membership using
             `tuner.train_test_split`.
-        n_workers : int, default = 1
+        self.n_jobs : int, default = 1
             Number of tuning processes to launch.
         
         Returns
@@ -366,14 +378,14 @@ class SpeedyTuner:
 
         '''
 
-        assert isinstance(n_workers, int) and n_workers > 0
+        assert isinstance(self.n_jobs, int) and self.n_jobs > 0
 
-        if n_workers > 5 and not isinstance(self.storage, Redis):
+        self.study.set_user_attr('n_workers', self.n_jobs)
+
+        if self.n_jobs > 5 and not isinstance(self.storage, Redis):
             raise ValueError('Can run maximum of 5 workers with default SQLite storage backend. For more processes, use Redis storage.')
-
-        parallel = n_workers > 1
         
-        model.cpu()
+        self.model.cpu()
 
         if self.n_completed_trials > 0:
             logger.warn('Resuming study with {} trials.'.format(self.n_completed_trials))
@@ -382,29 +394,39 @@ class SpeedyTuner:
         if num_running > 0:
             logger.warn('{} running trials. Use "purge" method to stop trails if no longer running.'.format(num_running))
 
-        if parallel and model.dataset_loader_workers > 0:
+        if self.parallel and self.model.dataset_loader_workers > 0:
             logger.warn('Parrallelized tuning on one node with muliprocessed data loading is not permitted. Setting "dataset_loader_workers" to zero.')
-            model.dataset_loader_workers = 0
+            self.model.dataset_loader_workers = 0
 
         if not torch.cuda.is_available():
             logger.warn('GPU is not available, will not speed up training.')
         
         self.study = optuna.create_study(
             directions = self.objective,
-            pruner = self.get_pruner(model = model),
-            sampler = self.get_tuner(parallel=parallel),
+            pruner = self.get_pruner(),
+            sampler = self.get_tuner(),
             study_name = self.study_name,
             storage = self.storage,
             load_if_exists= True,
         )
+
+        if test is None:
+            logger.warn('No test set provided, splitting data into training and test sets (80/20).')
+
+            if isinstance(train, str):
+                raise ValueError(
+                    'Automatic train/test splitting not supported for on-disk dataset. Make sure to save '
+                    'training and testing partitions manually.'
+                )
+
+            train, test = self.train_test_split(train, seed = self.seed)
         
         lock = Locker(self.study_name)
 
         tune_func = partial(
-                self._tune_step, 
-                parallel = parallel, 
-                model = model, 
-                train = train, test = test,
+                self._tune_step,
+                train = train, 
+                test = test,
                 lock = lock,
         )
 
@@ -416,21 +438,17 @@ class SpeedyTuner:
 
         if remaining_trials > 0:
 
-            def delay_initial(r):
-                for i in range(r):
-                    if i < n_workers:
-                        time.sleep(2)
-                    yield i
-
             try:
 
-                Parallel(n_jobs= n_workers, verbose = 0)\
+                Parallel(n_jobs= self.n_jobs, verbose = 0)\
                     (delayed(tune_func)() for i in range(remaining_trials))
 
             except (KeyboardInterrupt, FailureToImproveException):
                 pass
 
-        return self.study
+        self.model = self.fetch_best_weights()
+
+        return self.model
 
 
     def get_stop_callback(self):
@@ -442,41 +460,53 @@ class SpeedyTuner:
             return self.stop_condition
 
 
-    def get_pruner(self,*, model):
+    def get_pruner(self):
 
-        if self.pruner == 'sha':
-            return optuna.pruners.SuccessiveHalvingPruner(
-                min_resource = model._get_min_resources(),
+        if isinstance(self.pruner, optuna.pruners.BasePruner) or self.pruner is None:
+            return self.pruner
+
+        elif self.pruner == 'default' and not self.tune_topics_only:
+
+            assert self.model.num_epochs % 3 == 0, 'Number of epochs trained must be divisible by 3, e.g. 24, 36, etc.'
+            return optuna.pruners.HyperbandPruner(
+                min_resource = self.model.num_epochs//6,
+                max_resource = self.model.num_epochs,
                 reduction_factor = 2,
             )
-        elif isinstance(self.pruner, optuna.pruners.BasePruner) or self.pruner is None:
-            return self.pruner
+
+        elif self.pruner == 'default' and self.tune_topics_only:
+
+            return SuccessiveHalvingPruner(
+                min_resource=8,
+                reduction_factor=2,
+            )
+        
         else:
             raise ValueError('Pruner {} is not an option'.format(str(self.pruner)))
 
 
-    def get_tuner(self, parallel = False):
+    def get_tuner(self):
 
         if isinstance(self.sampler, optuna.samplers.BaseSampler):
             return self.sampler
 
-        elif self.sampler == 'gp':
-            return GP_RateDistortionSampler(
-                seed = self.seed, 
-                constant_liar = parallel,
-                tau = 10,
-            )
-
-        elif self.sampler == 'tpe':
+        elif self.sampler == 'default' and not self.tune_topics_only:
 
             params = optuna.samplers.TPESampler.hyperopt_parameters()
-            params['n_startup_trials'] = 5
+            params['n_startup_trials'] = 10
 
             return optuna.samplers.TPESampler(
                 seed = self.seed,
-                constant_liar=parallel,
+                constant_liar=self.n_jobs > 1,
                 **params,
             )
+
+        elif self.sampler == 'default' and self.tune_topics_only:
+
+            return ELBOGP(
+                constant_liar = self.n_jobs > 1
+            )
+
         else:
             raise ValueError('Sampler {} is not an option'.format(str(self.sampler)))
 
@@ -500,8 +530,6 @@ class SpeedyTuner:
 
     def run_trial(
             self, trial,*,
-            parallel,
-            model,
             train, 
             test,
             lock,
@@ -511,55 +539,60 @@ class SpeedyTuner:
         self.study.sampler.reseed_rng()
 
         with lock:
-            params = model.suggest_parameters(self, trial)
+            params = self.model.suggest_parameters(self, trial)
 
         logger.info(
-            'New trial - num_topics: {}'.format(str(params['num_topics']))
+            'New trial #{} - num_topics: {}'.format(
+                str(trial.number),
+                str(params['num_topics'])
+            )
         )
 
-        model.set_params(**params, seed = self.seed + trial.number)
+        self.model.set_params(**params, seed = self.seed + trial.number)
 
         with SummaryWriter(
                 log_dir=os.path.join(self.tensorboard_logdir, self.study_name, str(trial.number))
             ) as trial_writer:
 
-            if not parallel:
+            if not self.parallel:
                 print('Evaluating: ' + _format_params(params))
 
             epoch_test_scores = []
-            for epoch, train_loss in model._internal_fit(train, 
+            for epoch, train_loss in self.model._internal_fit(train, 
                     writer = trial_writer if self.log_steps else None,
                     log_every = self.log_every):
                 
                 try:
-                    distortion, rate, metrics = model.distortion_rate_loss(test, bar = False, 
-                                                        _beta_weight = model._last_anneal_factor)
+                    distortion, rate, metrics = self.model.distortion_rate_loss(test, bar = False, 
+                                                        _beta_weight = self.model._last_anneal_factor)
 
                     trial_score = distortion + rate
 
-                    if not parallel:
-                        num_hashtags = int(25 * epoch/model.num_epochs)
+                    if not self.parallel:
+                        num_hashtags = int(25 * epoch/self.model.num_epochs)
                         print('\rProgress: ' + '|' + '\u25A0'*num_hashtags + ' '*(25-num_hashtags) + '|', end = '')
 
                     epoch_test_scores.append(trial_score)
                     trial_writer.add_scalar('holdout_distortion', distortion, epoch)
                     trial_writer.add_scalar('holdout_rate', rate, epoch)
                     trial_writer.add_scalar('holdout_loss', trial_score, epoch)
-                    trial_writer.add_scalar('holdout_KL_weight', model._last_anneal_factor, epoch)
+                    trial_writer.add_scalar('holdout_KL_weight', self.model._last_anneal_factor, epoch)
 
                     for metric_name, value in metrics.items():
                         trial_writer.add_scalar('holdout_' + metric_name, value, epoch)
                     
-                    trial.report(min(epoch_test_scores[-model.num_epochs//6:]), epoch)
+                    trial.report(min(epoch_test_scores[-self.model.num_epochs//6:]), epoch)
 
-                    if trial.should_prune() and epoch < model.num_epochs:
+                    if trial.should_prune() and epoch < self.model.num_epochs:
                         must_prune = True
                         break
-                except ValueError: # if evaluation fails for some reason
-                    pass
 
-            #distortion, rate, metrics = model.distortion_rate_loss(test, bar = False)
-            #trial_score = distortion + rate
+                except ValueError as err: # if evaluation fails for some reason
+                    pass # just keep going unless training fails in outer loop
+                         # this is implemented because sometimes early in training the
+                         # estimation of test-set topics is unstable and can cause errors.
+                         # In this case, it is better to just keep going with training,
+                         # which will usually stabilize the model
 
             metrics = {
                     'number' : trial.number,
@@ -589,14 +622,12 @@ class SpeedyTuner:
             #if trial_score <= best_value:
             path = self.get_model_save_name(trial.number)
             trial.set_user_attr("path", path)
-            self.save_model(model, path)
+            self.save_model(self.model, path)
 
         return trial_score
 
 
     def _tune_step(self,*,
-            parallel,
-            model,
             train, test,
             lock,
         ):
@@ -608,8 +639,6 @@ class SpeedyTuner:
 
                 interior_func = partial(
                     self.run_trial,
-                    parallel = parallel,
-                    model = model,
                     train = train,
                     test = test,
                     lock = lock,
@@ -620,7 +649,7 @@ class SpeedyTuner:
                 finally:
                     gc.collect()
 
-                print_callback = self.serial_dashboard if not parallel else self.parallel_dashboard
+                print_callback = self.serial_dashboard if not self.parallel else self.parallel_dashboard
                 stop_callback = self.get_stop_callback()
 
                 print_callback(self.study, trial)
@@ -629,7 +658,7 @@ class SpeedyTuner:
         return trial
 
 
-    def fetch_weights(self, model, trial_num):
+    def fetch_weights(self, trial_num):
 
         try:
             path = self.study.trials[trial_num].user_attrs['path']
@@ -639,22 +668,33 @@ class SpeedyTuner:
             raise KeyError('No model saved for trial {}. Trial was either pruned or failed.'\
                     .format(str(trial_num)))
 
-        return model.load(path)
+        return self.model.load(path)
 
 
-    def fetch_best_weights(self, model):
-        return self.fetch_weights(model, self.study.best_trial.number)
+    def fetch_best_weights(self):
+        try:
+            self.study.best_trial
+        except ValueError:
+            raise ValueError('No trials completed, cannot load best weights.')
+
+        return self.fetch_weights(self.study.best_trial.number)
 
 
     def plot_intermediate_values(self,
         palette = 'Greys', 
         ax = None, figsize = (10,7),
-        linecolor = 'black',
-        hue = 'value'):
+        log_hue = False,
+        hue = 'value',
+        na_color = 'lightgrey',
+        add_legend = True,
+        vmax = None, vmin = None,
+        ):
         
         return plot_intermediate_values(self.study.trials,
             palette = palette, ax = ax, figsize = figsize,
-            linecolor = linecolor, hue = hue,
+            hue = hue, add_legend = add_legend,
+            vmax = vmax, vmin = vmin,
+            na_color = na_color, log_hue = log_hue,
         )
 
 

@@ -167,7 +167,6 @@ class WassersteinDualEMA(Wasserstein):
         return -t + t_marg
 
 
-
 class WassersteinDualRobust(Wasserstein):
 
 

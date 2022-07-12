@@ -32,8 +32,8 @@ class CovariateModel(BaseModel):
             hidden = 128,
             num_layers = 3,
             num_epochs = 40,
-            decoder_dropout = 0.16,
-            encoder_dropout = 0.015,
+            decoder_dropout = 0.1,
+            encoder_dropout = 0.001,
             use_cuda = True,
             seed = 0,
             min_learning_rate = 1e-6,
@@ -50,7 +50,7 @@ class CovariateModel(BaseModel):
             dependence_beta = 1.,
             dependence_hidden = 64,
             dependence_model = WassersteinDualRobust,
-            weight_decay = 0.0015,
+            weight_decay = 0.001,
             min_momentum = 0.85,
             max_momentum = 0.95,
             embedding_dropout = 0.05,
@@ -207,7 +207,8 @@ class CovariateModel(BaseModel):
             anneal_strategy='cos', cycle_momentum=True, 
             base_momentum = self.min_momentum,
             max_momentum = self.max_momentum,
-            div_factor= self.max_learning_rate/self.min_learning_rate, three_phase=False)
+            div_factor= self.max_learning_rate/self.min_learning_rate, 
+            three_phase=False)
 
 
     def _step(self, batch, 
