@@ -1,6 +1,8 @@
 from mira.topic_model.expression_model import ExpressionEncoder
 from mira.topic_model.accessibility_model import DANEncoder, \
         ZeroPaddedBinaryMultinomial, ZeroPaddedMultinomial
+
+from mira.topic_model.dirichlet_model import ExpressionDirichletModel, AccessibilityDirichletModel
 import pyro.distributions as dist
 import torch
 from torch import nn
@@ -15,7 +17,7 @@ import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 import numpy as np
 from functools import partial
-from mira.topic_model.base import encoder_layer
+from mira.topic_model.base import encoder_layer, logger
 
 
 def mix_weights(beta):
@@ -37,10 +39,79 @@ class DP_EncoderMixin:
 
 class DPModel:
 
+    def get_topic_model(self):
+
+        generative_model, feature_model, baseclass \
+                = self.__class__.__bases__
+
+        names = self.__class__.__name__.split('_')
+
+        if isinstance(self, ExpressionDirichletProcessModel):
+            generative_model = ExpressionDirichletModel
+        else:
+            generative_model = AccessibilityDirichletModel
+
+        _class = type(
+            '_'.join(['dirichlet', *names[1:]]),
+            (generative_model, feature_model, baseclass),
+            {}
+        )
+
+        instance = _class(
+            **self.get_params()
+        )
+
+        instance.set_params(
+            num_topics = self._predict_num_topics(self.stick_len, self.num_topics, 0.05)
+        )
+
+        return instance
+
+
+    def _get_save_data(self):
+        save_data = super()._get_save_data()
+        save_data['weights']['stick_len'] = self.stick_len
+
+        return save_data
+
+    def _set_weights(self, fit_params, weights):
+        
+        stick_len = weights.pop('stick_len')
+        super()._set_weights(fit_params, weights)
+
+        self._stick_len = stick_len
+
+
+    @staticmethod
+    def _predict_num_topics(stick_len, num_topics, contribution = 0.05):
+        expected_comp = np.power(stick_len, np.arange(num_topics))
+        return int(
+            np.argmin(expected_comp > contribution)
+        )
+
+
+    def get_topic_range(self, max_contribution = 0.1, min_contribution = 0.01):
+
+        min_topics = self._predict_num_topics(
+            self.stick_len, self.num_topics, contribution= max_contribution
+        )
+
+        max_topics = self._predict_num_topics(
+            self.stick_len, self.num_topics, contribution= min_contribution
+        )
+
+        return min_topics, max_topics
+
+
     @property
     def stick_len(self):
-        alpha = pyro.get_param_store()['alpha_a']/pyro.get_param_store()['alpha_b']
-        return (1 - 1/(1+alpha)).cpu().detach().numpy()
+        try:
+            return self._stick_len
+        except AttributeError:
+            alpha = pyro.get_param_store()['alpha_a']/pyro.get_param_store()['alpha_b']
+            self._stick_len = (1 - 1/(1+alpha)).cpu().detach().numpy()
+
+        return self._stick_len
     
 
     def _recommend_num_topics(self, n_samples):
@@ -53,16 +124,26 @@ class DPModel:
     @staticmethod
     def boxcox(x, a):
         return ( x**a - 1)/a
-    
+
+    @staticmethod
+    def get_active_topics(topic_compositions, min_contribution = 0.05):
+        dead_topics = topic_compositions.max(0) < min_contribution
+
+        return ~dead_topics
     
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_obsm, add_key = 'X_umap_features'),
         fill_kwargs=['topic_compositions', 'covariates','extra_features'])
-    def get_umap_features(self, num_topics = 20, box_cox = 0.5,*, 
+    def get_umap_features(self, box_cox = 0.5, min_contribution = 0.05,*, 
             topic_compositions, covariates, extra_features):
-        
+
+        active_topics = self.get_active_topics(topic_compositions, min_contribution)
+        num_topics = active_topics.sum()
+
+        logger.info('Found {} topics from the data.'.format(num_topics))
+
         basis = gram_schmidt_basis(num_topics)
 
-        topic_compositions = topic_compositions[:, :num_topics]
+        topic_compositions = topic_compositions[:, active_topics]
         transformed = topic_compositions/np.power(self.stick_len, np.arange(num_topics))[np.newaxis, :]
 
         return self.boxcox(transformed, box_cox).dot(basis)

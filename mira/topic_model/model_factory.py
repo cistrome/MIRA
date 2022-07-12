@@ -30,11 +30,13 @@ def TopicModel(
             'For smaller datasets, please use the "dirichlet" latent space, and use the tuner'
             'to find the optimal number of topics.'
         )
+        
+        latent_space = 'dirichlet-process'
 
     basename = 'model'
     if isinstance(covariates_keys, (list, np.ndarray)) \
             and len(covariates_keys) > 0:
-        basename = 'covariate_model'
+        basename = 'covariate-model'
         baseclass = CovariateModel
     else:
         baseclass = BaseModel
@@ -46,15 +48,15 @@ def TopicModel(
 
     generative_map = {
         ('expression','dirichlet') : ExpressionDirichletModel,
-        ('expression','dp') : ExpressionDirichletProcessModel,
+        ('expression','dirichlet-process') : ExpressionDirichletProcessModel,
         ('accessibility', 'dirichlet') : AccessibilityDirichletModel,
-        ('accessibility', 'dp') : AccessibilityDirichletProcessModel,
+        ('accessibility', 'dirichlet-process') : AccessibilityDirichletProcessModel,
     }
 
     generative_model = generative_map[(feature_type, latent_space)]
 
     _class = type(
-        '_'.join([feature_type, latent_space, basename]),
+        '_'.join([latent_space, feature_type, basename]),
         (generative_model, feature_model, baseclass),
         {}
     )
