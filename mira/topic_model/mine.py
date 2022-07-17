@@ -1,5 +1,6 @@
 
 from imp import get_magic
+from turtle import forward
 import matplotlib.pyplot as plt
 import numpy as np
 import math
@@ -51,6 +52,36 @@ class ConcatLayer(nn.Module):
     def forward(self, x):
         return torch.cat(x, self.dim)
 
+
+class CovariateModel(nn.Module):
+
+    def __init__(self, 
+        dropout = 0.1, 
+        hidden = 64,*,
+        input_width,
+        output_width,
+        ):
+        super().__init__()
+
+        self.drop1 = nn.Dropout(dropout)
+        self.dropout_rate = dropout
+        self.gamma = nn.Parameter(
+                torch.zeros(output_width)
+            )
+        self.network = nn.Sequential(
+            ConcatLayer(1),
+            nn.Linear(input_width, hidden, bias=False),
+            nn.BatchNorm1d(hidden),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden, output_width, bias=False),
+            nn.BatchNorm1d(output_width, affine=False)
+        )
+
+    def forward(self, Z, C):
+
+        return self.gamma * self.network((self.drop1(Z), C))
+        
 
 class Mine(nn.Module):
 

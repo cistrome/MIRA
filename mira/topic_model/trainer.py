@@ -1,20 +1,15 @@
 
-from doctest import NORMALIZE_WHITESPACE
-from pydoc_data.topics import topics
 import numpy as np
-from sklearn.model_selection import KFold, train_test_split
+from sklearn.model_selection import train_test_split
 from functools import partial
 import os
 import optuna
-import mira.adata_interface.core as adi
-import mira.adata_interface.topic_model as tmi
 from optuna.trial import TrialState as ts
 from optuna.study._optimize import _run_trial
 import gc
 
 import os
 from joblib import Parallel, delayed
-import time
 import fcntl
 import logging
 logger = logging.getLogger(__name__)
@@ -29,9 +24,8 @@ from mira.adata_interface.core import logger as corelogger
 
 from torch.utils.tensorboard import SummaryWriter
 import torch
-from mira.topic_model.pruner import MemoryPercentileStepPruner
 from mira.plots.pareto_front_plot import plot_intermediate_values, plot_pareto_front
-from mira.topic_model.gp_sampler import ELBOGP, SuccessiveHalvingPruner
+from mira.topic_model.gp_sampler import GP, HyperbandPruner
 from optuna.storages import RedisStorage
 
 
@@ -173,13 +167,13 @@ def _get_trial_desc(study, trial):
         was_best = ' '
 
     if trial.state == ts.COMPLETE:
-        return ' #{:<3} | {} | completed, score: {:.4e} | params: {}'\
+        return ' #{:<3} | {} | completed, score: {:.4e} | {}'\
             .format(str(trial.number), was_best, get_score(trial), _format_params(trial.params))
     elif trial.state == ts.PRUNED:
-        return ' #{:<3} | {} | pruned at step: {:<12} | params: {}'\
+        return ' #{:<3} | {} | pruned at step: {:<12} | {}'\
             .format(str(trial.number), ' ', str(_get_batches_trained(trial)), _format_params(trial.params))
     elif trial.state == ts.FAIL:
-        return ' #{:<3} | {} | ERROR                        | params: {}'\
+        return ' #{:<3} | {} | ERROR                        | {}'\
             .format(str(trial.number), ' ', str(trial.params))
 
 
@@ -211,9 +205,22 @@ def _print_topic_histogram(study):
     print('', end = '\n\n')
 
 
+def _print_running_trial(study, trial):
+
+    try:
+        progress = max(trial.intermediate_values.keys())
+    except ValueError:
+        progress = 0
+
+    num_hashtags = int(35 * progress/study.user_attrs['max_resource'])
+    print(' #{:<3} |'.format(trial.number) + '\u25A0'*num_hashtags + ' '*(35-num_hashtags) + '| '\
+        + _format_params(trial.params), end = '\n')
+
+
 def _clear_page():
 
     if NOTEBOOK_MODE:
+        pass
         clear_output(wait=True)
     else:
         print('------------------------------------------------------')
@@ -235,13 +242,21 @@ def _print_study(tuner, study, trial):
     except ValueError:
         print('Trials finished {}'.format(str(len(study.trials))), end = '\n\n')
 
+    print('Tensorboard logidr: ' + os.path.join(tuner.tensorboard_logdir, tuner.study_name))
     print('#Topics | #Trials ', end = '')
     _print_topic_histogram(study) 
 
-    print('Trial Information: (\u25CF = best trial up to that point)')
+    print('Trial | Result (\u25CF = best so far)         | Params')
+
     for trial in study.trials:
         if trial.state in [ts.COMPLETE, ts.PRUNED, ts.FAIL]:
             print(_get_trial_desc(study, trial))
+
+    if tuner.parallel:
+        print('\nRunning trials:\nTrial | Progress                         | Params')
+        for trial in study.trials:
+            if trial.state == ts.RUNNING:
+                _print_running_trial(study, trial)
 
     print('\n')
     
@@ -255,6 +270,25 @@ try:
     NOTEBOOK_MODE = True
 except ImportError:
     NOTEBOOK_MODE = False
+
+
+import contextlib
+import joblib
+
+@contextlib.contextmanager
+def joblib_print_callback(tuner):
+    """Context manager to patch joblib to report into tqdm progress bar given as argument"""
+    class TrialCompleteCallback(joblib.parallel.BatchCompletionCallBack):
+        def __call__(self, *args, **kwargs):
+            _print_study(tuner, tuner.study, None)
+            return super().__call__(*args, **kwargs)
+
+    old_batch_callback = joblib.parallel.BatchCompletionCallBack
+    joblib.parallel.BatchCompletionCallBack = TrialCompleteCallback
+    try:
+        yield None
+    finally:
+        joblib.parallel.BatchCompletionCallBack = old_batch_callback
 
 
 class SpeedyTuner:
@@ -289,11 +323,11 @@ class SpeedyTuner:
         tensorboard_logdir = 'runs',
         model_dir = 'models',
         storage = 'sqlite:///mira-tuning.db',
-        pruner = 'default',
-        sampler = 'default',
+        rigor = 1,
+        pruner = None,
+        sampler = None,
         log_steps = False,
         log_every = 10,
-        tune_topics_only = False,
     ):
         self.model = model
         self.n_jobs = n_jobs
@@ -311,7 +345,7 @@ class SpeedyTuner:
         self.log_steps = log_steps
         self.log_every = log_every
         self.model_dir = model_dir
-        self.tune_topics_only = tune_topics_only
+        self.rigor = rigor
         self.study = self.create_study()
 
 
@@ -381,6 +415,7 @@ class SpeedyTuner:
         assert isinstance(self.n_jobs, int) and self.n_jobs > 0
 
         self.study.set_user_attr('n_workers', self.n_jobs)
+        self.study.set_user_attr('max_resource', self.model.num_epochs)
 
         if self.n_jobs > 5 and not isinstance(self.storage, Redis):
             raise ValueError('Can run maximum of 5 workers with default SQLite storage backend. For more processes, use Redis storage.')
@@ -440,8 +475,9 @@ class SpeedyTuner:
 
             try:
 
-                Parallel(n_jobs= self.n_jobs, verbose = 0)\
-                    (delayed(tune_func)() for i in range(remaining_trials))
+                with joblib_print_callback(self):
+                    Parallel(n_jobs= self.n_jobs, verbose = 0)\
+                        (delayed(tune_func)() for i in range(remaining_trials))
 
             except (KeyboardInterrupt, FailureToImproveException):
                 pass
@@ -462,53 +498,58 @@ class SpeedyTuner:
 
     def get_pruner(self):
 
-        if isinstance(self.pruner, optuna.pruners.BasePruner) or self.pruner is None:
+        if not self.pruner is None:
             return self.pruner
 
-        elif self.pruner == 'default' and not self.tune_topics_only:
+        elif self.rigor == 0:
+
+            return optuna.pruners.SuccessiveHalvingPruner(
+                min_resource=8,
+                reduction_factor=2,
+            )
+
+        elif self.rigor > 0:
 
             assert self.model.num_epochs % 3 == 0, 'Number of epochs trained must be divisible by 3, e.g. 24, 36, etc.'
-            return optuna.pruners.HyperbandPruner(
-                min_resource = self.model.num_epochs//6,
+            return HyperbandPruner(
+                min_resource = self.model.num_epochs//3,
                 max_resource = self.model.num_epochs,
                 reduction_factor = 2,
             )
 
-        elif self.pruner == 'default' and self.tune_topics_only:
-
-            return SuccessiveHalvingPruner(
-                min_resource=8,
-                reduction_factor=2,
-            )
-        
-        else:
-            raise ValueError('Pruner {} is not an option'.format(str(self.pruner)))
+        #    raise ValueError('Pruner {} is not an option'.format(str(self.pruner)))
 
 
     def get_tuner(self):
 
-        if isinstance(self.sampler, optuna.samplers.BaseSampler):
+        if not self.sampler is None:
             return self.sampler
 
-        elif self.sampler == 'default' and not self.tune_topics_only:
+        elif self.rigor < 2:
+            
+            return GP(
+                constant_liar = self.parallel,
+                tau = 0.01,
+                min_points = min(self.iters//2, 
+                    max(min(10 * (self.rigor + 1), 10), self.n_jobs/(2 if isinstance(self.pruner, HyperbandPruner) else 1))
+                ),
+                num_candidates = 300,
+                cl_function = np.max
+            )
+
+        elif self.rigor >= 2:
 
             params = optuna.samplers.TPESampler.hyperopt_parameters()
-            params['n_startup_trials'] = 10
+            params['n_startup_trials'] = max(10, self.n_jobs)
 
             return optuna.samplers.TPESampler(
                 seed = self.seed,
-                constant_liar=self.n_jobs > 1,
+                constant_liar=self.parallel,
                 **params,
             )
 
-        elif self.sampler == 'default' and self.tune_topics_only:
-
-            return ELBOGP(
-                constant_liar = self.n_jobs > 1
-            )
-
-        else:
-            raise ValueError('Sampler {} is not an option'.format(str(self.sampler)))
+        #else:
+        #    raise ValueError('Sampler {} is not an option'.format(str(self.sampler)))
 
 
     def get_model_save_name(self, trial_number):
@@ -649,10 +690,10 @@ class SpeedyTuner:
                 finally:
                     gc.collect()
 
-                print_callback = self.serial_dashboard if not self.parallel else self.parallel_dashboard
+                #print_callback = self.serial_dashboard if not self.parallel else self.parallel_dashboard
                 stop_callback = self.get_stop_callback()
 
-                print_callback(self.study, trial)
+                #print_callback(self.study, trial)
                 stop_callback(self.study, trial)
 
         return trial

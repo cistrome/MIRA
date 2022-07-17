@@ -22,6 +22,7 @@ from torch.utils.data import DataLoader
 import time
 from torch.distributions import kl_divergence
 from collections import defaultdict
+from mira.topic_model.mine import CovariateModel
 
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,7 @@ def get_fc_stack(layer_dims = [256, 128, 128, 128], dropout = 0.2, skip_nonlin =
     ])
 
 
-def _mask_drop(x, dropout_rate = 1/10, training = False):
+def _mask_drop(x, dropout_rate = 0.1, training = True):
 
     if training:
         return torch.multiply(
@@ -108,50 +109,56 @@ def _mask_drop(x, dropout_rate = 1/10, training = False):
     else:
         return x
 
+
 class Decoder(nn.Module):
     
-    def __init__(self, covar_channels = 32,*,
-        num_exog_features, num_topics, num_covariates, dropout):
+    def __init__(self,*,
+        num_exog_features, 
+        num_topics, num_covariates, 
+        topics_dropout, covariates_dropout,
+        covariates_hidden):
+
         super().__init__()
         self.beta = nn.Linear(num_topics, num_exog_features, bias = False)
         self.bn = nn.BatchNorm1d(num_exog_features)
+        self.drop = nn.Dropout(topics_dropout)
 
-        dropout_rate = 1 - np.sqrt(1-dropout)
-        self.drop = nn.Dropout(dropout_rate)
-        self.drop2 = nn.Dropout(dropout_rate)
-        self.drop3 = partial(_mask_drop, dropout_rate = dropout_rate)
+        self.mask_drop = partial(_mask_drop, dropout_rate = covariates_dropout)
 
         self.num_topics = num_topics
         self.num_covariates = num_covariates
 
         if num_covariates > 0:
 
-            self.batch_effect_model = nn.Sequential(
+            self.batch_effect_model = CovariateModel(
+                hidden = covariates_hidden,
+                dropout = covariates_dropout,
+                input_width = num_topics + num_covariates,
+                output_width = num_exog_features,
+            )
+
+            '''self.batch_effect_model = nn.Sequential(
                 encoder_layer(num_topics + num_covariates, covar_channels, 
                     dropout=dropout/2, nonlin=True),
                 nn.Linear(covar_channels, num_exog_features),
                 nn.BatchNorm1d(num_exog_features, affine = False),
             )
             if num_covariates > 0:
-                self.batch_effect_gamma = nn.Parameter(
-                    torch.zeros(num_exog_features)
-                )
+            '''
 
     def forward(self, theta, covariates, nullify_covariates = False):
-        
-        X = self.drop(theta)
 
-        self.covariate_signal = self.get_batch_effect(X, covariates, 
+        self.covariate_signal = self.get_batch_effect(theta, covariates, 
             nullify_covariates = nullify_covariates)
 
-        self.biological_signal = self.get_biological_effect(self.drop2(X))
+        self.biological_signal = self.get_biological_effect(theta)
 
         return F.softmax(self.biological_signal + \
-                self.drop3(self.covariate_signal, training = self.training), dim=1)
+                self.mask_drop(self.covariate_signal, training = self.training), dim=1)
 
 
     def get_biological_effect(self, theta):
-        return self.bn(self.beta(theta))
+        return self.bn(self.beta(self.drop(theta)))
 
 
     def get_batch_effect(self, theta, covariates, nullify_covariates = False):
@@ -160,8 +167,8 @@ class Decoder(nn.Module):
             batch_effect = theta.new_zeros(1)
             batch_effect.requires_grad = False
         else:
-            batch_effect = self.batch_effect_gamma * self.batch_effect_model(
-                    torch.hstack([theta, covariates])
+            batch_effect = self.batch_effect_model(
+                    theta, covariates,
                 )
 
         return batch_effect
@@ -268,7 +275,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             kl_strategy = 'cyclic',
             reconstruction_weight = 1.,
             dataset_loader_workers = 0,
-            weight_decay = 0.001,
+            weight_decay = 0.0015,
             min_momentum = 0.85,
             max_momentum = 0.95,
             embedding_dropout = 0.05,
@@ -456,15 +463,26 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             tuner.max_topics, log=True),
         )
 
-        if not tuner.tune_topics_only:
+        if tuner.rigor >= 1:
+            
+            params.update(
+                dict(
+                    hidden = int(2**trial.suggest_discrete_uniform('hidden', 6, 8, 1)),
+                    decoder_dropout = trial.suggest_float('decoder_dropout', 0.05, 0.2),
+                    max_momentum = trial.suggest_float('max_momentum', 0.91, 0.98, log = True),
+                )
+            )
+
+        if tuner.rigor >= 2:
+
+            ## kitchen sink strategy
             params.update(dict(
                 encoder_dropout = trial.suggest_float('encoder_dropout', 0.00001, 0.1, log = True),
                 num_layers = trial.suggest_categorical('num_layers', (2,3,)),
-                hidden = trial.suggest_categorical('hidden', [64, 128, 256]),
                 min_momentum = trial.suggest_float('min_momentum', 0.8, 0.9, log = True),
                 max_momentum = trial.suggest_float('max_momentum', 0.91, 0.98, log = True),
-                weight_decay = trial.suggest_float('weight_decay', 0.000001, 0.01, log = True),
-                decoder_dropout = trial.suggest_float('decoder_dropout', 0.05, 0.2)
+                decoder_dropout = trial.suggest_float('decoder_dropout', 0.05, 0.2),
+                weight_decay = trial.suggest_float('weight_decay', 0.000001, 0.01, log = True)
             ))
 
         return params
@@ -567,11 +585,23 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             else:
                 logger.info('Moving model to CPU for inference.')
 
+        try:
+            covariates_hidden = self.covariates_hidden
+            covariates_dropout = self.covariates_dropout
+        except AttributeError:
+            if self.num_covariates > 0:
+                raise ValueError('Cannot use base topic model with covariate correction. Make sure to set the covariates keys.')
+            else:
+                covariates_hidden, covariates_dropout = 0, 0
+
+
         self.decoder = self._decoder_model(
-            num_exog_features=self.num_exog_features, 
-            num_topics=self.num_topics, 
-            num_covariates= self.num_covariates,
-            dropout = self.decoder_dropout
+            num_exog_features = self.num_exog_features,
+            num_topics = self.num_topics, 
+            num_covariates = self.num_covariates, 
+            topics_dropout = self.decoder_dropout, 
+            covariates_dropout = covariates_dropout,
+            covariates_hidden = covariates_hidden,
         )
 
         self.encoder = self.encoder_model(

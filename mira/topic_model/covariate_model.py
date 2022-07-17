@@ -50,7 +50,7 @@ class CovariateModel(BaseModel):
             dependence_beta = 1.,
             dependence_hidden = 64,
             dependence_model = WassersteinDualRobust,
-            weight_decay = 0.001,
+            weight_decay = 0.0015,
             min_momentum = 0.85,
             max_momentum = 0.95,
             embedding_dropout = 0.05,

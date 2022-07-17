@@ -1,278 +1,404 @@
-from optuna.trial import TrialState as ts
-from sklearn.gaussian_process.kernels import WhiteKernel, RBF, ConstantKernel, Matern
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
+import seaborn as sns
+from optuna._transform import _SearchSpaceTransform
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
 from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import WhiteKernel, RBF, ConstantKernel, Matern
+from functools import partial
 from collections import defaultdict
-from scipy.stats import norm
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from optuna.trial import TrialState as ts
 from optuna.samplers import BaseSampler
-import numpy as np
+from scipy.stats import norm
 import optuna
+from sklearn.preprocessing import minmax_scale
+import numpy as np
+import matplotlib.pyplot as plt
+import math
 
 
-class SuccessiveHalvingPruner(optuna.pruners.SuccessiveHalvingPruner):
-
-    def get_rung_score_thresholds(self, trials):
-
-        rungs = sorted(
-            set([
-                key for trial in trials for key in trial.system_attrs if 'completed_rung_' in key
-            ]), 
-            key = lambda x : int(x[15:])
-        )
-
-        score_matrix = defaultdict(list)
-        for t in trials:
-            for rung in rungs:
-                if rung in t.system_attrs:
-                    score_matrix[rung].append(
-                            t.system_attrs[rung]
-                    )
-
-        rung_thresholds = np.zeros(len(rungs) + 1)
-        for rung, scores in enumerate(score_matrix.values()):
-
-            rung_thresholds[rung] = np.quantile(scores, 1/self._reduction_factor)
-            
-        return rung_thresholds
-
-
-def get_P_promotion(rung_thresholds, rung, score, score_std):
-    Z = (score - rung_thresholds[np.array(rung)])/score_std
-    return 1-norm.cdf(Z)
-
-
-def filter_trials(trials, constant_liar):
+def is_allowed_trial(trial, constant_liar, search_space):
     
     if constant_liar:
         allowed_states = [ts.RUNNING, ts.COMPLETE, ts.PRUNED]
     else:
         allowed_states = [ts.COMPLETE, ts.PRUNED]
         
-    return [
-        t for t in trials
-        if t.state in  allowed_states \
-            and 'num_topics' in t.params
-    ]
+    return trial.state in allowed_states and \
+            all([param in trial.params for param in search_space.keys()])
 
 
-def get_examples(complete_and_running):
-    
-    examples = []
-    for trial in complete_and_running:
+def iterate_rung_scores(trial):
+
         rung_num = 0
         while 'completed_rung_' + str(rung_num) in trial.system_attrs:
-            examples.append(
-                (trial.params['num_topics'], rung_num, trial.system_attrs['completed_rung_' + str(rung_num)])
-            ) # score after each rung
-            rung_num +=1
-        
+            yield trial, rung_num, trial.system_attrs['completed_rung_' + str(rung_num)]
+            rung_num += 1
+            
         if trial.state == ts.COMPLETE:
-            examples.append(
-                (trial.params['num_topics'], rung_num, trial.value)
-            ) # final score
-        
-    num_topics, rungs, scores = list(zip(*examples))
-    
-    return num_topics, rungs, scores
+            yield trial, rung_num, trial.value
 
 
-def substitute_constant_liar(complete_and_running, num_topics, rungs, scores,
-                            constant_liar = False):
-    
-    cl_fn = np.max
-    
-    collect_rungscores = defaultdict(list)
-    for rung, score in zip(rungs, scores):
-        collect_rungscores[rung].append(score)
+class SuccessiveHalvingPruner(optuna.pruners.SuccessiveHalvingPruner):
+
+    def get_rung_score_thresholds(self, study, trial):
+
+        rung_scores = defaultdict(list)
         
-    rung_cl_scores = {rung : cl_fn(scores) for rung, scores in collect_rungscores.items()}
-    num_rungs = max(rungs)
+        for trial in study.trials:
+            for trial, rung, score in iterate_rung_scores(trial):
+                rung_scores[rung].append(score)
+
+        rung_thresholds = defaultdict(lambda : np.inf)
+        for rung, scores in rung_scores.items():
+            rung_thresholds[rung] = np.quantile(scores, 1/self._reduction_factor)
+            
+        return rung_thresholds
+
+
+class HyperbandPruner(optuna.pruners.HyperbandPruner):
+
+    def get_rung_score_thresholds(self, study, trial):
+        if len(self._pruners) == 0:
+            self._try_initialization(study)
+            if len(self._pruners) == 0:
+                return False
+
+        bracket_id = self._get_bracket_id(study, trial)
+        bracket_study = self._create_bracket_study(study, bracket_id)
+
+        return self._pruners[bracket_id].get_rung_score_thresholds(bracket_study, trial)
+
+
+    def _try_initialization(self, study: "optuna.study.Study") -> None:
+        if self._max_resource == "auto":
+            trials = study.get_trials(deepcopy=False)
+            n_steps = [
+                t.last_step
+                for t in trials
+                if t.state == ts.COMPLETE and t.last_step is not None
+            ]
+            if not n_steps:
+                return
+
+            self._max_resource = max(n_steps) + 1
+
+        assert isinstance(self._max_resource, int)
+
+        if self._n_brackets is None:
+            self._n_brackets = (
+                math.floor(
+                    math.log(self._max_resource / self._min_resource, self._reduction_factor)
+                )
+                + 1
+            )
+
+        #_logger.debug("Hyperband has {} brackets".format(self._n_brackets))
+
+        for bracket_id in range(self._n_brackets):
+            trial_allocation_budget = self._calculate_trial_allocation_budget(bracket_id)
+            self._total_trial_allocation_budget += trial_allocation_budget
+            self._trial_allocation_budgets.append(trial_allocation_budget)
+
+            pruner = SuccessiveHalvingPruner(
+                min_resource=self._min_resource,
+                reduction_factor=self._reduction_factor,
+                min_early_stopping_rate=bracket_id,
+                bootstrap_count=self._bootstrap_count,
+            )
+            self._pruners.append(pruner)
+
+
+def get_constant_liar_scores(trials, cl_function = np.max):
+    
+    rung_scores = defaultdict(list)
+    for trial in trials:
+        for trial, rung, score in iterate_rung_scores(trial):
+            rung_scores[rung].append(score)
+
+    constant_liar_scores = {rung_num : cl_function(scores)
+                            for rung_num, scores in rung_scores.items()}
+    
+    return constant_liar_scores
+
+
+def featurize_trials(trials, search_space, constant_liar,
+                    constant_liar_scores):
     
     examples = []
-    for i, trial in enumerate(complete_and_running):
-        for rung_num in range(num_rungs + 1):
-            if not constant_liar and i == (len(complete_and_running) - 1):
+    for trial in trials:
+
+        if constant_liar and trial.state == ts.RUNNING:
+            for rung, score in constant_liar_scores.items():
                 examples.append(
-                        (trial.params['num_topics'], rung_num, rung_cl_scores[rung_num])
-                    )
-            else:
-                if trial.state == ts.RUNNING:
-                    examples.append(
-                        (trial.params['num_topics'], rung_num, rung_cl_scores[rung_num])
-                    )
-                elif 'completed_rung_' + str(rung_num) in trial.system_attrs:
-                    examples.append(
-                        (trial.params['num_topics'], rung_num, trial.system_attrs['completed_rung_' + str(rung_num)])
-                    )
-                elif trial.state == ts.COMPLETE:
-                    examples.append(
-                        (trial.params['num_topics'], rung_num, trial.value)
-                    )
-                
-            
-    num_topics, rungs, scores = list(zip(*examples))
+                    (trial.params, rung, score)
+                )
+        
+        else:
+            for trial, rung, score in iterate_rung_scores(trial):
+                examples.append(
+                    (trial.params, rung, score)
+                )
     
-    return num_topics, rungs, scores
-    
+    # add a dummy constant liar trial to prevent GP from selecting the same
+    # values repeatedly.
 
-def get_prediction_features(num_topics, rungs, topic_range = (5,55)):
+    if not constant_liar:
+        last_params = examples[-1][0]
+        
+        for rung, score in constant_liar_scores.items():
+            examples.append(
+                (last_params, rung, score)
+            )
+        
+    params, rungs, scores = list(zip(*examples))
     
-    max_rungs = np.max(rungs) 
-    
-    num_topics, rungs = list(zip(*[
-              [topic, rung]
-              for topic in range(*topic_range) for rung in range(max_rungs+1)
-             ]))
-    
-    return num_topics, rungs
-            
-
-def get_regressor(seed = 0):
-    
-    return GaussianProcessRegressor(
-            kernel= RBF() + WhiteKernel() + ConstantKernel(),
-        random_state=seed, normalize_y=True, n_restarts_optimizer=10,
-        alpha = 0.
-    )
+    return params, rungs, scores
 
 
-def aquisition_function(y_hat, y_std, p_promoted, best_value, temp = 0.01,
+def get_regressor(seed = 0, gpr = None):
+    
+    if gpr is None:
+        gpr = GaussianProcessRegressor(
+                kernel= Matern(nu = 5/2) + WhiteKernel() + ConstantKernel(),
+                random_state=seed, 
+                normalize_y=True, 
+                n_restarts_optimizer=10,
+                alpha = 0.
+            )
+    
+    return Pipeline([
+        ('scaler', StandardScaler()),
+        ('gpr', gpr)
+    ])
+
+
+def aquisition_function(y_hat, y_std, best_value, temp = 0.01,
                        direction = 'minimize'):
     
-    if direction == 'minimize':
-        y_hat, best_value = -y_hat, -best_value
+    #if direction == 'minimize':
+    y_hat, best_value = -y_hat, -best_value
         
     improvement = y_hat - best_value - best_value * temp
     Z = improvement/y_std
     
-    return p_promoted * (improvement * norm().cdf(Z) + y_std * norm().pdf(Z))
+    return improvement * norm().cdf(Z) + y_std * norm().pdf(Z)
 
 
-class ELBOGP(BaseSampler):
+def format_params_as_input(params, rung, transformer, search_space):
+        
+    params = np.vstack(
+        [transformer.transform(p)[None,:] for p in params]
+    )
+    
+    params = np.hstack([params, np.array(rung)[:,None]])
+    return params
+    
 
+
+def generate_candidates(sampling_fn, search_space, n_candidates):
+    
+    candidates = []
+    for i in range(n_candidates):
+        candidates.append(
+            {
+                param_name : sampling_fn(param_name, dist)
+                for param_name, dist in search_space.items()
+            }
+        )
+        
+    return candidates
+
+
+def get_P_promotion(rung_thresholds, rung, score, score_std):
+
+    thresholds = np.array([rung_thresholds[r] for r in rung])
+
+    Z = (score - thresholds)/score_std
+    return 1-norm.cdf(Z)
+
+
+class GP(BaseSampler):
+    
     def __init__(self, 
                 seed = 0, 
                 tau = 0.01, 
                 min_points = 5, 
-                constant_liar = False):
+                constant_liar = False,
+                num_candidates = 100,
+                debug = False,
+                cl_function = np.max,
+                gpr = None):
                 
         self._rng = np.random.RandomState(seed)
         self._tau = tau
         self._min_points = min_points
         self._constant_liar = constant_liar
+        self._num_candidates = num_candidates
+        self._random_sampler = optuna.samplers.RandomSampler(seed=seed)
+        self._debug = debug
+        self._cl_function = cl_function
+        self._gpr = gpr
 
+        
     def reseed_rng(self):
         self._rng = np.random.RandomState()
+        self._random_sampler.reseed_rng()
+        
+        
+    def debug_plot(self, X,y, X_hat, score_mu, score_std, p_survives, f):
+        
+        fig, ax = plt.subplots(2,1,figsize=(5,3),
+                              sharex=True)
+        
+        if True:#X_hat.shape[-1] == 2:
+        
+            sns.scatterplot(
+                x = X[:,0],
+                y = y,
+                ax=ax[0],
+                c = X[:,-1],
+                cmap = 'viridis',
+                vmin = -2,
+                s = 20,
+                linewidth = 0.1,
+                edgecolor = 'black',
+            )
 
+            sns.lineplot(
+                y = score_mu,
+                x = X_hat[:,0],
+                color = 'red',
+                ax=ax[0],
+            )
+            
+            sns.lineplot(
+                y = score_mu - score_std,
+                x = X_hat[:,0],
+                color = 'red',
+                ax=ax[0],
+                alpha = 0.1
+            )
+            
+            sns.scatterplot(
+                x = X_hat[:,0],
+                y = X_hat[:,1],
+                ax = ax[1],
+                size = f * p_survives,
+                hue = f * p_survives,
+                palette = sns.color_palette('light:blue', as_cmap=True),
+                sizes=(5,20),
+                legend=False
+            )
+            
+            '''sns.lineplot(
+                x = X_hat[:,0],
+                y = minmax_scale(f),
+                ax=ax[1],
+                color = 'black',
+            )
+
+            sns.lineplot(
+                x = X_hat[:,0],
+                y = p_survives,
+                ax=ax[1],
+                color = 'orange',
+            )'''
+
+            ax[0].set(yscale = 'log')
+            sns.despine()
+        
+        '''elif if X_hat.shape[-1] == 3:
+            
+            sns.scatterplot(
+                x = X[:,0],
+                y = X[:,1],
+                ax = ax[0],
+                c = X[:,2],
+                cmap = 'Greys',
+                s = 5,
+            )
+
+            sns.lineplot(
+                y = score_mu,
+                x = X_hat[:,0],
+                color = 'red',
+                ax=ax[0],
+            )
+
+            sns.lineplot(
+                x = X_hat[:,0],
+                y = f,
+                ax=ax[1],
+                color = 'black',
+            )
+
+            sns.lineplot(
+                x = X_hat[:,0],
+                y = p_survives,
+                ax=ax[1],
+                color = 'orange',
+            )
+
+            ax[0].set(yscale = 'log')
+            sns.despine()'''
+            
+        plt.show()
+
+        
     def sample_relative(self, study, trial, search_space):
         if search_space == {}:
             return {}
         
-        topic_distribution = search_space['num_topics']
-        min_topics, max_topics = topic_distribution.low, topic_distribution.high
-        
-        trials = filter_trials(study.trials, self._constant_liar)
-        
-        n_points = len(trials)
-        if n_points < self._min_points:
-            return {'num_topics' : np.geomspace(min_topics, max_topics, self._min_points + 2).astype(int)[1:-1][n_points]}       
-
-        x1, x2, y = get_examples(trials)
-        
-        xhat_1, xhat_2 = get_prediction_features(x1, x2, topic_range=(min_topics, max_topics))
-
-        x1, x2, y = substitute_constant_liar(trials, x1, x2, y,
-                                            constant_liar = self._constant_liar)
-
-        def prep(x):
-            return np.array(x)[:,None]
-
-        topic_scaler = StandardScaler()
-        rung_scaler = MinMaxScaler()
-        X = np.hstack([
-            topic_scaler.fit_transform(prep(x1)), 
-            rung_scaler.fit_transform(prep(x2))
-        ])
-        
-        X_hat = np.hstack([
-            topic_scaler.transform(prep(xhat_1)), 
-            rung_scaler.transform(prep(xhat_2))
-        ])
-        
-        maxrung = np.max(x2)
-        y_hat, y_hat_std = get_regressor(seed = self._rng).fit(X, y).predict(X_hat, return_std = True)
-        
-        rung_thresholds = study.pruner.get_rung_score_thresholds(trials)
-
-        p_promotion = get_P_promotion(rung_thresholds, xhat_2, y_hat, y_hat_std)
-        p_promotion = p_promotion.reshape((-1, maxrung + 1))[:,:-1]
-        p_promoted = np.exp(np.log(p_promotion).sum(-1))
-        
-        y_hat = y_hat[maxrung::maxrung+1]
-        y_hat_std = y_hat_std[maxrung::maxrung+1]
-
-        f = aquisition_function(y_hat, y_hat_std, p_promoted, study.best_value, temp= self._tau)
-        
-        if not self._constant_liar:
-            import seaborn as sns
-            import matplotlib.pyplot as plt
-            sns.lineplot(
-                y = f,
-                x = np.arange(min_topics, max_topics)
-            )
-            plt.show()
-            
-            for r in range(p_promotion.shape[1]):
-                sns.lineplot(
-                    y = p_promotion[:,r],
-                    x = np.arange(min_topics, max_topics)
-                )
+        assert not any([isinstance(space, optuna.distributions.CategoricalDistribution)
+                        for space in search_space.values()]), 'Gaussian process sampler not compatible with categorical hyperparameters.'
                 
-            plt.show()
+        transformer = _SearchSpaceTransform(search_space)
+        
+        trials = [t for t in study.trials if is_allowed_trial(t, self._constant_liar, search_space)]
+        
+        if len(trials) < self._min_points:
+            return self._random_sampler.sample_relative(study, trial, search_space)
+        
+        params, rungs, scores = featurize_trials(trials, search_space, self._constant_liar,
+                                                 get_constant_liar_scores(trials, self._cl_function))
+        
+        X = format_params_as_input(params, rungs, transformer, search_space)
+        y = np.array(scores)
+                
+        gpr = get_regressor(seed = self._rng, gpr = self._gpr).fit(X,y)
+        
+        sampling_fn = partial(self._random_sampler.sample_independent, study, trial)
+        sampled_candidates = generate_candidates(sampling_fn, search_space, self._num_candidates)
+        
+        max_rung = max(rungs)
+        candidates = [candidate for candidate in sampled_candidates for i in range(max_rung+1)]
+        candidate_rungs = np.array(list(range(max_rung+1))*self._num_candidates)
+        
+        X_hat = format_params_as_input(candidates, candidate_rungs, transformer, search_space)
+        
+        yhat_mu, yhat_std = gpr.predict(X_hat, return_std = True)
+        
+        rung_thresholds = study.pruner.get_rung_score_thresholds(study, trial)
+        
+        p_rung_promotion = get_P_promotion(rung_thresholds, candidate_rungs, yhat_mu, yhat_std)\
+                            .reshape((-1, max_rung+1))[:,:-1]
+        
+        p_survives = np.exp(np.log(p_rung_promotion).sum(-1))
+        
+        score_mu, score_std = yhat_mu[candidate_rungs == max_rung], yhat_std[candidate_rungs == max_rung]
 
-            sns.lineplot(
-                y = y_hat.reshape(-1),
-                x = X_hat[maxrung::maxrung+1,0],
-            )
-
-            sns.scatterplot(
-                y = np.array(y).reshape(-1),
-                x = X[:,0],
-                hue = X[:,1],
-                legend=False,
-                size = np.arange(len(y)),
-                sizes = (10,50),
-                edgecolor = 'black',
-                palette='viridis',
-            )
-
-            plt.fill_between(
-                x = X_hat[::maxrung+1,0], 
-                y1 = y_hat + y_hat_std, 
-                y2 = y_hat - y_hat_std,
-                alpha = 0.2, color = 'lightgrey'
-            )
-            plt.show()
-            
-        return {
-            'num_topics' : np.arange(min_topics, max_topics)[np.nanargmax(f)]
-        }
-
+        best_value = min([t.value for t in trials if t.state == ts.COMPLETE])
+        f = aquisition_function(score_mu, score_std,
+                                best_value, temp= self._tau, direction=study.direction,)
+        
+        if self._debug:
+            self.debug_plot(X, y, X_hat[candidate_rungs == max_rung],
+                            score_mu, score_std, p_survives, f)
+        
+        return sampled_candidates[np.argmax(p_survives * f)]
+    
     def infer_relative_search_space(self, study, trial):
         return optuna.samplers.intersection_search_space(study)
-
+    
     def sample_independent(self, study, trial, param_name, param_distribution):
-        assert param_name == 'num_topics'
-
-        n_points = max(study.user_attrs['n_workers'], self._min_points) # expected number of independent draws
-        split_num = trial.number
-
-        if split_num >= n_points:
-            independent_sampler = optuna.samplers.RandomSampler()
-            return independent_sampler.sample_independent(study, trial, param_name, param_distribution)
-        else:
-            
-            suggest_topics = np.geomspace(param_distribution.low, param_distribution.high, n_points + 2)\
-                        [1:-1].astype(int)
-            return param_distribution.to_external_repr(suggest_topics[split_num])
+        return self._random_sampler.sample_independent(study, trial, param_name, param_distribution)
