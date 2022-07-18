@@ -63,7 +63,7 @@ class CovariateModel(nn.Module):
         ):
         super().__init__()
 
-        self.drop1 = nn.Dropout(dropout)
+        self.drop1 = nn.Dropout(0.)
         self.dropout_rate = dropout
         self.gamma = nn.Parameter(
                 torch.zeros(output_width)
@@ -73,7 +73,7 @@ class CovariateModel(nn.Module):
             nn.Linear(input_width, hidden, bias=False),
             nn.BatchNorm1d(hidden),
             nn.ReLU(),
-            nn.Dropout(dropout),
+            nn.Dropout(0.05),
             nn.Linear(hidden, output_width, bias=False),
             nn.BatchNorm1d(output_width, affine=False)
         )
