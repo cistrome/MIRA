@@ -343,20 +343,36 @@ class BaseModel:
         return promoter_mask, upstream_mask, downstream_mask
 
 
-    def _get_region_weights(self, NITE_features, softmax_denom, idx):
+    @staticmethod
+    def bn(x, mu, var, eps):
+            return (x - mu)/np.sqrt( var + eps)
+
+    #def _get_batcheffects(self, model, batcheffect_embeddings, idx):
+    #    
+    #    lin_output = np.dot(batcheffect_embeddings, model._get_covariates_linear_layer()[:, idx])
+
+    #    return self.bn(
+
+    #    )
+
+    def _get_region_weights(self, NITE_features, batcheffect_embeddings, softmax_denom, idx):
         
         model = self.accessibility_model
 
-        def bn(x):
-            return (x - model._get_bn_mean()[idx])/np.sqrt(model._get_bn_var()[idx] + model.decoder.bn.eps)
+        rate = model._get_gamma()[idx] * self.bn(
+            NITE_features.dot(model._get_beta()[:, idx]),
+            model._get_bn_mean()[idx],
+            model._get_bn_var()[idx],
+            model.decoder.bn.eps
+        ) + model._get_bias()[idx]
 
-        rate = model._get_gamma()[idx] * bn(NITE_features.dot(model._get_beta()[:, idx])) + model._get_bias()[idx]
         region_probabilities = np.exp(rate)/softmax_denom[:, np.newaxis]
         return region_probabilities
 
     
-    def _get_features_for_model(self,*, gene_expr, read_depth, expr_softmax_denom, NITE_features, atac_softmax_denom, 
-        upstream_idx, downstream_idx, promoter_idx, upstream_distances, downstream_distances, include_factor_data = False):
+    def _get_features_for_model(self,*, gene_expr, read_depth, correction_vector, 
+        expr_softmax_denom, NITE_features, atac_softmax_denom, upstream_idx, downstream_idx, 
+        promoter_idx, upstream_distances, downstream_distances, include_factor_data = False):
 
         features = dict(
             gene_expr = gene_expr,
@@ -365,6 +381,7 @@ class BaseModel:
             NITE_features = NITE_features,
             upstream_distances = upstream_distances,
             downstream_distances = downstream_distances,
+            correction_vector = correction_vector,
         )
         
         if include_factor_data:
@@ -757,6 +774,7 @@ class GeneModel:
 
     def model(self, 
         gene_expr, 
+        correction_vector,
         softmax_denom,
         read_depth,
         upstream_weights,
@@ -798,7 +816,7 @@ class GeneModel:
 
                 prediction = self.bn(f_Z.reshape((-1,1)).float()).reshape(-1)
                 pyro.deterministic('unnormalized_prediction', prediction)
-                independent_rate = (gamma * prediction + bias).exp()
+                independent_rate = (gamma * prediction + bias + correction_vector).exp()
 
                 rate =  independent_rate/softmax_denom
                 pyro.deterministic('prediction', rate)
