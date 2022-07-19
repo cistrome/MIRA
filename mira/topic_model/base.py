@@ -22,7 +22,7 @@ from torch.utils.data import DataLoader
 import time
 from torch.distributions import kl_divergence
 from collections import defaultdict
-from mira.topic_model.mine import CovariateModel
+from mira.topic_model.mine import ConcatLayer
 
 
 logger = logging.getLogger(__name__)
@@ -99,7 +99,7 @@ def get_fc_stack(layer_dims = [256, 128, 128, 128], dropout = 0.2, skip_nonlin =
     ])
 
 
-def _mask_drop(x, dropout_rate = 0.1, training = True):
+def _mask_drop(x, dropout_rate = 1/20, training = False):
 
     if training:
         return torch.multiply(
@@ -112,63 +112,75 @@ def _mask_drop(x, dropout_rate = 0.1, training = True):
 
 class Decoder(nn.Module):
     
-    def __init__(self,*,
-        num_exog_features, 
-        num_topics, num_covariates, 
-        topics_dropout, covariates_dropout,
-        covariates_hidden):
+    def __init__(self, 
+        covariates_hidden = 32, 
+        covariates_dropout = 0.025,
+        mask_dropout = 0.05,*,
+        num_exog_features, num_topics, num_covariates, topics_dropout):
 
         super().__init__()
         self.beta = nn.Linear(num_topics, num_exog_features, bias = False)
         self.bn = nn.BatchNorm1d(num_exog_features)
-        self.drop = nn.Dropout(topics_dropout)
 
-        self.mask_drop = partial(_mask_drop, dropout_rate = covariates_dropout)
+        self.drop1 = nn.Dropout(covariates_dropout)
+        self.drop2 = nn.Dropout(topics_dropout)
+        self.mask_drop = partial(_mask_drop, dropout_rate = mask_dropout)
 
         self.num_topics = num_topics
         self.num_covariates = num_covariates
 
-        if num_covariates > 0:
+        if self.is_correcting:
 
-            self.batch_effect_model = CovariateModel(
-                hidden = covariates_hidden,
-                dropout = covariates_dropout,
-                input_width = num_topics + num_covariates,
-                output_width = num_exog_features,
-            )
-
-            '''self.batch_effect_model = nn.Sequential(
-                encoder_layer(num_topics + num_covariates, covar_channels, 
-                    dropout=dropout/2, nonlin=True),
-                nn.Linear(covar_channels, num_exog_features),
+            self.batch_effect_model = nn.Sequential(
+                ConcatLayer(1),
+                encoder_layer(num_topics + num_covariates, 
+                    covariates_hidden, dropout=0.05, nonlin=True),
+                nn.Linear(covariates_hidden, num_exog_features),
                 nn.BatchNorm1d(num_exog_features, affine = False),
             )
-            if num_covariates > 0:
-            '''
+
+            self.batch_effect_gamma = nn.Parameter(
+                torch.zeros(num_exog_features)
+            )
+
+    @property
+    def is_correcting(self):
+        return self.num_covariates > 0
 
     def forward(self, theta, covariates, nullify_covariates = False):
 
-        self.covariate_signal = self.get_batch_effect(theta, covariates, 
-            nullify_covariates = nullify_covariates)
+        if self.is_correcting:
 
-        self.biological_signal = self.get_biological_effect(theta)
+            z1 = self.drop1(theta)
 
-        return F.softmax(self.biological_signal + \
-                self.mask_drop(self.covariate_signal, training = self.training), dim=1)
+            self.covariate_signal = self.get_batch_effect(z1, covariates, 
+                nullify_covariates = nullify_covariates)
 
+            self.biological_signal = self.get_biological_effect(z1)
+
+        z2 = self.drop2(theta)
+
+        return F.softmax(
+                self.get_biological_effect(z2) + \
+                self.mask_drop(
+                    self.get_batch_effect(z2, covariates, nullify_covariates = nullify_covariates), 
+                    training = self.training
+                ), 
+                dim=1
+            )
 
     def get_biological_effect(self, theta):
-        return self.bn(self.beta(self.drop(theta)))
+        return self.bn(self.beta(theta))
 
 
     def get_batch_effect(self, theta, covariates, nullify_covariates = False):
         
-        if self.num_covariates == 0 or nullify_covariates: 
+        if not self.is_correcting or nullify_covariates: 
             batch_effect = theta.new_zeros(1)
             batch_effect.requires_grad = False
         else:
-            batch_effect = self.batch_effect_model(
-                    theta, covariates,
+            batch_effect = self.batch_effect_gamma * self.batch_effect_model(
+                    (theta, covariates)
                 )
 
         return batch_effect
@@ -587,21 +599,24 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         try:
             covariates_hidden = self.covariates_hidden
-            covariates_dropout = self.covariates_dropout
         except AttributeError:
             if self.num_covariates > 0:
                 raise ValueError('Cannot use base topic model with covariate correction. Make sure to set the covariates keys.')
-            else:
-                covariates_hidden, covariates_dropout = 0, 0
 
+        decoder_kwargs = {}
+        if self.num_covariates > 0:
+            decoder_kwargs.update({
+                'covariates_hidden' : self.covariates_hidden,
+                'covariates_dropout' : self.covariates_dropout,
+                'mask_dropout' : self.mask_dropout,
+            })
 
         self.decoder = self._decoder_model(
             num_exog_features = self.num_exog_features,
             num_topics = self.num_topics, 
             num_covariates = self.num_covariates, 
             topics_dropout = self.decoder_dropout, 
-            covariates_dropout = covariates_dropout,
-            covariates_hidden = covariates_hidden,
+            **decoder_kwargs,
         )
 
         self.encoder = self.encoder_model(
