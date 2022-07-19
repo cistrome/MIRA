@@ -54,6 +54,10 @@ class CovariateModel(BaseModel):
             min_momentum = 0.85,
             max_momentum = 0.95,
             embedding_dropout = 0.05,
+            covariates_hidden = 32,
+            covariates_dropout = 0.025,
+            mask_dropout = 0.05,
+            marginal_estimation_size = 256,
             ):
         super().__init__()
 
@@ -88,6 +92,11 @@ class CovariateModel(BaseModel):
         self.min_momentum = min_momentum
         self.max_momentum = max_momentum
         self.embedding_dropout = embedding_dropout
+        self.covariates_hidden = covariates_hidden
+        self.covariates_dropout = covariates_dropout
+        self.mask_dropout = mask_dropout
+        self.marginal_estimation_size = marginal_estimation_size
+
 
     def _get_weights(self, on_gpu = True, inference_mode = False):
         super()._get_weights(on_gpu=on_gpu, inference_mode=inference_mode)
@@ -96,7 +105,8 @@ class CovariateModel(BaseModel):
             self.dependence_model.get_statistics_network(
                 2*self.num_exog_features, 
                 self.dependence_hidden
-            )
+            ),
+            self.marginal_estimation_size
         ).to(self.device)
 
     def _recommend_num_layers(self, n_samples):

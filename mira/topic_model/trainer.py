@@ -582,12 +582,12 @@ class SpeedyTuner:
         with lock:
             params = self.model.suggest_parameters(self, trial)
 
-        logger.info(
-            'New trial #{} - num_topics: {}'.format(
-                str(trial.number),
-                str(params['num_topics'])
-            )
-        )
+        #logger.info(
+        #    'New trial #{} - num_topics: {}'.format(
+        #        str(trial.number),
+        #        str(params['num_topics'])
+        #    )
+        #)
 
         self.model.set_params(**params, seed = self.seed + trial.number)
 
