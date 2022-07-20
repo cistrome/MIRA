@@ -97,7 +97,6 @@ class CovariateModel(BaseModel):
         self.mask_dropout = mask_dropout
         self.marginal_estimation_size = marginal_estimation_size
 
-
     def _get_weights(self, on_gpu = True, inference_mode = False):
         super()._get_weights(on_gpu=on_gpu, inference_mode=inference_mode)
 

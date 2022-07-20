@@ -6,8 +6,9 @@ import os
 import optuna
 from optuna.trial import TrialState as ts
 from optuna.study._optimize import _run_trial
+optuna.logging.set_verbosity(optuna.logging.CRITICAL)
 import gc
-
+import sys
 import os
 from joblib import Parallel, delayed
 import fcntl
@@ -184,8 +185,18 @@ def _log_progress(tuner, study, trial):
     if trial.number in [t.number for t in study.best_trials]:
         logger.info('New best!')
 
+def _clear_page():
+
+    if NOTEBOOK_MODE:
+        pass
+        clear_output(wait=True)
+    else:
+        print('------------------------------------------------------')
+
 
 def _print_topic_histogram(study):
+
+    out = ''
 
     study_results = sorted([
         (trial_.params['num_topics'], '\u25A0', trial_.number)
@@ -198,11 +209,13 @@ def _print_topic_histogram(study):
 
         if trial_result[0] > current_num_modules:
             current_num_modules = trial_result[0]
-            print('\n{:>7} | '.format(str(current_num_modules)), end = '')
+            out += '\n{:>7} | '.format(str(current_num_modules))
 
-        print(str(trial_result[1]), end = ' ')
+        out += str(trial_result[1]) + ' '
     
-    print('', end = '\n\n')
+    out += '\n\n'
+
+    return out
 
 
 def _print_running_trial(study, trial):
@@ -212,57 +225,47 @@ def _print_running_trial(study, trial):
     except ValueError:
         progress = 0
 
-    num_hashtags = int(35 * progress/study.user_attrs['max_resource'])
-    print(' #{:<3} |'.format(trial.number) + '\u25A0'*num_hashtags + ' '*(35-num_hashtags) + '| '\
-        + _format_params(trial.params), end = '\n')
-
-
-def _clear_page():
-
-    if NOTEBOOK_MODE:
-        pass
-        clear_output(wait=True)
-    else:
-        print('------------------------------------------------------')
+    num_hashtags = min(34, int(34 * progress/study.user_attrs['max_resource']))
+    return ' #{:<3} |'.format(trial.number) + '\u25A0'*num_hashtags + ' '*(34-num_hashtags) + '| '\
+        + _format_params(trial.params)
 
 
 def _print_study(tuner, study, trial):
 
     if study is None:
         raise ValueError('Cannot print study before running any trials.')
-    
-    _clear_page()
+
+    out = ''
 
     try:
-        print('Trials finished: {} | Best trial: {} | Best score: {:.4e}\nPress ctrl+C,ctrl+C or esc,I+I,I+I in Jupyter notebook to stop early.'.format(
-        str(len(study.trials)),
-        str(study.best_trials[0].number) if len(study.best_trials) > 0 else 'None',
-        study.best_value
-    ), end = '\n\n')
+        out+= 'Trials finished: {} | Best trial: {} | Best score: {:.4e}\nPress ctrl+C,ctrl+C or esc,I+I,I+I in Jupyter notebook to stop early.'.format(
+                str(len(study.trials)),
+                str(study.best_trials[0].number) if len(study.best_trials) > 0 else 'None',
+                study.best_value
+            ) +  '\n\n'
     except ValueError:
-        print('Trials finished {}'.format(str(len(study.trials))), end = '\n\n')
+        out += 'Trials finished {}'.format(str(len(study.trials))) + '\n\n'
 
-    print('Tensorboard logidr: ' + os.path.join(tuner.tensorboard_logdir, tuner.study_name))
-    print('#Topics | #Trials ', end = '')
-    _print_topic_histogram(study) 
+    out += 'Tensorboard logidr: ' + os.path.join(tuner.tensorboard_logdir, tuner.study_name) + '\n'
+    out += '#Topics | #Trials ' + '\n'
+    out += _print_topic_histogram(study)
 
-    print('Trial | Result (\u25CF = best so far)         | Params')
+    out += 'Trial | Result (\u25CF = best so far)         | Params' + '\n'
 
     for trial in study.trials:
         if trial.state in [ts.COMPLETE, ts.PRUNED, ts.FAIL]:
-            print(_get_trial_desc(study, trial))
+            out += _get_trial_desc(study, trial) + '\n'
 
     if tuner.parallel:
-        print('\nRunning trials:\nTrial | Progress                         | Params')
+        out += '\nRunning trials:\nTrial | Progress                         | Params' + '\n'
         for trial in study.trials:
             if trial.state == ts.RUNNING:
-                _print_running_trial(study, trial)
+                out += _print_running_trial(study, trial) + '\n'
 
-    print('\n')
-    
+    out += '\n'
 
-def print_study(study):
-    _print_study(study, None)
+    return out
+
 
 try:
     from IPython.display import clear_output
@@ -278,13 +281,17 @@ import joblib
 @contextlib.contextmanager
 def joblib_print_callback(tuner):
     """Context manager to patch joblib to report into tqdm progress bar given as argument"""
+
     class TrialCompleteCallback(joblib.parallel.BatchCompletionCallBack):
         def __call__(self, *args, **kwargs):
-            _print_study(tuner, tuner.study, None)
+            s = str(tuner)
+            _clear_page()
+            print(s)
             return super().__call__(*args, **kwargs)
 
     old_batch_callback = joblib.parallel.BatchCompletionCallBack
     joblib.parallel.BatchCompletionCallBack = TrialCompleteCallback
+
     try:
         yield None
     finally:
@@ -348,6 +355,8 @@ class SpeedyTuner:
         self.rigor = rigor
         self.study = self.create_study()
 
+    def __str__(self):
+        return _print_study(self, self.study, None)
 
     def create_study(self):
 

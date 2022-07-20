@@ -52,8 +52,6 @@ class ConcatLayer(nn.Module):
     def forward(self, x):
         return torch.cat(x, self.dim)
 
-        
-
 class Mine(nn.Module):
 
     lr = 1e-4
