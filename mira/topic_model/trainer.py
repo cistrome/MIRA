@@ -41,7 +41,7 @@ class Redis(RedisStorage):
     def __init__(
         self,
         url = 'redis://localhost:6379',
-        heartbeat_interval = None,
+        heartbeat_interval = 30,
         grace_period = None,
         failed_trial_callback = None,
     ):
@@ -61,6 +61,7 @@ class Redis(RedisStorage):
     @property
     def _redis(self):
         return redis.Redis.from_url(self._url)
+
 
 class Locker:
 

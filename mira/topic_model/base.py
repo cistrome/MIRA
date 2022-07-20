@@ -184,8 +184,11 @@ class Decoder(nn.Module):
         return batch_effect
 
 
-    def get_softmax_denom(self, theta, covariates):
-        return (self.get_biological_effect(theta) + self.get_batch_effect(theta, covariates)).exp().sum(-1)
+    def get_softmax_denom(self, theta, covariates, include_batcheffects = True):
+        return (
+            self.get_biological_effect(theta) + \
+            self.get_batch_effect(theta, covariates, nullify_covariates = not include_batcheffects)
+        ).exp().sum(-1)
 
 
 class ModelParamError(ValueError):
