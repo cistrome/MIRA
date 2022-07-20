@@ -112,12 +112,9 @@ def _mask_drop(x, dropout_rate = 1/20, training = False):
 
 class Decoder(nn.Module):
     
-    def __init__(self, 
-        covariates_hidden = 32, 
-        covariates_dropout = 0.025,
-        mask_dropout = 0.05,*,
+    def __init__(self, covariates_hidden = 32,
+        covariates_dropout = 0.05, mask_dropout = 0.05,*,
         num_exog_features, num_topics, num_covariates, topics_dropout):
-
         super().__init__()
         self.beta = nn.Linear(num_topics, num_exog_features, bias = False)
         self.bn = nn.BatchNorm1d(num_exog_features)
@@ -129,45 +126,46 @@ class Decoder(nn.Module):
         self.num_topics = num_topics
         self.num_covariates = num_covariates
 
-        if self.is_correcting:
+        if num_covariates > 0:
 
             self.batch_effect_model = nn.Sequential(
                 ConcatLayer(1),
                 encoder_layer(num_topics + num_covariates, 
-                    covariates_hidden, dropout=0.05, nonlin=True),
+                    covariates_hidden, dropout=1/20, nonlin=True),
                 nn.Linear(covariates_hidden, num_exog_features),
                 nn.BatchNorm1d(num_exog_features, affine = False),
             )
 
-            self.batch_effect_gamma = nn.Parameter(
-                torch.zeros(num_exog_features)
-            )
+            if num_covariates > 0:
+                self.batch_effect_gamma = nn.Parameter(
+                    torch.zeros(num_exog_features)
+                )
 
     @property
     def is_correcting(self):
         return self.num_covariates > 0
 
     def forward(self, theta, covariates, nullify_covariates = False):
-
+        
+        X1 = self.drop1(theta)
+        X2 = self.drop2(theta)
+        
         if self.is_correcting:
-
-            z1 = self.drop1(theta)
-
-            self.covariate_signal = self.get_batch_effect(z1, covariates, 
+            
+            self.covariate_signal = self.get_batch_effect(X1, covariates, 
                 nullify_covariates = nullify_covariates)
 
-            self.biological_signal = self.get_biological_effect(z1)
-
-        z2 = self.drop2(theta)
+            self.biological_signal = self.get_biological_effect(X1)
 
         return F.softmax(
-                self.get_biological_effect(z2) + \
+                self.get_biological_effect(X2) + \
                 self.mask_drop(
-                    self.get_batch_effect(z2, covariates, nullify_covariates = nullify_covariates), 
+                    self.get_batch_effect(X2, covariates, nullify_covariates = nullify_covariates), 
                     training = self.training
                 ), 
                 dim=1
             )
+
 
     def get_biological_effect(self, theta):
         return self.bn(self.beta(theta))
@@ -468,7 +466,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         )
 
 
-    def suggest_parameters(self, tuner, trial):
+    def suggest_parameters(self, tuner, trial): 
 
         params = dict(        
             num_topics = trial.suggest_int('num_topics', tuner.min_topics, 
@@ -480,8 +478,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             params.update(
                 dict(
                     hidden = int(2**trial.suggest_discrete_uniform('hidden', 6, 8, 1)),
-                    decoder_dropout = trial.suggest_float('decoder_dropout', 0.05, 0.2),
-                    max_momentum = trial.suggest_float('max_momentum', 0.91, 0.98, log = True),
+                    decoder_dropout = trial.suggest_float('decoder_dropout', 0.001, 0.2, log = True),
+                    max_momentum = trial.suggest_float('max_momentum', 0.90, 0.98, log = True),
                 )
             )
 
@@ -498,6 +496,15 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             ))
 
         return params
+
+        '''params = dict(
+            num_topics = trial.suggest_int('num_topics', tuner.min_topics, tuner.max_topics, log=True),
+            decoder_dropout = trial.suggest_float('decoder_dropout', 0.001, 0.3, log = True),
+            covariates_dropout = trial.suggest_float('covariates_dropout', 0.001, 0.3, log = True),
+            mask_dropout = trial.suggest_float('mask_dropout', 0.001, 0.3, log = True)
+        )
+
+        return params'''
 
 
     def recommend_parameters(self, n_samples, n_features, finetune = False):
