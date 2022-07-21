@@ -100,7 +100,7 @@ def fetch_TSS_from_adata(self, adata):
 def set_up_model(gene_name, atac_adata, expr_adata, 
     distance_matrix, read_depth, expr_softmax_denom,
     NITE_features, atac_softmax_denom, include_factor_data,
-    self):
+    batch_correction, self):
 
     try:
         gene_idx = np.argwhere(np.array(atac_adata.uns['distance_to_TSS_genes']) == gene_name)[0,0]
@@ -112,6 +112,11 @@ def set_up_model(gene_name, atac_adata, expr_adata,
 
         assert(np.isclose(gene_expr.astype(np.int64), gene_expr, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
         gene_expr = gene_expr.astype(int)
+
+        if batch_correction:
+            correction_vector = expr_adata.obs_vector(gene_name, layer = 'batch_effect')
+        else:
+            correction_vector = np.zeros_like(gene_expr)
         
     except KeyError:
         raise KeyError('Gene {} is not found in expression data var_names'.format(gene_name))
@@ -129,6 +134,7 @@ def set_up_model(gene_name, atac_adata, expr_adata,
     return self._get_features_for_model(
                         gene_expr = gene_expr,
                         read_depth = read_depth,
+                        correction_vector = correction_vector,
                         expr_softmax_denom = expr_softmax_denom,
                         NITE_features = NITE_features,
                         atac_softmax_denom = atac_softmax_denom,
@@ -178,13 +184,18 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
 
             read_depth = expr_adata.obs_vector('model_read_scale')
 
+            batch_correction = self.expr_model.decoder.is_correcting
+
             if not 'softmax_denom' in expr_adata.obs.columns:
-                self.expr_model._get_softmax_denom(expr_adata)
+                self.expr_model._get_softmax_denom(expr_adata, include_batcheffects = True)
+
+            if not 'batch_effects' in expr_adata.layers and batch_correction:
+                self.expr_model.get_batch_effect(expr_adata)
 
             expr_softmax_denom = expr_adata.obs_vector('softmax_denom')
 
             if not 'softmax_denom' in atac_adata.obs.columns:
-                self.accessibility_model._get_softmax_denom(atac_adata)
+                self.accessibility_model._get_softmax_denom(atac_adata, include_batcheffects = False)
 
             atac_softmax_denom = atac_adata.obs_vector('softmax_denom')
 
@@ -211,7 +222,7 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
                 expr_adata = expr_adata, distance_matrix = distance_matrix, read_depth = read_depth, 
                 expr_softmax_denom = expr_softmax_denom, NITE_features = NITE_features, 
                 atac_softmax_denom = atac_softmax_denom, include_factor_data = include_factor_data,
-                self = self)
+                batch_correction = batch_correction, self = self)
 
             if n_workers == 1:
                 

@@ -184,8 +184,11 @@ class Decoder(nn.Module):
         return batch_effect
 
 
-    def get_softmax_denom(self, theta, covariates):
-        return (self.get_biological_effect(theta) + self.get_batch_effect(theta, covariates)).exp().sum(-1)
+    def get_softmax_denom(self, theta, covariates, include_batcheffects = True):
+        return (
+            self.get_biological_effect(theta) + \
+            self.get_batch_effect(theta, covariates, nullify_covariates = not include_batcheffects)
+        ).exp().sum(-1)
 
 
 class ModelParamError(ValueError):
@@ -1552,11 +1555,12 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_obs_col, colname = 'softmax_denom'), 
         fill_kwargs = ['topic_compositions','covariates', 'extra_features'])
     def _get_softmax_denom(self, topic_compositions, covariates, extra_features,
-            batch_size = 512, bar = True):
+            batch_size = 512, bar = True, include_batcheffects = True):
 
         return np.concatenate([
             x for x in self._run_decoder_fn(
-                self.decoder.get_softmax_denom, topic_compositions, covariates,
+                partial(self.decoder.get_softmax_denom, include_batcheffects = include_batcheffects), 
+                topic_compositions, covariates,
                 batch_size = batch_size, bar = bar, desc = 'Calculating softmax summary data')
         ])
 
