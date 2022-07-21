@@ -114,7 +114,7 @@ def set_up_model(gene_name, atac_adata, expr_adata,
         gene_expr = gene_expr.astype(int)
 
         if batch_correction:
-            correction_vector = expr_adata.obs_vector(gene_name, layer = 'batch_effects')
+            correction_vector = expr_adata.obs_vector(gene_name, layer = 'batch_effect')
         else:
             correction_vector = np.zeros_like(gene_expr)
         
@@ -190,7 +190,7 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
                 self.expr_model._get_softmax_denom(expr_adata, include_batcheffects = True)
 
             if not 'batch_effects' in expr_adata.layers and batch_correction:
-                self.expr_model.get_batch_effects(expr_adata)
+                self.expr_model.get_batch_effect(expr_adata)
 
             expr_softmax_denom = expr_adata.obs_vector('softmax_denom')
 

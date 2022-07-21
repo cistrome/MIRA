@@ -274,7 +274,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             hidden = 128,
             num_layers = 3,
             num_epochs = 40,
-            decoder_dropout = 0.1,
+            decoder_dropout = 0.075,
             encoder_dropout = 0.001,
             use_cuda = True,
             seed = 0,
@@ -288,7 +288,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             kl_strategy = 'cyclic',
             reconstruction_weight = 1.,
             dataset_loader_workers = 0,
-            weight_decay = 0.0015,
+            weight_decay = 0.001,
             min_momentum = 0.85,
             max_momentum = 0.95,
             embedding_dropout = 0.05,
@@ -1557,11 +1557,12 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_obs_col, colname = 'softmax_denom'), 
         fill_kwargs = ['topic_compositions','covariates', 'extra_features'])
     def _get_softmax_denom(self, topic_compositions, covariates, extra_features,
-            batch_size = 512, bar = True):
+            batch_size = 512, bar = True, include_batcheffects = True):
 
         return np.concatenate([
             x for x in self._run_decoder_fn(
-                self.decoder.get_softmax_denom, topic_compositions, covariates,
+                partial(self.decoder.get_softmax_denom, include_batcheffects = include_batcheffects), 
+                topic_compositions, covariates,
                 batch_size = batch_size, bar = bar, desc = 'Calculating softmax summary data')
         ])
 

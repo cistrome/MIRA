@@ -355,7 +355,7 @@ class BaseModel:
 
     #    )
 
-    def _get_region_weights(self, NITE_features, batcheffect_embeddings, softmax_denom, idx):
+    def _get_region_weights(self, NITE_features, softmax_denom, idx):
         
         model = self.accessibility_model
 
@@ -814,12 +814,11 @@ class GeneModel:
                 if self.use_NITE_features:
                     f_Z = f_Z + torch.matmul(NITE_features, torch.unsqueeze(a_NITE, 0).T).reshape(-1)
 
-                prediction = self.bn(f_Z.reshape((-1,1)).float()).reshape(-1)
-                pyro.deterministic('unnormalized_prediction', prediction)
-                independent_rate = (gamma * prediction + bias + correction_vector).exp()
+                expr_prediction = gamma* self.bn(f_Z.reshape((-1,1)).float()).reshape(-1) + bias
+                pyro.deterministic('prediction', expr_prediction.exp()/softmax_denom) # assuming batch effects are 0!
 
+                independent_rate = (expr_prediction + correction_vector).exp()
                 rate =  independent_rate/softmax_denom
-                pyro.deterministic('prediction', rate)
                 mu = read_depth.exp() * rate
 
                 pyro.deterministic('mu', mu)
