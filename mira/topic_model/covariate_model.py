@@ -33,7 +33,7 @@ class CovariateModel(BaseModel):
             num_layers = 3,
             num_epochs = 40,
             decoder_dropout = 0.075,
-            encoder_dropout = 0.001,
+            encoder_dropout = 0.01,
             use_cuda = True,
             seed = 0,
             min_learning_rate = 1e-6,

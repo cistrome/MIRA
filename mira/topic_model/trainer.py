@@ -336,6 +336,7 @@ class SpeedyTuner:
         sampler = None,
         log_steps = False,
         log_every = 10,
+        evaluation_function = None,
     ):
         self.model = model
         self.n_jobs = n_jobs
@@ -354,6 +355,7 @@ class SpeedyTuner:
         self.log_every = log_every
         self.model_dir = model_dir
         self.rigor = rigor
+        self.evaluation_function = evaluation_function
         self.study = self.create_study()
 
     def __str__(self):
@@ -623,7 +625,6 @@ class SpeedyTuner:
                         num_hashtags = int(25 * epoch/self.model.num_epochs)
                         print('\rProgress: ' + '|' + '\u25A0'*num_hashtags + ' '*(25-num_hashtags) + '|', end = '')
 
-                    epoch_test_scores.append(trial_score)
                     trial_writer.add_scalar('holdout_distortion', distortion, epoch)
                     trial_writer.add_scalar('holdout_rate', rate, epoch)
                     trial_writer.add_scalar('holdout_loss', trial_score, epoch)
@@ -632,11 +633,14 @@ class SpeedyTuner:
                     for metric_name, value in metrics.items():
                         trial_writer.add_scalar('holdout_' + metric_name, value, epoch)
                     
-                    trial.report(min(epoch_test_scores[-self.model.num_epochs//6:]), epoch)
+                    if np.isfinite(trial_score):
+                        
+                        epoch_test_scores.append(trial_score)
+                        trial.report(min(epoch_test_scores[-self.model.num_epochs//6:]), epoch)
 
-                    if trial.should_prune() and epoch < self.model.num_epochs:
-                        must_prune = True
-                        break
+                        if trial.should_prune() and epoch < self.model.num_epochs:
+                            must_prune = True
+                            break
 
                 except ValueError as err: # if evaluation fails for some reason
                     pass # just keep going unless training fails in outer loop
@@ -645,6 +649,11 @@ class SpeedyTuner:
                          # In this case, it is better to just keep going with training,
                          # which will usually stabilize the model
 
+            if not self.evaluation_function is None:
+                eval_metrics = self.evaluation_function(self.model, train, test)
+                for k, v in eval_metrics.items():
+                    trial.set_user_attr(k, v)
+
             metrics = {
                     'number' : trial.number,
                     'epochs_trained' : epoch,
@@ -652,6 +661,7 @@ class SpeedyTuner:
                     'rate' : rate,
                     'trial_score' : trial_score,
                     **metrics,
+                    **eval_metrics
             }
 
             params['study_name'] = self.study_name
@@ -696,7 +706,7 @@ class SpeedyTuner:
                 )
 
                 try:
-                    trial = _run_trial(self.study, interior_func, (ModelParamError, ValueError))
+                    trial = _run_trial(self.study, interior_func, (ModelParamError,)) #ValueError))
                 finally:
                     gc.collect()
 
