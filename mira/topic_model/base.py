@@ -477,10 +477,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             
             params.update(
                 dict(
-                    #hidden = int(2**trial.suggest_discrete_uniform('hidden', 6, 8, 1)),
-                    #decoder_dropout = trial.suggest_float('decoder_dropout', 0.01, 0.2, log = True),
-                    #max_momentum = trial.suggest_float('max_momentum', 0.90, 0.98, log = True),
-                    dependence_beta = trial.suggest_float('dependence_beta', 0.2, 5, log = True)
+                    hidden = int(2**trial.suggest_discrete_uniform('hidden', 6, 8, 1)),
+                    decoder_dropout = trial.suggest_float('decoder_dropout', 0.01, 0.2, log = True),
                 )
             )
 
@@ -490,6 +488,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             params.update(dict(
                 encoder_dropout = trial.suggest_float('encoder_dropout', 0.0001, 0.1, log = True),
                 num_layers = trial.suggest_categorical('num_layers', (2,3,)),
+                max_momentum = trial.suggest_float('max_momentum', 0.90, 0.98, log = True),
                 min_momentum = trial.suggest_float('min_momentum', 0.8, 0.89, log = True),
                 weight_decay = trial.suggest_float('weight_decay', 0.00001, 0.1, log = True)
             ))
