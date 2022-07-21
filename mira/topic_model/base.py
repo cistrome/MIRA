@@ -271,8 +271,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             hidden = 128,
             num_layers = 3,
             num_epochs = 40,
-            decoder_dropout = 0.1,
-            encoder_dropout = 0.001,
+            decoder_dropout = 0.075,
+            encoder_dropout = 0.01,
             use_cuda = True,
             seed = 0,
             min_learning_rate = 1e-6,
@@ -285,7 +285,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             kl_strategy = 'cyclic',
             reconstruction_weight = 1.,
             dataset_loader_workers = 0,
-            weight_decay = 0.0015,
+            weight_decay = 0.001,
             min_momentum = 0.85,
             max_momentum = 0.95,
             embedding_dropout = 0.05,
@@ -470,16 +470,17 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         params = dict(        
             num_topics = trial.suggest_int('num_topics', tuner.min_topics, 
-            tuner.max_topics, log=True),
+                tuner.max_topics, log=True),
         )
 
         if tuner.rigor >= 1:
             
             params.update(
                 dict(
-                    hidden = int(2**trial.suggest_discrete_uniform('hidden', 6, 8, 1)),
-                    decoder_dropout = trial.suggest_float('decoder_dropout', 0.001, 0.2, log = True),
-                    max_momentum = trial.suggest_float('max_momentum', 0.90, 0.98, log = True),
+                    #hidden = int(2**trial.suggest_discrete_uniform('hidden', 6, 8, 1)),
+                    #decoder_dropout = trial.suggest_float('decoder_dropout', 0.01, 0.2, log = True),
+                    #max_momentum = trial.suggest_float('max_momentum', 0.90, 0.98, log = True),
+                    dependence_beta = trial.suggest_float('dependence_beta', 0.2, 5, log = True)
                 )
             )
 
@@ -487,12 +488,10 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
             ## kitchen sink strategy
             params.update(dict(
-                encoder_dropout = trial.suggest_float('encoder_dropout', 0.00001, 0.1, log = True),
+                encoder_dropout = trial.suggest_float('encoder_dropout', 0.0001, 0.1, log = True),
                 num_layers = trial.suggest_categorical('num_layers', (2,3,)),
-                min_momentum = trial.suggest_float('min_momentum', 0.8, 0.9, log = True),
-                max_momentum = trial.suggest_float('max_momentum', 0.91, 0.98, log = True),
-                decoder_dropout = trial.suggest_float('decoder_dropout', 0.05, 0.2),
-                weight_decay = trial.suggest_float('weight_decay', 0.000001, 0.01, log = True)
+                min_momentum = trial.suggest_float('min_momentum', 0.8, 0.89, log = True),
+                weight_decay = trial.suggest_float('weight_decay', 0.00001, 0.1, log = True)
             ))
 
         return params
