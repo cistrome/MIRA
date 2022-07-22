@@ -20,6 +20,7 @@ def count_peaks(*,fragment_file, peaks_file, genome_file):
         'bedtools','intersect',
         '-a', fragment_file,
         '-b', peaks_file, 
+        '-g', genome_file,
         '-wa','-wb','-sorted', '-loj'
     ])
     

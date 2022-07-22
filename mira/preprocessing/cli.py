@@ -4,7 +4,7 @@ import sys
 import subprocess
 
 from mira.preprocessing import iterative_merge, aggregate_countmatrix, \
-        callpeaks, filter_fragment_barcodes, cluster_cells, \
+        callpeaks, filter_fragment_barcodes, \
         filter_chromosomes, label_fragments, interleave_fragments, \
         run_atac_pipeline, run_rna_pipeline, format_adata
 
@@ -30,7 +30,7 @@ add_subcommand(filter_fragment_barcodes, 'filter-barcodes')
 add_subcommand(callpeaks, 'call-peaks')
 add_subcommand(iterative_merge, 'merge-peaks')
 add_subcommand(aggregate_countmatrix, 'agg-countmatrix')
-add_subcommand(cluster_cells, 'cluster-cells')
+#add_subcommand(cluster_cells, 'cluster-cells')
 add_subcommand(filter_chromosomes, 'filter-chroms')
 add_subcommand(label_fragments, 'label-fragments')
 add_subcommand(interleave_fragments, 'interleave-fragments')
