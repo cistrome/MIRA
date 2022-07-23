@@ -9,14 +9,14 @@ from mira.topic_model.base import BaseModel, logger
 import numpy as np
 
 def TopicModel(
-    n_samples, n_features,
+    n_samples, n_features,*,
+    feature_type,
     endogenous_key = None,
     exogenous_key = None,
     counts_layer = None,
     covariates_keys = None,
     extra_features_keys = None,
     latent_space = 'dirichlet',
-    feature_type = 'expression',
     automatically_set_params = True,
     **kwargs,
 ):
@@ -24,13 +24,14 @@ def TopicModel(
     assert(latent_space in ['dp', 'dirichlet'])
     assert(feature_type in ['expression','accessibility'])
 
-    if latent_space == 'dp' and n_samples < 40000:
-        logger.warn(
-            'The dirichlet process model is intended for atlas-level experiments.\n'
-            'For smaller datasets, please use the "dirichlet" latent space, and use the tuner'
-            'to find the optimal number of topics.'
-        )
-        
+    if latent_space == 'dp':
+        if n_samples < 40000:
+            logger.warn(
+                'The dirichlet process model is intended for atlas-level experiments.\n'
+                'For smaller datasets, please use the "dirichlet" latent space, and use the tuner'
+                'to find the optimal number of topics.'
+            )
+            
         latent_space = 'dirichlet-process'
 
     basename = 'model'

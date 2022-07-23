@@ -32,7 +32,7 @@ class CovariateModel(BaseModel):
             hidden = 128,
             num_layers = 3,
             num_epochs = 40,
-            decoder_dropout = 0.075,
+            decoder_dropout = 0.05,
             encoder_dropout = 0.01,
             use_cuda = True,
             seed = 0,

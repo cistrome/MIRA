@@ -273,8 +273,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             num_topics = 16,
             hidden = 128,
             num_layers = 3,
-            num_epochs = 40,
-            decoder_dropout = 0.075,
+            num_epochs = 24,
+            decoder_dropout = 0.05,
             encoder_dropout = 0.01,
             use_cuda = True,
             seed = 0,
@@ -480,8 +480,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             
             params.update(
                 dict(
-                    hidden = int(2**trial.suggest_discrete_uniform('hidden', 6, 8, 1)),
-                    decoder_dropout = trial.suggest_float('decoder_dropout', 0.01, 0.2, log = True),
+                    hidden = int(2**trial.suggest_discrete_uniform('hidden', 6, 9, 1)),
+                    decoder_dropout = trial.suggest_float('decoder_dropout', 0.001, 0.2, log = True),
                 )
             )
 

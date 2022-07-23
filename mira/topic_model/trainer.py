@@ -1,4 +1,5 @@
 
+from sre_constants import SUCCESS
 import numpy as np
 from sklearn.model_selection import train_test_split
 from functools import partial
@@ -26,7 +27,7 @@ from mira.adata_interface.core import logger as corelogger
 from torch.utils.tensorboard import SummaryWriter
 import torch
 from mira.plots.pareto_front_plot import plot_intermediate_values, plot_pareto_front
-from mira.topic_model.gp_sampler import GP, HyperbandPruner
+from mira.topic_model.gp_sampler import GP, HyperbandPruner, SuccessiveHalvingPruner
 from optuna.storages import RedisStorage
 
 
@@ -513,7 +514,14 @@ class SpeedyTuner:
         if not self.pruner is None:
             return self.pruner
 
-        elif self.rigor == 0:
+        else:
+            
+            return SuccessiveHalvingPruner(
+                min_resource = self.model.num_epochs//3,
+                reduction_factor = 2,
+            )
+
+        '''elif self.rigor <= 0:
 
             return optuna.pruners.SuccessiveHalvingPruner(
                 min_resource=8,
@@ -527,7 +535,7 @@ class SpeedyTuner:
                 min_resource = self.model.num_epochs//3,
                 max_resource = self.model.num_epochs,
                 reduction_factor = 2,
-            )
+            )'''
 
         #    raise ValueError('Pruner {} is not an option'.format(str(self.pruner)))
 
@@ -539,12 +547,18 @@ class SpeedyTuner:
 
         elif self.rigor < 2:
             
+            num_tuners = (2 if isinstance(self.pruner, HyperbandPruner) else 1)
+
+            startup_trials = int(
+                    max(15, self.n_jobs//num_tuners)
+                )
+
+            logger.warn('Using GP sampler with {} startup random trials.'.format(str(startup_trials)))
+            
             return GP(
                 constant_liar = self.parallel,
-                tau = 0.01,
-                min_points = min(self.iters//2, 
-                    max(min(10 * (self.rigor + 1), 10), self.n_jobs/(2 if isinstance(self.pruner, HyperbandPruner) else 1))
-                ),
+                tau = 0.1,
+                min_points = startup_trials,
                 num_candidates = 300,
                 cl_function = np.max
             )
@@ -634,7 +648,7 @@ class SpeedyTuner:
                         trial_writer.add_scalar('holdout_' + metric_name, value, epoch)
                     
                     if np.isfinite(trial_score):
-                        
+
                         epoch_test_scores.append(trial_score)
                         trial.report(min(epoch_test_scores[-self.model.num_epochs//6:]), epoch)
 
@@ -653,6 +667,8 @@ class SpeedyTuner:
                 eval_metrics = self.evaluation_function(self.model, train, test)
                 for k, v in eval_metrics.items():
                     trial.set_user_attr(k, v)
+            else:
+                eval_metrics = {}
 
             metrics = {
                     'number' : trial.number,
