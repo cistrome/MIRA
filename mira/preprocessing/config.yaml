@@ -1,0 +1,64 @@
+barcode:
+  KO_14: &id001
+    length: 16
+    start: 8
+    strand: '-'
+  KO_4: *id001
+  WT:
+    length: 16
+    start: 0
+    strand: '-'
+  all: *id001
+data:
+  KO_14:
+    KO_14:
+      fastqs:
+        R1:
+        - raw_data/ATAC/KO_14/Pool112_10_S10_L001_R1_001.fastq.gz
+        - raw_data/ATAC/KO_14/Pool112_10_S10_L002_R1_001.fastq.gz
+        R2:
+        - raw_data/ATAC/KO_14/Pool112_10_S10_L001_R2_001.fastq.gz
+        - raw_data/ATAC/KO_14/Pool112_10_S10_L002_R2_001.fastq.gz
+        R3:
+        - raw_data/ATAC/KO_14/Pool112_10_S10_L001_R3_001.fastq.gz
+        - raw_data/ATAC/KO_14/Pool112_10_S10_L002_R3_001.fastq.gz
+  KO_4:
+    KO_4:
+      fastqs:
+        R1:
+        - raw_data/ATAC/KO_4/Pool112_11_S11_L001_R1_001.fastq.gz
+        - raw_data/ATAC/KO_4/Pool112_11_S11_L002_R1_001.fastq.gz
+        R2:
+        - raw_data/ATAC/KO_4/Pool112_11_S11_L001_R2_001.fastq.gz
+        - raw_data/ATAC/KO_4/Pool112_11_S11_L002_R2_001.fastq.gz
+        R3:
+        - raw_data/ATAC/KO_4/Pool112_11_S11_L001_R3_001.fastq.gz
+        - raw_data/ATAC/KO_4/Pool112_11_S11_L002_R3_001.fastq.gz
+  WT:
+    S4:
+      fastqs:
+        R1:
+        - raw_data/ATAC/WT/S4/NS_1_new_ATAC_S4_L001_R1_001.fastq.gz
+        - raw_data/ATAC/WT/S4/NS_1_new_ATAC_S4_L002_R1_001.fastq.gz
+        R2:
+        - raw_data/ATAC/WT/S4/NS_1_new_ATAC_S4_L001_R2_001.fastq.gz
+        - raw_data/ATAC/WT/S4/NS_1_new_ATAC_S4_L002_R2_001.fastq.gz
+        R3:
+        - raw_data/ATAC/WT/S4/NS_1_new_ATAC_S4_L001_R3_001.fastq.gz
+        - raw_data/ATAC/WT/S4/NS_1_new_ATAC_S4_L002_R3_001.fastq.gz
+directory: atac_preprocessing/mm10
+genome:
+  fasta: null
+  species: mm10
+mapping:
+  cores: 8
+  min_fragment_length: 30
+peaks:
+  genome_size: mm
+  max_fraglen: 150
+  short_fragments: true
+  slop_distance: 250
+whitelist:
+  whitelist: /liulab/galib/sc_CIDC/references/whitelist/scATAC_multiome/737K-arc-v1.txt
+  whitelist_match: /liulab/galib/sc_CIDC/references/whitelist/rna_atac_barcode.csv
+

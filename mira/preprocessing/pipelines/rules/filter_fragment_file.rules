@@ -1,0 +1,74 @@
+
+
+include: "make_countmatrix.rules"
+
+def get_fragment_gzipped_name(wildcards):
+    # code for starting from fragments here
+    return '{directory}/{batch}/{sample}/fragments.bed.gz'
+
+
+rule filter_chromosomes:
+    input:
+        fragments = lambda w : get_fragment_gzipped_name(w),
+        chrom_sizes = rules.get_chromsizes.output,
+    output:
+        '{directory}/{batch}/{sample}/fragments-chromfiltered.bed.gz'
+    params:
+        batch = lambda w : w.batch,
+        sample = lambda w : w.sample
+    shell:
+        "gzip -d -c {input.fragments} "
+        "| mira-preprocess filter-chroms - {input.chrom_sizes} "
+        "| mira-preprocess label-fragments -f - --batch {params.batch} --sample {params.sample} "
+        "| gzip > {output}"
+
+
+#rule filter_chromosomes:
+#    input:
+#        fragments = rules.label_fragments.output,
+#        chrom_sizes = rules.get_chromsizes.output,
+#    output:
+#        '{directory}/{batch}/{sample}/fragments-chromfiltered.bed.gz'
+#    shell:
+#        "gzip -d -c {input.fragments} | mira-preprocess filter-chroms - {input.chrom_sizes} "
+#        "| gzip > {output}"
+
+
+def get_shortfrags_input(wildcards):
+
+    if wildcards.sample == 'bulk':
+        return rules.merge_fragment_file.output
+    else:
+        return rules.filter_chromosomes.output
+
+
+rule filter_short_fragments:
+    input:
+        get_shortfrags_input
+    output:
+        temp('{directory}/{batch}/{sample}/fragments-short.bed.gz')
+    params:
+        max_fraglen = config['peaks']['max_fraglen']
+    shell:
+        "gzip -d -c {input} "
+        "| awk '$3 - $2 <= {params.max_fraglen} && $1 != \"#\"'"
+        "| gzip > {output}"
+
+
+def get_filter_barcodes_input(wildcards):
+
+    if 'short_fragments' in config['peaks'] and config['peaks']['short_fragments']:
+        return rules.filter_short_fragments.output
+    else:
+        return rules.filter_chromosomes.output
+
+
+rule filter_barcodes:
+    input: 
+        fragments = lambda w : get_filter_barcodes_input(w),
+        barcodes = '{directory}/{batch}/{sample}/barcodes.txt'
+    output: 
+        temp('{directory}/{batch}/{sample}/fragments-barcodefiltered.bed.gz')
+    shell:
+        "gzip -d -c {input.fragments} | mira-preprocess filter-barcodes - {input.barcodes}"
+        "| gzip > {output}"

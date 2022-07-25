@@ -3,6 +3,8 @@ import argparse
 from lisa.core import genome_tools as gt
 import tqdm
 import numpy as np
+import sys
+import os
 
 def check(genome, region):
     try:
@@ -11,23 +13,18 @@ def check(genome, region):
     except gt.NotInGenomeError:
         return False
 
-def slop(self, d, genome):
-    return gt.Region(self.chromosome, max(0, self.start - d), min(self.end + d, genome.get_chromlen(self.chromosome)),
-                    annotation = self.annotation)
-    
-        
+       
 def add_source(self, source):
     self.source = source
     return self
         
-gt.Region.slop = slop
 gt.Region.add_source = add_source
 
 
-def _slop_summits(summit_files, genome, distance = 250):
+def _collect_summits(summit_files, genome):
 
     summits = [
-        r.slop(distance, genome).add_source(summit_file)
+        r.add_source(os.path.basename(summit_file))
         for summit_file in summit_files for r in gt.Region.read_bedfile(summit_file)
         if check(genome, r)
     ]
@@ -53,7 +50,6 @@ def _merge(*, overlap_peaks, summit_set, genome):
         if not i in blacklist:
             
             overlaps_idx = overlap_peaks[i,:].indices
-            overlap_regions = []
             for j in overlaps_idx:
                 if not j in blacklist:
                     blacklist[j]=True
@@ -66,15 +62,14 @@ def _merge(*, overlap_peaks, summit_set, genome):
     return peaklist
 
 
-def iterative_merge(
-    slop_distance = 250,*,
+def iterative_merge(*,
     summit_files,
     genome_file,
     ):
 
     genome = gt.Genome.from_file(genome_file)
 
-    summits = _slop_summits(summit_files, genome, distance = slop_distance)
+    summits = _collect_summits(summit_files, genome)
 
     summit_set = gt.RegionSet(summits, genome)
     overlap_peaks = summit_set.map_intersects(summit_set, distance_function=_iou)
@@ -96,17 +91,16 @@ def add_arguments(parser):
         help = 'List of MACS summit files to merge', required = True)
     parser.add_argument('--genome-file','-g', type = str, 
         help = 'Genome file (or chromlengths file).', required = True)
-    parser.add_argument('--slop-distance','-d', type = int, default = 250)
     parser.add_argument('--outfile','-o', type = argparse.FileType('w'),
-        required = True, help = 'Output filename for merged peakset.')
+        default = sys.stdout, help = 'Output filename for merged peakset.')
 
 def main(args):
 
     peaklist = iterative_merge(
-        slop_distance=args.slop_distance,
         summit_files=args.summit_files,
         genome_file= args.genome_file
     )
 
     for peak in peaklist.regions:
-        print(peak, file = args.outfile)
+        print(peak.chromosome, peak.start, peak.end, peak.source, peak.annotation[1], 
+            file = args.outfile, sep = '\t')

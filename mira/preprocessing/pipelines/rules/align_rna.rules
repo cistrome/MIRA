@@ -1,0 +1,120 @@
+#STAR_VERSION = subprocess.check_output("STAR --version", shell=True)
+#bam = "{directory}/{batch}/{sample}/{feature}/Aligned.sortedByCoord.out.bam",
+
+include: "get_annotations.rules"
+
+def get_fasta_file(wildcards):
+
+    if 'fasta' in config['genome'] and not config['genome']['fasta'] is None:
+        return config['genome']['fasta']
+    elif 'species' in config['genome']:
+        return rules.download_fasta.output
+    else:
+        raise ValueError('Neither "fasta" nor "species" configured. Cannot obtain fasta file.')
+
+def get_GTF(wildcards):
+
+    if 'gtf' in config['genome'] and not config['genome']['gtf'] is None:
+        return config['genome']['gtf']
+    elif 'species' in config['genome']:
+        return rules.download_gtf.output
+    else:
+        raise ValueError('Neither "gtf" nor "species" configured. Cannot obtain fasta file.')
+
+rule uncompress_fasta:
+    input:
+        get_fasta_file
+    output:
+        temp('{directory}/annotations/fa.fa')
+    shell:
+        'gzip -d -c {input} > {output}'
+
+
+rule uncompress_gtf:
+    input:
+        get_GTF
+    output:
+        temp('{directory}/annotations/refGene.gtf')
+    shell:
+        'gzip -d -c {input} > {output}'
+
+rule STARindex:
+    input:
+        fasta = rules.uncompress_fasta.output,
+        gtf = rules.uncompress_gtf.output
+    output:
+        directory('{directory}/annotations/STAR-index/')
+    threads: config['mapping']['cores']
+    shell:
+        """
+        STAR \
+            --runMode genomeGenerate \
+            --runThreadN {threads} \
+            --genomeDir {output} \
+            --genomeFastaFiles {input.fasta} \
+            --sjdbGTFfile {input.gtf} \
+            --sjdbOverhang 98
+        """
+
+STAR_output_prefix = "{directory}/{batch}/{sample}/{feature}/"
+
+rule STARsolo:
+    input:
+        index = rules.STARindex.output
+    output:
+        directory(STAR_output_prefix + "Solo.out/{feature}/raw")
+    params:
+        star_custom = lambda w : w.feature,
+        outprefix = lambda w : STAR_output_prefix.format(
+            directory = w.directory, batch = w.batch, sample = w.sample, feature = w.feature
+        ),
+        barcodestart = config["barcode"]["barcode_start"],
+        barcodelength = config["barcode"]["barcode_length"],
+        umistart = config["barcode"]["umi_start"],
+        umilength = config["barcode"]["umi_length"],
+        whitelist = config["barcode"]["whitelist"],
+        transcripts = lambda w: ','.join(config['data'][w.batch][w.sample]['fastqs']['R2']),
+        barcodes = lambda w: ','.join(config['data'][w.batch][w.sample]['fastqs']['R1'])
+    threads: config['mapping']['cores']
+    shell:
+        """
+        STAR \
+            --runMode alignReads \
+            --genomeDir {input.index} \
+            --runThreadN {threads} \
+            --outFileNamePrefix {params.outprefix} \
+            --outSAMtype BAM SortedByCoordinate \
+            --outSAMattributes NH HI nM AS CR UR CB UB GX GN sS sQ sM \
+            --soloType CB_UMI_Simple \
+            --soloFeatures {params.star_custom} \
+            --soloCBwhitelist {params.whitelist} \
+            --soloCBstart {params.barcodestart} \
+            --soloCBlen {params.barcodelength} \
+            --soloUMIstart {params.umistart} \
+            --soloUMIlen {params.umilength} \
+            --soloCBmatchWLtype 1MM_multi_pseudocounts \
+            --soloUMIfiltering MultiGeneUMI \
+            --readFilesIn {params.transcripts} {params.barcodes} \
+            --readFilesCommand zcat \
+            --genomeSAindexNbases 2
+        """
+
+def iterate_batch_sample_path(wildcards):
+
+    return [(batch, sample, rules.STARsolo.output[0].format(
+                directory = wildcards.directory, batch = batch, 
+                sample = sample, feature = wildcards.feature))
+            for batch, samples in config['data'].items()
+            for sample in samples.keys()
+       ]
+
+rule aggregate_countmatrix:
+    input:
+       lambda w : list(zip(*iterate_batch_sample_path(w)))[-1]
+    output:
+        '{directory}/{feature}_counts.h5ad'
+    params:
+        adatas = lambda w : ' '.join(['-ad {} {} {}'.format(*record) 
+            for record in iterate_batch_sample_path(w)])
+    shell: 
+        'mira-preprocess format-adata {params.adatas} -o {output}'
