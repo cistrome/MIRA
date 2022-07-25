@@ -5,48 +5,50 @@ import os
 from scipy.io import mmread
 import numpy as np
 
-def read_star_rawmatrix(dir_path):
+def read_raw(prefix, suffix = ''):
 
-    def read_obs(dir_path):
-        return pd.read_csv(os.path.join(dir_path, 'barcodes.tsv'), 
+    def read_obs(prefix):
+        return pd.read_csv(prefix + 'barcodes.tsv' + suffix, 
                     sep = '\t', names = ['barcodes']).set_index('barcodes')
 
-    def read_var(dir_path):
-        var = pd.read_csv(os.path.join(dir_path, 'features.tsv'),
+    def read_var(prefix):
+        var = pd.read_csv(prefix + 'features.tsv' + suffix,
             sep = '\t', names = ['id', 'symbol', 'feature_type'])
 
         var['symbol'] = var.symbol.str.upper()
 
         return var
 
-    def read_matrix(dir_path):
-        return mmread(os.path.join(dir_path, 'matrix.mtx')).T.tocsr()
+    def read_matrix(prefix):
+        return mmread(prefix + 'matrix.mtx' + suffix).T.tocsr()
 
     return anndata.AnnData(
-        obs = read_obs(dir_path),
-        var = read_var(dir_path),
-        X = read_matrix(dir_path)
+        obs = read_obs(prefix),
+        var = read_var(prefix),
+        X = read_matrix(prefix)
     )
 
 
-def combine_adatas(*adatas):
+def combine_adatas(*adatas, suffix = ''):
 
-    adata_list = []
+    adata_loaded = {}
     for batch, sample, path in adatas:
 
-        adata = read_star_rawmatrix(path)
-        adata.obs_names = np.array(['@{}:{}:{}'.format(batch, sample, bc)
-                for bc in adata.obs_names
-            ])
-        
+        adata = read_raw(path, suffix = suffix)
         adata.var = adata.var.set_index('id')
-            
-        adata_list.append( adata )
+        adata.obs['batch'] = batch
+        adata.obs['sample'] = sample
+        adata_loaded['@' + batch + ':' + sample] = adata
 
-    if len(adata_list) == 1:
-        return adata_list[0]
+    if len(adata_loaded) == 1:
+        return list(adata_loaded.values())[0]
     
-    return anndata.concat(adata_list, merge = 'same')
+    return anndata.concat(
+        adata_loaded, 
+        merge = 'same',
+        index_unique=':',
+        label = '@batch:sample'
+    )
 
 
 def add_arguments(parser):

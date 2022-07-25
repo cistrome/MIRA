@@ -5,6 +5,8 @@ def label_fragments(fragment_stream,*, batch, sample):
 
     for fragment in fragment_stream:
         line = fragment.strip().split('\t')
+        assert(len(line) >= 3)
+        
         barcode = line[3]
 
         barcode = '@{batch}:{sample}:{barcode}'.format(

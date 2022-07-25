@@ -87,7 +87,7 @@ def iterative_merge(*,
 
 def add_arguments(parser):
 
-    parser.add_argument('--summit-files', '-s', nargs = '+', type = str,
+    parser.add_argument('--peak-files', '-p', nargs = '+', type = str,
         help = 'List of MACS summit files to merge', required = True)
     parser.add_argument('--genome-file','-g', type = str, 
         help = 'Genome file (or chromlengths file).', required = True)
@@ -97,10 +97,11 @@ def add_arguments(parser):
 def main(args):
 
     peaklist = iterative_merge(
-        summit_files=args.summit_files,
+        peak_files=args.peak_files,
         genome_file= args.genome_file
     )
 
     for peak in peaklist.regions:
-        print(peak.chromosome, peak.start, peak.end, peak.source, peak.annotation[1], 
+        print(peak.chromosome, peak.start, peak.end, 
+            peak.source, peak.annotation[1], 
             file = args.outfile, sep = '\t')

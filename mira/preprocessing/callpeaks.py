@@ -6,7 +6,7 @@ def callpeaks(
     genome_size,
     outdir,
     outname,
-    input_fragments
+    fragment_file,
     ):
 
     cmd = [
@@ -17,14 +17,14 @@ def callpeaks(
         '-B','-q', str(q_value),
         '--nomodel','--extsize', str(ext_size),
         '--SPMR','--keep-dup','all',
-        '-t', str(input_fragments)
+        '-t', str(fragment_file)
     ]
 
     subprocess.run(cmd, check = True)
 
 def add_arguments(parser):
 
-    parser.add_argument('--input-fragments','-i', type = str,required=True)
+    parser.add_argument('--fragment-file','-f', type = str,required=True)
     parser.add_argument('--outdir', '-d', required = True, type = str)
     parser.add_argument('--name','-n',required=True, type = str)
     parser.add_argument('--genome-size','-g', required = True)
@@ -39,5 +39,5 @@ def main(args):
         genome_size=args.genome_size,
         outdir=args.outdir,
         outname = args.name,
-        input_fragments=args.input_fragments
+        fragment_file=args.fragment_file,
     )
