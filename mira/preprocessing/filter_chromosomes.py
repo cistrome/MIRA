@@ -1,4 +1,5 @@
 import argparse
+from email.policy import default
 import sys
 import re
 
@@ -23,12 +24,13 @@ def _apply_filter(fragments, genome, chr_match_string = '^(chr)[(0-9)|(X,Y)]+$')
 
 def add_arguments(parser):
 
-    parser.add_argument('fragments',type=argparse.FileType('r'))
-    parser.add_argument('genome', type = argparse.FileType('r'))
+    parser.add_argument('fragments',type=argparse.FileType('r'), default = sys.stdin)
+    parser.add_argument('--genome', '-g', type = argparse.FileType('r'), required = True)
     parser.add_argument('--chr-match-string','-match', type = str, default = "^(chr)[(0-9)|(X,Y)]+$")
+    parser.add_argument('--outfile', '-o', type = argparse.FileType('w'), default = sys.stdout)
     
 
 def main(args):
 
     for fragment in _apply_filter(args.fragments, args.genome, args.chr_match_string):
-        print(fragment, file = sys.stdout)
+        args.outfile.write(fragment + '\n')

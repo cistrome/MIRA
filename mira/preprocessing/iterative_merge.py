@@ -63,13 +63,13 @@ def _merge(*, overlap_peaks, summit_set, genome):
 
 
 def iterative_merge(*,
-    summit_files,
+    peak_files,
     genome_file,
     ):
 
     genome = gt.Genome.from_file(genome_file)
 
-    summits = _collect_summits(summit_files, genome)
+    summits = _collect_summits(peak_files, genome)
 
     summit_set = gt.RegionSet(summits, genome)
     overlap_peaks = summit_set.map_intersects(summit_set, distance_function=_iou)
@@ -101,7 +101,14 @@ def main(args):
         genome_file= args.genome_file
     )
 
+    print('Done')
+
     for peak in peaklist.regions:
-        print(peak.chromosome, peak.start, peak.end, 
-            peak.source, peak.annotation[1], 
-            file = args.outfile, sep = '\t')
+        print(
+            str(peak.chromosome), 
+            peak.start, 
+            peak.end, 
+            peak.source, 
+            peak.annotation[1], 
+            file = args.outfile, sep = '\t', end = '\n'
+        )
