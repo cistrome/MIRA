@@ -99,6 +99,7 @@ class DisableLogger:
 class FailureToImproveException(Exception):
     pass
 
+
 def terminate_after_n_failures(study, trial, 
     n_failures=5,
     min_trials = 32):
@@ -121,6 +122,7 @@ def terminate_after_n_failures(study, trial,
             failures+=1
 
     if failures > n_failures:
+        #study.stop()
         raise FailureToImproveException()
 
 
@@ -318,7 +320,16 @@ class SpeedyTuner:
         return train_test_split(adata, train_size = train_size, 
             random_state = seed, shuffle = True, stratify = stratify)
 
-    
+    @classmethod
+    def load(cls,*,
+        save_name,
+        storage = 'sqlite:///mira-tuning.db'):
+
+        return cls(
+            model = None, min_topics = None, max_topics = None,
+            storage = storage, save_name = save_name,
+        )
+
     def __init__(self,
         model,
         save_name,
@@ -557,10 +568,10 @@ class SpeedyTuner:
             
             return GP(
                 constant_liar = self.parallel,
-                tau = 0.1,
+                tau = 0.01,
                 min_points = startup_trials,
                 num_candidates = 300,
-                cl_function = np.max
+                cl_function = np.mean if self.n_jobs > 5 else np.max
             )
 
         elif self.rigor >= 2:
@@ -580,9 +591,10 @@ class SpeedyTuner:
 
     def get_model_save_name(self, trial_number):
 
-        return os.path.join(
-            self.model_dir, self.study_name, '{}.pth'.format(str(trial_number))
-        )
+        return os.path.abspath(
+            os.path.join(
+                self.model_dir, self.study_name, '{}.pth'.format(str(trial_number))
+            ))
 
 
     def save_model(self, model, savename):
@@ -726,11 +738,7 @@ class SpeedyTuner:
                 finally:
                     gc.collect()
 
-                #print_callback = self.serial_dashboard if not self.parallel else self.parallel_dashboard
-                stop_callback = self.get_stop_callback()
-
-                #print_callback(self.study, trial)
-                stop_callback(self.study, trial)
+                self.get_stop_callback()(self.study, trial)
 
         return trial
 

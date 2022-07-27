@@ -500,9 +500,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         '''params = dict(
             num_topics = trial.suggest_int('num_topics', tuner.min_topics, tuner.max_topics, log=True),
-            decoder_dropout = trial.suggest_float('decoder_dropout', 0.001, 0.3, log = True),
-            covariates_dropout = trial.suggest_float('covariates_dropout', 0.001, 0.3, log = True),
-            mask_dropout = trial.suggest_float('mask_dropout', 0.001, 0.3, log = True)
+            decoder_dropout = trial.suggest_float('decoder_dropout', 0.001, 0.1, log = True),
+            covariates_dropout = trial.suggest_float('covariates_dropout', 0.001, 0.1, log = True),
+            mask_dropout = trial.suggest_float('mask_dropout', 0.001, 0.1, log = True),
+            covariates_hidden = trial.suggest_categorical('covariates_hidden', (32, 64, 128)),
+            dependence_hidden = trial.suggest_categorical('dependence_hidden', (64,128)),
         )
 
         return params'''

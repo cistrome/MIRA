@@ -5,6 +5,7 @@ from mira.topic_model.dirichlet_process import \
         ExpressionDirichletProcessModel, AccessibilityDirichletProcessModel
 from mira.topic_model.dirichlet_model import \
         ExpressionDirichletModel, AccessibilityDirichletModel
+from mira.topic_model.vampmodel import ExpressionVampModel
 from mira.topic_model.base import BaseModel, logger
 import numpy as np
 
@@ -21,7 +22,7 @@ def TopicModel(
     **kwargs,
 ):
 
-    assert(latent_space in ['dp', 'dirichlet'])
+    assert(latent_space in ['dp', 'dirichlet', 'vamp'])
     assert(feature_type in ['expression','accessibility'])
 
     if latent_space == 'dp':
@@ -52,6 +53,7 @@ def TopicModel(
         ('expression','dirichlet-process') : ExpressionDirichletProcessModel,
         ('accessibility', 'dirichlet') : AccessibilityDirichletModel,
         ('accessibility', 'dirichlet-process') : AccessibilityDirichletProcessModel,
+        ('expression', 'vamp')  : ExpressionVampModel
     }
 
     generative_model = generative_map[(feature_type, latent_space)]
