@@ -4,3 +4,4 @@ from mira.tools.motif_scan import get_motif_hits_in_peaks
 from mira.tools.lite_nite import get_NITE_score_cells, get_NITE_score_genes, get_chromatin_differential
 from mira.tools.tf_targeting import driver_TF_test
 from mira.tools.enrichr_enrichments import post_genelist, fetch_ontology, fetch_ontologies, LEGACY_ONTOLOGIES
+from mira.tools.joint import get_cell_pointwise_mutual_information, summarize_mutual_information, get_relative_norms, get_topic_cross_correlation

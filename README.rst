@@ -31,7 +31,7 @@ MIRA works on top of `Scanpy <https://scanpy.readthedocs.io/en/stable/>`_ and `A
 to provide a rich, comprehensive framework integrating accessibility and expression data for more insights
 into your data. MIRA includes methods for:
 
-* Multiomodal topic modeling
+* Multimodal topic modeling
 * Construction a joint representation of cells
 * Regulator and functional enrichment
 * Pseudotime trajectory inference

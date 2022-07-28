@@ -304,8 +304,8 @@ class AccessibilityModel:
         if self.dataset_loader_workers == 0:
             logger.warn('Dataset loader allocated no extra workers. This will slow down training by ~50%.')
 
-        return super().get_dataloader(dataset, training = training, 
-            batch_size = batch_size)
+        return super().get_dataloader(dataset, training = training,
+                        batch_size=batch_size)
 
     def _argsort_peaks(self, topic_num):
         assert(isinstance(topic_num, int) and topic_num < self.num_topics and topic_num >= 0)

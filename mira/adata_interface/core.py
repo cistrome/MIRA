@@ -1,6 +1,6 @@
 
 import inspect
-from functools import wraps
+from functools import wraps, update_wrapper
 import numpy as np
 import logging
 from scipy.sparse import isspmatrix
@@ -16,6 +16,7 @@ def wraps_functional(
     add = return_output,
     fill_kwargs = [],
     requires_adata = True,
+    joint = False
 ):
 
     def run(func):
@@ -37,7 +38,6 @@ def wraps_functional(
 
         func.__signature__ = inspect.Signature(list(getter_signature.values()))
         
-        @wraps(func)
         def _run(adata, *args, **kwargs):
             
             if requires_adata and not isinstance(adata, AnnData):
@@ -74,11 +74,51 @@ def wraps_functional(
             #print(output, adata, adder_kwargs)
             return add(adata, output, **adder_kwargs)
 
-        _run.__name__ = func.__name__
 
-        return _run
+        def _run_joint(expr_adata, atac_adata, *args, **kwargs):
+            
+            if not isinstance(expr_adata, AnnData) or not isinstance(atac_adata, AnnData):
+                raise TypeError('First and second argument of this function must be an AnnData object')
+
+            if not len(args) == 0:
+                raise TypeError('Positional arguments are not allowed for this function')
+
+            getter_kwargs = {
+                arg : kwargs[arg]
+                for arg in inspect.signature(fetch).parameters.copy().keys() if arg in kwargs
+            }
+
+            adder_kwargs = {
+                arg : kwargs[arg]
+                for arg in inspect.signature(add).parameters.copy().keys() if arg in kwargs
+            }
+
+            function_kwargs = {
+                arg: kwargs[arg]
+                for arg in func_signature.keys() if arg in kwargs
+           }
+
+            for kwarg in kwargs.keys():
+                if not any(
+                    [kwarg in subfunction_kwargs.keys() for subfunction_kwargs in [getter_kwargs, adder_kwargs, function_kwargs]]
+                ):
+                    raise TypeError('{} is not a valid keyword arg for this function.'.format(kwarg))
+
+            output = func(**fetch(None, expr_adata, atac_adata, **getter_kwargs), **function_kwargs)
+            
+            return add(expr_adata, output, **adder_kwargs)
+
+        if joint:
+            update_wrapper(_run_joint, func)
+            _run_joint.__name__ == func.__name__
+            return _run_joint
+        else:
+            update_wrapper(_run, func)
+            _run.__name__ = func.__name__
+            return _run
     
     return run
+
 
 def wraps_modelfunc(
     fetch = lambda self, adata : {},
