@@ -37,15 +37,22 @@ class TopicModelDataset:
     def collate_batch(batch,*,model):
 
         def collate(*, endog_features, exog_features, 
-                covariates, extra_features):
+                covariates, categorical_covariates, continuous_covariates, 
+                extra_features):
 
             endog, exog = sparse.vstack(endog_features), sparse.vstack(exog_features)
+
+            covariates = np.hstack([
+                np.array(covariates), 
+                model.preprocess_categorical_covariates(categorical_covariates),
+                model.preprocess_continuous_covariates(continuous_covariates),
+            ]).astype(np.float32)
 
             features = {
                 'endog_features' : model.preprocess_endog(endog),
                 'exog_features' : model.preprocess_exog(exog),
                 'read_depth' : model.preprocess_read_depth(exog),
-                'covariates' : np.array(covariates).astype(np.float32),
+                'covariates' : covariates,
                 'extra_features' : np.array(extra_features).astype(np.float32),
             }
 
@@ -194,8 +201,9 @@ class InMemoryDataset(TopicModelDataset, Dataset):
 
 
     def __init__(self, adata,*,
-        features, highly_variable, covariates_keys, extra_features_keys,
-        counts_layer):
+        features, highly_variable, 
+        categorical_covariates, continuous_covariates, covariates_keys, 
+        extra_features_keys, counts_layer):
 
         assert len(features) == len(highly_variable)
 
@@ -203,7 +211,11 @@ class InMemoryDataset(TopicModelDataset, Dataset):
         self.highly_variable = highly_variable
 
         self.exog_features = fetch_layer(self, adata[:, self.features], counts_layer, copy = False)
+
         self.covariates = fetch_columns(self, adata, covariates_keys)
+        self.categorical_covariates = fetch_columns(self, adata, categorical_covariates)
+        self.continuous_covariates = fetch_columns(self, adata, continuous_covariates)
+
         self.extra_features = fetch_columns(self, adata, extra_features_keys)
 
         assert isinstance(self.exog_features, sparse.spmatrix)
@@ -218,6 +230,8 @@ class InMemoryDataset(TopicModelDataset, Dataset):
             'endog_features' : self.exog_features[idx, self.highly_variable],
             'exog_features' : self.exog_features[idx],
             'covariates' : self.covariates[idx] if not self.covariates is None else [],
+            'categorical_covariates' : self.categorical_covariates[idx] if not self.categorical_covariates is None else [],
+            'continuous_covariates' : self.continuous_covariates[idx] if not self.continuous_covariates is None else [],
             'extra_features' : self.extra_features[idx] if not self.extra_features is None else []
         }
 
@@ -231,6 +245,8 @@ def fit_adata(self, adata):
         features=features,
         highly_variable=highly_variable,
         covariates_keys=self.covariates_keys,
+        continuous_covariates=self.continuous_covariates,
+        categorical_covariates=self.categorical_covariates,
         extra_features_keys=self.extra_features_keys,
         counts_layer=self.counts_layer
     )
@@ -287,6 +303,8 @@ def fetch_features(self, adata_or_dirname):
                 highly_variable = self.highly_variable,
                 counts_layer = self.counts_layer,
                 covariates_keys = self.covariates_keys,
+                continuous_covariates=self.continuous_covariates,
+                categorical_covariates=self.categorical_covariates,
                 extra_features_keys = self.extra_features_keys
                 )
             }

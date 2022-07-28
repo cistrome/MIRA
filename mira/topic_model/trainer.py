@@ -317,6 +317,14 @@ class SpeedyTuner:
         return train_test_split(adata, train_size = train_size, 
             random_state = seed, shuffle = True, stratify = stratify)
 
+    @classmethod
+    def load_tuning(cls,*,save_name, storage):
+
+        return cls(
+            model = None, min_topics = None, max_topics = None,
+            study_name = save_name, storage = storage,
+        )
+
     
     def __init__(self,
         model,
@@ -542,8 +550,12 @@ class SpeedyTuner:
             return GP(
                 constant_liar = self.parallel,
                 tau = 0.01,
-                min_points = min(self.iters//2, 
-                    max(min(10 * (self.rigor + 1), 10), self.n_jobs/(2 if isinstance(self.pruner, HyperbandPruner) else 1))
+                min_points = min(
+                    self.iters//2, 
+                    max(
+                        min(10 * (self.rigor + 1), 10), 
+                        self.n_jobs/(2 if isinstance(self.pruner, HyperbandPruner) else 1)
+                    )
                 ),
                 num_candidates = 300,
                 cl_function = np.max

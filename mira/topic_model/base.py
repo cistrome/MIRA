@@ -1,4 +1,5 @@
 from functools import partial
+from random import triangular
 from scipy import interpolate
 import pyro
 import torch
@@ -23,6 +24,7 @@ import time
 from torch.distributions import kl_divergence
 from collections import defaultdict
 from mira.topic_model.mine import ConcatLayer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
 logger = logging.getLogger(__name__)
@@ -269,6 +271,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             exogenous_key = None,
             counts_layer = None,
             covariates_keys = None,
+            categorical_covariates = None,
+            continuous_covariates = None,
             extra_features_keys = None,
             num_topics = 16,
             hidden = 128,
@@ -410,6 +414,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.endogenous_key = endogenous_key
         self.exogenous_key = exogenous_key
         self.counts_layer = counts_layer
+        self.categorical_covariates = categorical_covariates
+        self.continuous_covariates = continuous_covariates
         self.covariates_keys = covariates_keys
         self.extra_features_keys = extra_features_keys
         self.num_topics = num_topics
@@ -569,19 +575,55 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     def preprocess_read_depth(self, X):
         return np.array(X.sum(-1)).reshape((-1,1)).astype(np.float32)
+
+
+    def preprocess_categorical_covariates(self, X):
+        return self.categorical_transformer.transform(np.atleast_2d(X))
+
+    def preprocess_continuous_covariates(self, X):
+        return np.clip(
+            self.continuous_transformer.transform(np.atleast_2d(X)),
+            -10., 10.
+        ).astype(np.float32)
         
+
     def get_training_sampler(self):
         
         return dict(batch_size = self.batch_size, 
-            shuffle = True, drop_last=True,)
+            shuffle = True, drop_last=True)
+
 
     def _get_dataset_statistics(self, dataset):
-        pass
+
+        self.categorical_transformer = OneHotEncoder(
+            sparse = False, 
+            drop = 'if_binary',
+            dtype = np.float32
+        )
+
+        self.continuous_transformer = StandardScaler()
+
+        continuous, categorical = [],[]
+        for x in dataset:
+            continuous.append(x['continuous_covariates'])
+            categorical.append(x['categorical_covariates'])
+
+        continuous = np.vstack(continuous)
+        categorical = np.vstack(categorical)
+
+        if len(continuous) > 0:
+            self.continuous_transformer.fit(continuous)
+
+        if len(categorical) > 0:
+            self.categorical_transformer.fit(categorical)
+
 
     def _get_loss_adjustment(self, batch):
         return 64/len(batch['read_depth'])
 
-    def _get_weights(self, on_gpu = True, inference_mode = False):
+    def _get_weights(self, on_gpu = True, inference_mode = False,*,
+            num_exog_features, num_endog_features, 
+            num_covariates, num_extra_features):
         
         try:
             del self.svi
@@ -607,13 +649,13 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 logger.info('Moving model to CPU for inference.')
 
         try:
-            covariates_hidden = self.covariates_hidden
+            self.covariates_hidden
         except AttributeError:
-            if self.num_covariates > 0:
+            if num_covariates > 0:
                 raise ValueError('Cannot use base topic model with covariate correction. Make sure to set the covariates keys.')
 
         decoder_kwargs = {}
-        if self.num_covariates > 0:
+        if num_covariates > 0:
             decoder_kwargs.update({
                 'covariates_hidden' : self.covariates_hidden,
                 'covariates_dropout' : self.covariates_dropout,
@@ -621,20 +663,20 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             })
 
         self.decoder = self._decoder_model(
-            num_exog_features = self.num_exog_features,
+            num_exog_features = num_exog_features,
             num_topics = self.num_topics, 
-            num_covariates = self.num_covariates, 
+            num_covariates = num_covariates, 
             topics_dropout = self.decoder_dropout, 
             **decoder_kwargs,
         )
 
         self.encoder = self.encoder_model(
             embedding_size = self.embedding_size,
-            num_endog_features = self.num_endog_features, 
-            num_exog_features = self.num_exog_features,
+            num_endog_features = num_endog_features, 
+            num_exog_features = num_exog_features,
             num_topics = self.num_topics, 
-            num_covariates = self.num_covariates,
-            num_extra_features = self.num_extra_features,
+            num_covariates = num_covariates,
+            num_extra_features = num_extra_features,
             embedding_dropout = self.embedding_dropout,
             hidden = self.hidden, 
             dropout = self.encoder_dropout, 
@@ -726,26 +768,38 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         assert(len(f) == self.num_exog_features)
         self._features = f
 
-    def _instantiate_model(self,*, features, highly_variable):
+    def _instantiate_model(self,*, features, highly_variable, dataset):
 
         assert(isinstance(self.num_epochs, int) and self.num_epochs > 0)
         assert(isinstance(self.batch_size, int) and self.batch_size > 0)
         assert(isinstance(self.min_learning_rate, (int, float)) and self.min_learning_rate > 0)
+
         if self.max_learning_rate is None:
             self.max_learning_rate = self.min_learning_rate
         else:
             assert(isinstance(self.max_learning_rate, float) and self.max_learning_rate > 0)
 
         self.enrichments = {}
-        self.num_endog_features = highly_variable.sum()
-        self.num_exog_features = len(features)
         self.features = features
         self.highly_variable = highly_variable
-        self.num_covariates = 0 if self.covariates_keys is None else len(self.covariates_keys)
-        self.num_extra_features = 0 if self.extra_features_keys is None else len(self.extra_features_keys)
+
+        self._get_dataset_statistics(dataset)
+        batch = next(iter(dataset.get_dataloader(self, training = True, batch_size = 2)))
+
+        self.num_endog_features = batch['endog_features'].shape[-1]
+        self.num_exog_features = batch['exog_features'].shape[-1]
+        self.num_covariates = batch['covariates'].shape[-1]
+        self.num_extra_features = batch['extra_features'].shape[-1]
         self.covariate_compensation = self.num_covariates > 0
 
-        self._get_weights()
+        self._get_weights(
+            on_gpu=True, inference_mode=False,
+            num_covariates = self.num_covariates,
+            num_exog_features = self.num_exog_features,
+            num_endog_features = self.num_endog_features,
+            num_extra_features = self.num_extra_features,
+        )
+
 
     def _step(self, batch, anneal_factor, batch_size_adjustment):
 
@@ -804,13 +858,13 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             (4.619921114045972e-06, 0.1800121741235493)
         '''
         self._instantiate_model(
-            features = features, highly_variable = highly_variable
+            features = features, 
+            highly_variable = highly_variable, 
+            dataset = dataset
         )
 
         data_loader = dataset.get_dataloader(self, 
             training=True, batch_size=self.batch_size)
-
-        self._get_dataset_statistics(dataset)
 
         n_batches = len(data_loader)
         eval_steps = ceil((n_batches * num_epochs)/eval_every)
@@ -1068,16 +1122,18 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         
         if reinit:
             self._instantiate_model(
-                features = features, highly_variable = highly_variable, 
+                features = features, 
+                highly_variable = highly_variable, 
+                dataset = dataset
             )
-
-        self._get_dataset_statistics(dataset)
 
         early_stopper = EarlyStopping(tolerance=3, patience=1e-4, convergence_check=False)
 
         n_observations = len(dataset)
-        data_loader = dataset.get_dataloader(self, training=True,
-            batch_size=self.batch_size)
+        data_loader = dataset.get_dataloader(self, 
+            training=True,
+            batch_size=self.batch_size
+        )
         n_batches = len(data_loader)
 
         scheduler = self._get_1cycle_scheduler(n_batches)
@@ -1568,6 +1624,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def _to_tensor(self, val):
         return torch.tensor(val).to(self.device)
 
+
     def _get_save_data(self):
         return dict(
             cls_name = self.__class__.__name__,
@@ -1575,13 +1632,15 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             weights = self.state_dict(),
             params = self.get_params(),
             fit_params = dict(
+                continuous_transformer = self.continuous_transformer,
+                categorical_transformer = self.categorical_transformer,
                 num_endog_features = self.num_endog_features,
                 num_exog_features = self.num_exog_features,
                 num_covariates = self.num_covariates,
+                num_extra_features = self.num_extra_features,
                 highly_variable = self.highly_variable,
                 features = self.features,
                 enrichments = self.enrichments,
-                num_extra_features = self.num_extra_features,
             )
         )
 
@@ -1601,7 +1660,12 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         for param, value in fit_params.items():
             setattr(self, param, value)
         
-        self._get_weights(on_gpu = False, inference_mode = True)
+        self._get_weights(on_gpu = False, inference_mode = True,
+                num_exog_features=self.num_endog_features,
+                num_extra_features=self.num_extra_features,
+                num_exog_features = self.num_exog_features,
+                num_covariates= self.num_covariates
+            )
 
         self.load_state_dict(weights)
         self.eval()
