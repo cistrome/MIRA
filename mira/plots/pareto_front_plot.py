@@ -81,7 +81,7 @@ def _get_pareto_front_trials_nd(trial_num, scores):
 def plot_pareto_front(trials, 
       x = 'rate',
       y = 'distortion',
-      color = 'usefulness',
+      hue = 'usefulness',
       ax = None, 
       figsize = (7,7),
       palette = 'Blues',
@@ -89,67 +89,77 @@ def plot_pareto_front(trials,
       size = 100,
       alpha = 0.8,
       add_legend = True,
+      label_pareto_front = True,
+      include_pruned_trials = False,
      ):
     
     trials = [t for t in trials if t.state in [ts.PRUNED, ts.COMPLETE]]
     
     best_trial = sorted(trials, key = lambda t : -t.values[0] if t.state == ts.COMPLETE else -np.inf)[-1]
     
-    rates = np.array([ get_trial_attr(t, x) for t in trials ])
-    distortions = np.array([ get_trial_attr(t, y) for t in trials ])
+    _x = np.array([ get_trial_attr(t, x) for t in trials ])
+    _y = np.array([ get_trial_attr(t, y) for t in trials ])
     completed = np.array([ t.state == ts.COMPLETE for t in trials ])
     
-    pareto_front_trials = _get_pareto_front_trials_nd(*get_RD_scores(trials))
+    if label_pareto_front:
+        pareto_front_trials = _get_pareto_front_trials_nd(*get_RD_scores(trials))
+    else:
+        pareto_front_trials = [t.number for t in trials] # just label all
+
     is_pareto_front = np.array([ t.number in pareto_front_trials for t in trials ])
     
     if ax is None:
         fig, ax = plt.subplots(1,1,figsize = figsize)
     
-    if not color is None:
-        usefulness = [ get_trial_attr(t, color) if front else np.nan 
+    if not hue is None:
+        _hue = [ get_trial_attr(t, hue) if front else np.nan 
                       for t, front in zip(trials, is_pareto_front) ]
         
-        if ~np.isnan(usefulness).all():
-            usefulness_color = map_colors(ax, np.array(usefulness), palette = palette, na_color = na_color,
-                cbar_kwargs=dict(orientation = 'vertical', pad = 0.01, shrink = 0.5, 
-                                 aspect = 15, anchor = (1.05, 0.5), label = color.capitalize()),
+        if ~np.isnan(_hue).all():
+            color = map_colors(ax, np.array(_hue), palette = palette, na_color = na_color,
+                                cbar_kwargs=dict(orientation = 'vertical', pad = 0.01, shrink = 0.5, 
+                                aspect = 15, anchor = (1.05, 0.5), label = hue.capitalize()),
                                 add_legend = add_legend)
     else:
-        usefulness = [np.nan]*len(trials)
-        usefulness_color = map_colors(None, np.array(usefulness), palette = palette, na_color = na_color,
+        _hue = [np.nan]*len(trials)
+        color = map_colors(None, np.array(_hue), palette = palette, na_color = na_color,
                                     add_legend = False)
     
-    marker = ['o' if complete else 'x' for complete in completed ]
     
     ax.scatter(
-        rates[completed], distortions[completed],
-        c = usefulness_color[completed],
+        _x[completed], _y[completed],
+        c = color[completed],
         marker = 'o',
-        s = size * (1.5*is_pareto_front[completed] + 1),
+        s = size * (1.5*is_pareto_front[completed]*label_pareto_front + 1),
         alpha = alpha,
         edgecolor = 'black',
         label = 'completed trials',
     )
     
-    ax.margins(0.1)
-    xlim, ylim = ax.get_xlim(), ax.get_ylim()
+    if not include_pruned_trials:
+        ax.margins(0.1)
+        xlim, ylim = ax.get_xlim(), ax.get_ylim()
     
     ax.scatter(
-        rates[~completed], distortions[~completed],
-        c = usefulness_color[~completed],
+        _x[~completed], _y[~completed],
+        c = color[~completed],
         marker = 'x',
         s = size,
         alpha = alpha,
         label = 'pruned trials',
     )
+
+    if include_pruned_trials:
+        ax.margins(0.1)
+        xlim, ylim = ax.get_xlim(), ax.get_ylim()
     
-    if x.lower() == 'rate' and y.lower() == 'distortion':
-        R0, D0 = best_trial.user_attrs['rate'], best_trial.user_attrs['distortion']
-        ax.plot(
-            (R0+D0 - 1,0),(0,R0+D0 - 1), '--',
-            label = 'min ELBO', color = 'black',
-        )
-        ylim = (ylim[0]*0.999, ylim[1])
+    #if x.lower() == 'rate' and y.lower() == 'distortion':
+    #    R0, D0 = best_trial.user_attrs['rate'], best_trial.user_attrs['distortion']
+    #    ax.plot(
+    #        (R0+D0 - 1,0),(0,R0+D0 - 1), '--',
+    #        label = 'min ELBO', color = 'black',
+    #    )
+    #    ylim = (ylim[0]*0.999, ylim[1])
     
     ax.set(
         xlim = xlim, ylim = ylim,
@@ -158,8 +168,8 @@ def plot_pareto_front(trials,
     )
     
     layout_labels(ax = ax, 
-                  x = rates[is_pareto_front], 
-                  y = distortions[is_pareto_front], 
+                  x = _x[is_pareto_front], 
+                  y = _y[is_pareto_front], 
                   label = np.array([str(t.number) for t in trials])[is_pareto_front], 
                   label_closeness=5, fontsize=20,
     )
@@ -169,6 +179,8 @@ def plot_pareto_front(trials,
 
     if add_legend:
         ax.legend()
+
+    return ax
     
 
 def plot_intermediate_values(trials, palette = 'Greys', 

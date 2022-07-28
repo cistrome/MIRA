@@ -441,9 +441,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.max_momentum = max_momentum
         self.embedding_dropout = embedding_dropout
 
-    def _get_min_resources(self):
-        return self.num_epochs#//3
-
     def _recommend_batchsize(self, n_samples):
         if n_samples < 5000:
             return 32
@@ -579,13 +576,21 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     def preprocess_categorical_covariates(self, X):
-        return self.categorical_transformer.transform(np.atleast_2d(X))
 
-    def preprocess_continuous_covariates(self, X):
-        return np.clip(
-            self.continuous_transformer.transform(np.atleast_2d(X)),
-            -10., 10.
-        ).astype(np.float32)
+        if X.size > 0:
+            return self.categorical_transformer.transform(np.atleast_2d(X))
+        else:
+            return X
+
+    def preprocess_continuous_covariates(self, X, clip = 10.):
+
+        if X.size > 0:
+            return np.clip(
+                self.continuous_transformer.transform(np.atleast_2d(X)),
+                -clip, clip
+            ).astype(np.float32)
+        else:
+            return X
         
 
     def get_training_sampler(self):
@@ -598,7 +603,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         self.categorical_transformer = OneHotEncoder(
             sparse = False, 
-            drop = 'if_binary',
             dtype = np.float32
         )
 
@@ -612,10 +616,10 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         continuous = np.vstack(continuous)
         categorical = np.vstack(categorical)
 
-        if len(continuous) > 0:
+        if continuous.size > 0:
             self.continuous_transformer.fit(continuous)
 
-        if len(categorical) > 0:
+        if categorical.size > 0:
             self.categorical_transformer.fit(categorical)
 
 
@@ -691,7 +695,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def transform_batch(self, data_loader, bar = True, desc = ''):
 
         for batch in tqdm(data_loader, desc = desc) if bar else data_loader:
-            yield batch
+            yield {k : v.to(self.device) for k,v in batch.items()}
 
     def _get_1cycle_scheduler(self, n_batches_per_epoch):
         
@@ -755,7 +759,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         assert(isinstance(h, (list, np.ndarray)))
         h = np.ravel(np.array(h))
         assert(h.dtype == bool)
-        assert(len(h) == self.num_exog_features)
+        #assert(len(h) == self.num_exog_features)
         self._highly_variable = h
 
     @property
@@ -766,7 +770,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def features(self, f):
         assert(isinstance(f, (list, np.ndarray)))
         f = np.ravel(np.array(f))
-        assert(len(f) == self.num_exog_features)
+        #assert(len(f) == self.num_exog_features)
         self._features = f
 
     def _instantiate_model(self,*, features, highly_variable, dataset):
@@ -1113,6 +1117,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         '''
         self._instantiate_model(
                 features = features, highly_variable = highly_variable, 
+                dataset = dataset,
             )
 
         return self
@@ -1662,7 +1667,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             setattr(self, param, value)
         
         self._get_weights(on_gpu = False, inference_mode = True,
-                num_exog_features=self.num_endog_features,
+                num_endog_features=self.num_endog_features,
                 num_extra_features=self.num_extra_features,
                 num_exog_features = self.num_exog_features,
                 num_covariates= self.num_covariates

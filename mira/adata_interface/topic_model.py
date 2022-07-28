@@ -1,5 +1,4 @@
 
-import chunk
 import numpy as np
 import logging
 logger = logging.getLogger(__name__)
@@ -42,10 +41,16 @@ class TopicModelDataset:
 
             endog, exog = sparse.vstack(endog_features), sparse.vstack(exog_features)
 
+
+            # covars, categorical, continuous
             covariates = np.hstack([
                 np.array(covariates), 
-                model.preprocess_categorical_covariates(categorical_covariates),
-                model.preprocess_continuous_covariates(continuous_covariates),
+                model.preprocess_categorical_covariates(
+                    np.vstack(categorical_covariates)
+                ),
+                model.preprocess_continuous_covariates(
+                    np.vstack(continuous_covariates)
+                ),
             ]).astype(np.float32)
 
             features = {
@@ -57,7 +62,7 @@ class TopicModelDataset:
             }
 
             return {
-                k : torch.tensor(v, requires_grad = False).to(model.device)
+                k : torch.tensor(v, requires_grad = False)
                 for k, v in features.items()
             }
 
@@ -213,8 +218,8 @@ class InMemoryDataset(TopicModelDataset, Dataset):
         self.exog_features = fetch_layer(self, adata[:, self.features], counts_layer, copy = False)
 
         self.covariates = fetch_columns(self, adata, covariates_keys)
-        self.categorical_covariates = fetch_columns(self, adata, categorical_covariates)
         self.continuous_covariates = fetch_columns(self, adata, continuous_covariates)
+        self.categorical_covariates = fetch_columns(self, adata, categorical_covariates, dtype = str)
 
         self.extra_features = fetch_columns(self, adata, extra_features_keys)
 
@@ -334,14 +339,15 @@ def fetch_split_train_test(self, adata):
     )
 
 
-def fetch_columns(self, adata, cols):
+def fetch_columns(self, adata, cols, dtype = np.float32):
 
     assert(isinstance(cols, list) or cols is None)
     if cols is None:
-        return None
+        return np.array([]).reshape(0, len(adata)).T
     else:
-       return np.hstack([
-            adata.obs_vector(col).astype(np.float32)[:, np.newaxis] for col in cols
+        return np.hstack([
+            adata.obs_vector(col).astype(dtype)[:, np.newaxis] 
+            for col in cols
         ])
 
 
@@ -349,6 +355,16 @@ def fetch_topic_comps(self, adata, key = 'X_topic_compositions'):
     logger.info('Fetching key {} from obsm'.format(key))
 
     covariates = fetch_columns(self, adata, self.covariates_keys)
+    
+    continuous_covariates = self.preprocess_continuous_covariates(
+        fetch_columns(self, adata, self.continuous_covariates)
+    )
+
+    categorical_covariates = self.preprocess_categorical_covariates(
+        fetch_columns(self, adata, self.categorical_covariates, dtype = str)
+    )
+
+    covariates = np.hstack([covariates, categorical_covariates, continuous_covariates])
     extra_features = fetch_columns(self, adata, self.extra_features_keys)
 
     return dict(topic_compositions = adata.obsm[key],
@@ -371,6 +387,7 @@ def add_topic_comps(adata, output, add_key = 'X_topic_compositions',
         add_cols = True, col_prefix = 'topic_'):
 
     cell_topic_dists = output['cell_topic_dists']
+    
     add_obsm(adata, cell_topic_dists, add_key = add_key)
 
     if add_cols:

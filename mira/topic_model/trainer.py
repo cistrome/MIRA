@@ -95,7 +95,7 @@ class DisableLogger:
         self.logger.setLevel(self.level)
 
 
-class FailureToImproveException(Exception):
+class FailureToImproveException(optuna.exceptions.StorageInternalError):
     pass
 
 
@@ -287,9 +287,13 @@ def joblib_print_callback(tuner):
 
     class TrialCompleteCallback(joblib.parallel.BatchCompletionCallBack):
         def __call__(self, *args, **kwargs):
-            s = str(tuner)
-            _clear_page()
-            print(s)
+            try:
+                s = str(tuner)
+                _clear_page()
+                print(s)
+            except ConnectionError:
+                pass
+
             return super().__call__(*args, **kwargs)
 
     old_batch_callback = joblib.parallel.BatchCompletionCallBack
@@ -507,6 +511,11 @@ class SpeedyTuner:
 
         self.model = self.fetch_best_weights()
 
+        try:
+            print(self)
+        except ConnectionError:
+            pass
+
         return self.model
 
 
@@ -567,10 +576,10 @@ class SpeedyTuner:
             
             return GP(
                 constant_liar = self.parallel,
-                tau = 0.01,
+                tau = 0.1,
                 min_points = startup_trials,
                 num_candidates = 300,
-                cl_function = np.mean if self.n_jobs > 5 else np.max
+                cl_function = np.mean if self.n_jobs > 1 else np.max
             )
 
         elif self.rigor >= 2:
@@ -618,13 +627,6 @@ class SpeedyTuner:
 
         with lock:
             params = self.model.suggest_parameters(self, trial)
-
-        #logger.info(
-        #    'New trial #{} - num_topics: {}'.format(
-        #        str(trial.number),
-        #        str(params['num_topics'])
-        #    )
-        #)
 
         self.model.set_params(**params, seed = self.seed + trial.number)
 
@@ -733,7 +735,7 @@ class SpeedyTuner:
                 )
 
                 try:
-                    trial = _run_trial(self.study, interior_func, (ModelParamError,)) #ValueError))
+                    trial = _run_trial(self.study, interior_func, (ModelParamError,FailureToImproveException)) #ValueError))
                 finally:
                     gc.collect()
 

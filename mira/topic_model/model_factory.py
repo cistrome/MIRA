@@ -15,6 +15,8 @@ def TopicModel(
     endogenous_key = None,
     exogenous_key = None,
     counts_layer = None,
+    categorical_covariates = None,
+    continuous_covariates = None,
     covariates_keys = None,
     extra_features_keys = None,
     latent_space = 'dirichlet',
@@ -36,8 +38,7 @@ def TopicModel(
         latent_space = 'dirichlet-process'
 
     basename = 'model'
-    if isinstance(covariates_keys, (list, np.ndarray)) \
-            and len(covariates_keys) > 0:
+    if not all([c is None for c in [categorical_covariates, continuous_covariates, covariates_keys]]):
         basename = 'covariate-model'
         baseclass = CovariateModel
     else:
@@ -64,12 +65,21 @@ def TopicModel(
         {}
     )
 
+    def none_or_1d(x):
+        if x is None:
+            return None
+        else:
+            return list(np.atleast_1d(x))
+
+
     instance = _class(
         endogenous_key = endogenous_key,
         exogenous_key = exogenous_key,
         counts_layer = counts_layer,
-        covariates_keys = covariates_keys,
-        extra_features_keys = extra_features_keys,
+        categorical_covariates = none_or_1d(categorical_covariates),
+        continuous_covariates = none_or_1d(continuous_covariates),
+        covariates_keys = none_or_1d(covariates_keys),
+        extra_features_keys = none_or_1d(extra_features_keys),
     )
 
     if automatically_set_params:

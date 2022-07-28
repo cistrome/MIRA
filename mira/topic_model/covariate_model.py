@@ -27,6 +27,8 @@ class CovariateModel(BaseModel):
             exogenous_key = None,
             counts_layer = None,
             covariates_keys = None,
+            categorical_covariates = None,
+            continuous_covariates = None,
             extra_features_keys = None,
             num_topics = 16,
             hidden = 128,
@@ -65,6 +67,8 @@ class CovariateModel(BaseModel):
         self.exogenous_key = exogenous_key
         self.counts_layer = counts_layer
         self.covariates_keys = covariates_keys
+        self.categorical_covariates = categorical_covariates
+        self.continuous_covariates = continuous_covariates
         self.extra_features_keys = extra_features_keys
         self.num_topics = num_topics
         self.hidden = hidden
@@ -97,8 +101,18 @@ class CovariateModel(BaseModel):
         self.mask_dropout = mask_dropout
         self.marginal_estimation_size = marginal_estimation_size
 
-    def _get_weights(self, on_gpu = True, inference_mode = False):
-        super()._get_weights(on_gpu=on_gpu, inference_mode=inference_mode)
+    def _get_weights(self, on_gpu = True, inference_mode = False,*,
+            num_exog_features, num_endog_features, 
+            num_covariates, num_extra_features):
+
+        super()._get_weights(
+            on_gpu=on_gpu, 
+            inference_mode=inference_mode,
+            num_exog_features = num_exog_features,
+            num_endog_features = num_endog_features,
+            num_covariates = num_covariates, 
+            num_extra_features = num_extra_features,
+        )
 
         self.dependence_network = self.dependence_model(
             self.dependence_model.get_statistics_network(
@@ -261,13 +275,12 @@ class CovariateModel(BaseModel):
         features, highly_variable, dataset):
         
         self._instantiate_model(
-            features = features, highly_variable = highly_variable
+            features = features, highly_variable = highly_variable,
+            dataset = dataset,
         )
 
         data_loader = dataset.get_dataloader(self, 
             training=True, batch_size=self.batch_size)
-
-        self._get_dataset_statistics(dataset)
 
         n_batches = len(data_loader)
         eval_steps = ceil((n_batches * num_epochs)/eval_every)
@@ -343,9 +356,8 @@ class CovariateModel(BaseModel):
         if reinit:
             self._instantiate_model(
                 features = features, highly_variable = highly_variable, 
+                dataset = dataset
             )
-
-        self._get_dataset_statistics(dataset)
 
         early_stopper = EarlyStopping(tolerance=3, patience=1e-4, convergence_check=False)
 

@@ -137,7 +137,7 @@ class ExpressionModel:
             X = X.toarray()
 
         assert(len(X.shape) == 2)
-        assert(X.shape[1] == self.num_endog_features)
+        #assert(X.shape[1] == self.num_endog_features)
         
         assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
 
@@ -153,7 +153,7 @@ class ExpressionModel:
             X = X.toarray()
 
         assert(len(X.shape) == 2)
-        assert(X.shape[1] == self.num_exog_features)
+        #assert(X.shape[1] == self.num_exog_features)
         
         assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
 
