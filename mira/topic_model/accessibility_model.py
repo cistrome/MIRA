@@ -272,13 +272,29 @@ class AccessibilityModel:
 
     def suggest_parameters(self, tuner, trial):
 
-        params = super().suggest_parameters(tuner, trial)
+        params = dict(        
+            num_topics = trial.suggest_int('num_topics', tuner.min_topics, 
+                tuner.max_topics, log=True),
+        )
 
-        if not tuner.tune_topics_only:
+        if tuner.rigor >= 1:
+            
+            params.update(
+                dict(
+                    hidden = int(2**trial.suggest_discrete_uniform('hidden', 7, 8, 1)),
+                    decoder_dropout = trial.suggest_float('decoder_dropout', 0.001, 0.2, log = True),
+                )
+            )
 
+        if tuner.rigor >= 2:
+
+            ## kitchen sink strategy
             params.update(dict(
-                embedding_size = trial.suggest_categorical('embedding_size', [64, 128, 256]),
-                embedding_dropout = trial.suggest_float('embedding_dropout', 0.0001, 0.3, log = True),
+                encoder_dropout = trial.suggest_float('encoder_dropout', 0.0001, 0.1, log = True),
+                num_layers = trial.suggest_categorical('num_layers', (2,3,)),
+                max_momentum = trial.suggest_float('max_momentum', 0.90, 0.98, log = True),
+                min_momentum = trial.suggest_float('min_momentum', 0.8, 0.89, log = True),
+                weight_decay = trial.suggest_float('weight_decay', 0.00001, 0.1, log = True)
             ))
 
         return params

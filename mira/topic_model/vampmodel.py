@@ -1,5 +1,4 @@
 
-from mira.topic_model.expression_model import ExpressionEncoder, ExpressionTopicModel
 import pyro.distributions as dist
 import torch
 from torch import nn
@@ -21,41 +20,36 @@ def mix_weights(beta):
     beta1m_cumprod = (1 - beta).cumprod(-1)
     return F.pad(beta, (0, 1), value=1) * F.pad(beta1m_cumprod, (1, 0), value=1)
 
-def _mask_drop(x, dropout_rate = 1/10, training = False):
-
-    if training:
-        return torch.multiply(
-                    torch.empty_like(x, requires_grad = False).bernoulli_(1-dropout_rate),
-                    x
-            )
-    else:
-        return x
-
 
 class NonlinDecoder(LinearDecoder):
     
-    def __init__(self, covar_channels = 32,*,
-        num_exog_features, num_topics, num_covariates, dropout):
+    def __init__(self, covariates_hidden = 32,
+        covariates_dropout = 0.05, mask_dropout = 0.05,*,
+        num_exog_features, num_topics, num_covariates, topics_dropout):
         super().__init__(
-            num_exog_features = num_exog_features,
+            covariates_hidden = covariates_hidden,
+            covariates_dropout = covariates_dropout, 
+            mask_dropout = mask_dropout,
+            num_exog_features = num_exog_features, 
             num_topics = num_topics, 
-            num_covariates = num_covariates,
-            dropout = dropout
+            num_covariates = num_covariates, 
+            topics_dropout = topics_dropout
         )
 
         self.beta = get_fc_stack(
             layer_dims = [num_topics, 128, num_exog_features],
-            dropout = dropout**(3/2), skip_nonlin = True,
+            dropout = topics_dropout, skip_nonlin = True,
         )
 
 
-class ExpressionVampModel(ExpressionTopicModel):
+class ExpressionVampModel:
 
     _decoder_model = NonlinDecoder
     
     @scope(prefix= 'rna')
     def model(self,*,endog_features, exog_features, covariates, read_depth, extra_features, 
         anneal_factor = 1., batch_size_adjustment = 1.):
+        
         pyro.module("decoder", self.decoder)
         n_mix = 512
         gamma_a, gamma_b = 1.,1.
@@ -135,3 +129,12 @@ class ExpressionVampModel(ExpressionTopicModel):
 
     def _t(self, val):
         return torch.tensor(val, requires_grad = False, device = self.device)
+
+
+    @adi.wraps_modelfunc(tmi.fetch_features,
+        fill_kwargs=['dataset'])
+    def predict(self, batch_size = 512, bar = True,*, dataset):
+
+        return self._run_encoder_fn(
+                lambda *x : self.encoder.forward(*x)[0].detach().cpu().numpy(), 
+                dataset, batch_size = batch_size, bar = bar)

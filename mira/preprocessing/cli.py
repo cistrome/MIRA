@@ -5,8 +5,8 @@ import subprocess
 
 from mira.preprocessing import iterative_merge, aggregate_countmatrix, \
         callpeaks, filter_fragment_barcodes, \
-        filter_chromosomes, label_fragments, interleave_fragments, \
-        run_atac_pipeline, run_rna_pipeline, format_adata
+        filter_chromosomes, label_fragments, interleave_fragments, format_adata, \
+        countmatrix_command
 
 class MyArgumentParser(argparse.ArgumentParser):
     def convert_arg_line_to_args(self, arg_line):
@@ -24,13 +24,11 @@ def add_subcommand(definition_file, cmd_name):
     definition_file.add_arguments(subparser)
     subparser.set_defaults(func = definition_file.main)
 
-add_subcommand(run_atac_pipeline, 'atac-pipeline')
-add_subcommand(run_rna_pipeline, 'rna-pipeline')
+add_subcommand(countmatrix_command, 'agg-countmatrix')
 add_subcommand(filter_fragment_barcodes, 'filter-barcodes')
 add_subcommand(callpeaks, 'call-peaks')
 add_subcommand(iterative_merge, 'merge-peaks')
-add_subcommand(aggregate_countmatrix, 'agg-countmatrix')
-#add_subcommand(cluster_cells, 'cluster-cells')
+add_subcommand(aggregate_countmatrix, 'count-intersection')
 add_subcommand(filter_chromosomes, 'filter-chroms')
 add_subcommand(label_fragments, 'label-fragments')
 add_subcommand(interleave_fragments, 'interleave-fragments')

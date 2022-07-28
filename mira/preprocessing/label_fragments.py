@@ -4,18 +4,21 @@ import argparse
 def label_fragments(fragment_stream,*, batch, sample):
 
     for fragment in fragment_stream:
-        line = fragment.strip().split('\t')
-        assert(len(line) >= 3)
-        
-        barcode = line[3]
 
-        barcode = '@{batch}:{sample}:{barcode}'.format(
-            batch = str(batch), sample = str(sample), barcode = barcode
-        )
+        if not fragment[0] == '#':
+            
+            line = fragment.strip().split('\t')
+            assert(len(line) >= 3)
+            
+            barcode = line[3]
 
-        yield '\t'.join(
-            [*line[:3], barcode, *line[4:]]
-        )
+            barcode = '@{batch}:{sample}:{barcode}'.format(
+                batch = str(batch), sample = str(sample), barcode = barcode
+            )
+
+            yield '\t'.join(
+                [*line[:3], barcode, *line[4:]]
+            )
 
 def add_arguments(parser):
 

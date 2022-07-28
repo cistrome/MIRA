@@ -26,7 +26,7 @@ from mira.adata_interface.core import logger as corelogger
 from torch.utils.tensorboard import SummaryWriter
 import torch
 from mira.plots.pareto_front_plot import plot_intermediate_values, plot_pareto_front
-from mira.topic_model.gp_sampler import GP, HyperbandPruner
+from mira.topic_model.gp_sampler import GP, HyperbandPruner, SuccessiveHalvingPruner
 from optuna.storages import RedisStorage
 
 
@@ -98,6 +98,7 @@ class DisableLogger:
 class FailureToImproveException(Exception):
     pass
 
+
 def terminate_after_n_failures(study, trial, 
     n_failures=5,
     min_trials = 32):
@@ -120,6 +121,7 @@ def terminate_after_n_failures(study, trial,
             failures+=1
 
     if failures > n_failures:
+        #study.stop()
         raise FailureToImproveException()
 
 
@@ -318,14 +320,15 @@ class SpeedyTuner:
             random_state = seed, shuffle = True, stratify = stratify)
 
     @classmethod
-    def load_tuning(cls,*,save_name, storage):
+    def load(cls,*,
+        save_name,
+        storage = 'sqlite:///mira-tuning.db'):
 
         return cls(
             model = None, min_topics = None, max_topics = None,
-            study_name = save_name, storage = storage,
+            storage = storage, save_name = save_name,
         )
 
-    
     def __init__(self,
         model,
         save_name,
@@ -521,7 +524,14 @@ class SpeedyTuner:
         if not self.pruner is None:
             return self.pruner
 
-        elif self.rigor == 0:
+        else:
+            
+            return SuccessiveHalvingPruner(
+                min_resource = self.model.num_epochs//3,
+                reduction_factor = 2,
+            )
+
+        '''elif self.rigor <= 0:
 
             return optuna.pruners.SuccessiveHalvingPruner(
                 min_resource=8,
@@ -535,7 +545,7 @@ class SpeedyTuner:
                 min_resource = self.model.num_epochs//3,
                 max_resource = self.model.num_epochs,
                 reduction_factor = 2,
-            )
+            )'''
 
         #    raise ValueError('Pruner {} is not an option'.format(str(self.pruner)))
 
@@ -547,18 +557,20 @@ class SpeedyTuner:
 
         elif self.rigor < 2:
             
+            num_tuners = (2 if isinstance(self.pruner, HyperbandPruner) else 1)
+
+            startup_trials = int(
+                    max(15, self.n_jobs//num_tuners)
+                )
+
+            logger.warn('Using GP sampler with {} startup random trials.'.format(str(startup_trials)))
+            
             return GP(
                 constant_liar = self.parallel,
                 tau = 0.01,
-                min_points = min(
-                    self.iters//2, 
-                    max(
-                        min(10 * (self.rigor + 1), 10), 
-                        self.n_jobs/(2 if isinstance(self.pruner, HyperbandPruner) else 1)
-                    )
-                ),
+                min_points = startup_trials,
                 num_candidates = 300,
-                cl_function = np.max
+                cl_function = np.mean if self.n_jobs > 5 else np.max
             )
 
         elif self.rigor >= 2:
@@ -578,9 +590,10 @@ class SpeedyTuner:
 
     def get_model_save_name(self, trial_number):
 
-        return os.path.join(
-            self.model_dir, self.study_name, '{}.pth'.format(str(trial_number))
-        )
+        return os.path.abspath(
+            os.path.join(
+                self.model_dir, self.study_name, '{}.pth'.format(str(trial_number))
+            ))
 
 
     def save_model(self, model, savename):
@@ -646,7 +659,7 @@ class SpeedyTuner:
                         trial_writer.add_scalar('holdout_' + metric_name, value, epoch)
                     
                     if np.isfinite(trial_score):
-                        
+
                         epoch_test_scores.append(trial_score)
                         trial.report(min(epoch_test_scores[-self.model.num_epochs//6:]), epoch)
 
@@ -665,6 +678,8 @@ class SpeedyTuner:
                 eval_metrics = self.evaluation_function(self.model, train, test)
                 for k, v in eval_metrics.items():
                     trial.set_user_attr(k, v)
+            else:
+                eval_metrics = {}
 
             metrics = {
                     'number' : trial.number,
@@ -722,11 +737,7 @@ class SpeedyTuner:
                 finally:
                     gc.collect()
 
-                #print_callback = self.serial_dashboard if not self.parallel else self.parallel_dashboard
-                stop_callback = self.get_stop_callback()
-
-                #print_callback(self.study, trial)
-                stop_callback(self.study, trial)
+                self.get_stop_callback()(self.study, trial)
 
         return trial
 
