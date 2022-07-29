@@ -279,6 +279,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             num_layers = 3,
             num_epochs = 24,
             decoder_dropout = 0.05,
+            cost_beta = 1.,
             encoder_dropout = 0.01,
             use_cuda = True,
             seed = 0,
@@ -290,12 +291,12 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             nb_parameterize_logspace = True,
             embedding_size = None,
             kl_strategy = 'cyclic',
-            reconstruction_weight = 1.,
             dataset_loader_workers = 0,
             weight_decay = 0.001,
             min_momentum = 0.85,
             max_momentum = 0.95,
             embedding_dropout = 0.05,
+            reconstruction_weight = 1.,
             ):
         '''
         Learns regulatory "topics" from single-cell multiomics data. Topics capture 
@@ -440,6 +441,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.min_momentum = min_momentum
         self.max_momentum = max_momentum
         self.embedding_dropout = embedding_dropout
+        self.cost_beta = cost_beta
 
     def _recommend_batchsize(self, n_samples):
         if n_samples < 5000:

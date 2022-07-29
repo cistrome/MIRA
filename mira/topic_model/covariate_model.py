@@ -35,6 +35,7 @@ class CovariateModel(BaseModel):
             num_layers = 3,
             num_epochs = 40,
             decoder_dropout = 0.05,
+            cost_beta = 1.,
             encoder_dropout = 0.01,
             use_cuda = True,
             seed = 0,
@@ -46,10 +47,8 @@ class CovariateModel(BaseModel):
             nb_parameterize_logspace = True,
             embedding_size = None,
             kl_strategy = 'cyclic',
-            reconstruction_weight = 1.,
             dataset_loader_workers = 0,
             dependence_lr = 1e-4,
-            dependence_beta = 1.,
             dependence_hidden = 64,
             dependence_model = WassersteinDualRobust,
             weight_decay = 0.001,
@@ -60,6 +59,8 @@ class CovariateModel(BaseModel):
             covariates_dropout = 0.025,
             mask_dropout = 0.05,
             marginal_estimation_size = 256,
+            reconstruction_weight = 1.,
+            dependence_beta = 1.,
             ):
         super().__init__()
 
