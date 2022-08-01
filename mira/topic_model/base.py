@@ -645,7 +645,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         assert(isinstance(self.num_topics, int) and self.num_topics > 0)
         assert(isinstance(self.features, (list, np.ndarray)))
         assert(len(self.features) == self.num_exog_features)
-        assert isinstance(self.reconstruction_weight, (int, float)) and self.reconstruction_weight > 0
+        assert isinstance(self.cost_beta, (int, float)) and self.cost_beta > 0
 
         use_cuda = torch.cuda.is_available() and self.use_cuda and on_gpu
         self.device = torch.device('cuda:0' if use_cuda else 'cpu')
@@ -905,7 +905,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 for batch in self.transform_batch(data_loader, bar = False):
                     
                     try:
-                        step_loss += self._step(batch, 1/self.reconstruction_weight, self._get_loss_adjustment(batch))['loss']
+                        step_loss += self._step(batch, self.cost_beta, self._get_loss_adjustment(batch))['loss']
                     except ValueError:
                         raise ModelParamError()
 
@@ -1162,8 +1162,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             running_loss = 0.0
             for batch in self.transform_batch(data_loader, bar = False):
                 
-                anneal_factor = anneal_fn(step_count)/self.reconstruction_weight
-                self._last_anneal_factor = anneal_factor
+                anneal_factor = anneal_fn(step_count) * self.cost_beta
 
                 try:
                     
@@ -1202,7 +1201,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
             epoch+=1
 
-            yield epoch, epoch_loss
+            yield epoch, epoch_loss, anneal_factor
 
         self.set_device('cpu')
         self.eval()

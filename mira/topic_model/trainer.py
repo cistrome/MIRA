@@ -121,7 +121,6 @@ def terminate_after_n_failures(study, trial,
             failures+=1
 
     if failures > n_failures:
-        #study.stop()
         raise FailureToImproveException()
 
 
@@ -339,9 +338,9 @@ class SpeedyTuner:
         min_topics,
         max_topics,*,
         n_jobs = 1,
-        max_trials = 64,
-        min_trials = 24,
-        stop_condition = 8,
+        max_trials = 128,
+        min_trials = 48,
+        stop_condition = 12,
         seed = 2556,
         tensorboard_logdir = 'runs',
         model_dir = 'models',
@@ -638,13 +637,13 @@ class SpeedyTuner:
                 print('Evaluating: ' + _format_params(params))
 
             epoch_test_scores = []
-            for epoch, train_loss in self.model._internal_fit(train, 
+            for epoch, train_loss, anneal_factor in self.model._internal_fit(train, 
                     writer = trial_writer if self.log_steps else None,
                     log_every = self.log_every):
                 
                 try:
                     distortion, rate, metrics = self.model.distortion_rate_loss(test, bar = False, 
-                                                        _beta_weight = self.model._last_anneal_factor)
+                                                        _beta_weight = anneal_factor)
 
                     trial_score = distortion + rate
 
@@ -655,7 +654,7 @@ class SpeedyTuner:
                     trial_writer.add_scalar('holdout_distortion', distortion, epoch)
                     trial_writer.add_scalar('holdout_rate', rate, epoch)
                     trial_writer.add_scalar('holdout_loss', trial_score, epoch)
-                    trial_writer.add_scalar('holdout_KL_weight', self.model._last_anneal_factor, epoch)
+                    trial_writer.add_scalar('holdout_KL_weight', anneal_factor, epoch)
 
                     for metric_name, value in metrics.items():
                         trial_writer.add_scalar('holdout_' + metric_name, value, epoch)

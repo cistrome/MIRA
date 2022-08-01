@@ -101,6 +101,8 @@ class CovariateModel(BaseModel):
         self.covariates_dropout = covariates_dropout
         self.mask_dropout = mask_dropout
         self.marginal_estimation_size = marginal_estimation_size
+        self.cost_beta = cost_beta
+
 
     def _get_weights(self, on_gpu = True, inference_mode = False,*,
             num_exog_features, num_endog_features, 
@@ -123,10 +125,8 @@ class CovariateModel(BaseModel):
             self.marginal_estimation_size
         ).to(self.device)
 
-    def _recommend_num_layers(self, n_samples):
-        return 3
 
-    def _recommend_dependence_beta(self, n_samples):
+    '''def _recommend_dependence_beta(self, n_samples):
         if isinstance(self, ExpressionModel):
             return 1.
         else:
@@ -135,7 +135,7 @@ class CovariateModel(BaseModel):
     def recommend_parameters(self, n_samples, n_features, finetune = False):
         parameters = super().recommend_parameters(n_samples, n_features, finetune = finetune)
         parameters['dependence_beta'] = self._recommend_dependence_beta(n_samples)
-        return parameters
+        return parameters'''
 
 
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
@@ -150,7 +150,7 @@ class CovariateModel(BaseModel):
         return -self.dependence_network(
             self.decoder.biological_signal.detach(),
             self.decoder.covariate_signal.detach(),
-        ).item() * self.dependence_beta * self.decoder.biological_signal.detach().shape[0]
+        ).item() * self.cost_beta * self.decoder.biological_signal.detach().shape[0]
 
 
     def _get_dependence_loss(self, batch_size = 512, bar =False,*, dataset):
@@ -320,9 +320,9 @@ class CovariateModel(BaseModel):
 
                     try:
                         metrics = self._step(batch, *optimizers, *parameters,
-                                anneal_factor = 1/self.reconstruction_weight, 
+                                anneal_factor = self.cost_beta, 
                                 batch_size_adjustment = self._get_loss_adjustment(batch),
-                                disentanglement_coef = self.dependence_beta)
+                                disentanglement_coef = self.cost_beta)
                     except ValueError:
                         raise ModelParamError()
                         
@@ -397,15 +397,14 @@ class CovariateModel(BaseModel):
             running_loss = 0.0
             for batch in self.transform_batch(data_loader, bar = False):
                 
-                anneal_factor = anneal_fn(step_count)/self.reconstruction_weight
-                self._last_anneal_factor = anneal_factor
+                anneal_factor = anneal_fn(step_count) * self.cost_beta
                 disentanglement_coef = disentangle_fn(step_count)
 
                 try:
 
                     metrics = self._step(batch, *optimizers, *parameters, 
                         anneal_factor = anneal_factor, batch_size_adjustment = self._get_loss_adjustment(batch),
-                        disentanglement_coef = disentanglement_coef * self.dependence_beta)
+                        disentanglement_coef = disentanglement_coef * self.cost_beta)
 
                 except ValueError:
                     raise ModelParamError('Gradient overflow caused parameter values that were too large to evaluate.\nTry setting a lower maximum learning rate or changing the model seed.')
@@ -442,7 +441,7 @@ class CovariateModel(BaseModel):
 
             epoch+=1
 
-            yield epoch, epoch_loss
+            yield epoch, epoch_loss, anneal_factor
 
         self.set_device('cpu')
         self.eval()
