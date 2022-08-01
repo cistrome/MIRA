@@ -7,7 +7,7 @@ import mira.rp_model as rp
 import mira.plots as pl
 from mira import datasets as datasets
 
-__version__ = "1.0.4"
+__version__ = "2.0.0a0"
 
 import logging
 logging.basicConfig(level= logging.INFO)
