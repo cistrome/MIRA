@@ -278,7 +278,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             hidden = 128,
             num_layers = 3,
             num_epochs = 24,
-            decoder_dropout = 0.05,
+            decoder_dropout = 0.025,
             cost_beta = 1.,
             encoder_dropout = 0.01,
             use_cuda = True,
@@ -453,12 +453,14 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     def _recommend_hidden(self, n_samples):
-        if n_samples < 2400:
+        if n_samples <= 1000:
             return 64
-        elif n_samples < 20000:
+        elif n_samples <= 4000:
             return 128
-        else:
+        elif n_samples <= 10000:
             return 256
+        else:
+            return 512
 
     def _recommend_num_layers(self, n_samples):
         if n_samples < 2400:
@@ -483,17 +485,14 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         if tuner.rigor >= 1:
             
-            params.update(
-                dict(
-                    hidden = int(2**trial.suggest_discrete_uniform('hidden', 6, 9, 1)),
-                    decoder_dropout = trial.suggest_float('decoder_dropout', 0.001, 0.2, log = True),
-                )
-            )
+            params['decoder_dropout'] = \
+                    trial.suggest_float('decoder_dropout', 0.01, 0.2, log = True)
 
         if tuner.rigor >= 2:
 
             ## kitchen sink strategy
             params.update(dict(
+                hidden = trial.suggest_categorical('hidden', [64,128,256,512]),
                 encoder_dropout = trial.suggest_float('encoder_dropout', 0.0001, 0.1, log = True),
                 num_layers = trial.suggest_categorical('num_layers', (2,3,)),
                 max_momentum = trial.suggest_float('max_momentum', 0.90, 0.98, log = True),
@@ -822,7 +821,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @adi.wraps_modelfunc(fetch = tmi.fit, 
         fill_kwargs=['features','highly_variable','dataset'], requires_adata = False)
-    def get_learning_rate_bounds(self, num_epochs = 3, eval_every = 3, 
+    def get_learning_rate_bounds(self, num_steps = 100, eval_every = 3, num_epochs = 3,
         lower_bound_lr = 1e-6, upper_bound_lr = 5,*,
         features, highly_variable, dataset):
         '''
@@ -873,8 +872,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         data_loader = dataset.get_dataloader(self, 
             training=True, batch_size=self.batch_size)
 
-        n_batches = len(data_loader)
-        eval_steps = ceil((n_batches * num_epochs)/eval_every)
+        #n_batches = len(data_loader)
+        eval_steps = int(num_steps)# ceil((n_batches * num_epochs)/eval_every)
 
         learning_rates = np.exp(
                 np.linspace(np.log(lower_bound_lr), 
@@ -899,7 +898,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             t = trange(eval_steps-2, desc = 'Learning rate range test', leave = True)
             _t = iter(t)
 
-            for epoch in range(num_epochs + 1):
+            while True:
 
                 self.train()
                 for batch in self.transform_batch(data_loader, bar = False):
@@ -915,12 +914,10 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                         scheduler.step()
                         learning_rate_losses.append(step_loss/(eval_every * self.batch_size * self.num_exog_features))
                         step_loss = 0.0
-                        try:
-                            next(_t)
-                        except StopIteration:
-                            break
+                        
+                        next(_t)
 
-        except ModelParamError as err:
+        except (ModelParamError, StopIteration) as err:
             pass
 
         self.gradient_lr = np.array(learning_rates[:len(learning_rate_losses)])

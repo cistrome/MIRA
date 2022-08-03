@@ -1,4 +1,5 @@
 
+from multiprocessing.sharedctypes import Value
 import numpy as np
 from sklearn.model_selection import train_test_split
 from functools import partial
@@ -288,10 +289,11 @@ def joblib_print_callback(tuner):
         def __call__(self, *args, **kwargs):
             try:
                 s = str(tuner)
+            except (ConnectionError, OSError):
+                _clear_page()
+            else:
                 _clear_page()
                 print(s)
-            except ConnectionError:
-                pass
 
             return super().__call__(*args, **kwargs)
 
@@ -511,6 +513,7 @@ class SpeedyTuner:
         self.model = self.fetch_best_weights()
 
         try:
+            _clear_page()
             print(self)
         except ConnectionError:
             pass
@@ -644,7 +647,13 @@ class SpeedyTuner:
                 try:
                     distortion, rate, metrics = self.model.distortion_rate_loss(test, bar = False, 
                                                         _beta_weight = anneal_factor)
-
+                except ValueError: # if evaluation fails for some reason
+                    pass # just keep going unless training fails in outer loop
+                         # this is implemented because sometimes early in training the
+                         # estimation of test-set topics is unstable and can cause errors.
+                         # In this case, it is better to just keep going with training,
+                         # which will usually stabilize the model
+                else:
                     trial_score = distortion + rate
 
                     if not self.parallel:
@@ -668,14 +677,8 @@ class SpeedyTuner:
                             must_prune = True
                             break
 
-                except ValueError as err: # if evaluation fails for some reason
-                    pass # just keep going unless training fails in outer loop
-                         # this is implemented because sometimes early in training the
-                         # estimation of test-set topics is unstable and can cause errors.
-                         # In this case, it is better to just keep going with training,
-                         # which will usually stabilize the model
-
             if not self.evaluation_function is None:
+                raise NotImplementedError()
                 eval_metrics = self.evaluation_function(self.model, train, test)
                 for k, v in eval_metrics.items():
                     trial.set_user_attr(k, v)
@@ -734,7 +737,9 @@ class SpeedyTuner:
                 )
 
                 try:
-                    trial = _run_trial(self.study, interior_func, (ModelParamError,FailureToImproveException)) #ValueError))
+                    trial = _run_trial(self.study, interior_func, 
+                        (ModelParamError,)
+                    )
                 finally:
                     gc.collect()
 
@@ -746,14 +751,18 @@ class SpeedyTuner:
     def fetch_weights(self, trial_num):
 
         try:
-            path = self.study.trials[trial_num].user_attrs['path']
-        except IndexError:
-            raise IndexError('Trial {} does not exist.'.format(trial_num))
+
+            for trial in self.study.trials:
+                if trial.number == trial_num:
+                    return self.model.load(trial.user_attrs['path'])
+            else:
+                raise ValueError('Trial {} does not exist.'.format(trial_num))
+            
         except KeyError:
             raise KeyError('No model saved for trial {}. Trial was either pruned or failed.'\
                     .format(str(trial_num)))
 
-        return self.model.load(path)
+        
 
 
     def fetch_best_weights(self):
@@ -783,10 +792,10 @@ class SpeedyTuner:
         )
 
 
-    def plot_pareto_front(self,
+    def plot_pareto_front(self, 
         x = 'num_topics',
         y = 'elbo',
-        color = 'distortion',
+        hue = 'distortion',
         ax = None, 
         figsize = (7,7),
         palette = 'Blues',
@@ -794,9 +803,14 @@ class SpeedyTuner:
         size = 100,
         alpha = 0.8,
         add_legend = True,
-    ):
+        label_pareto_front = True,
+        include_pruned_trials = False,
+     ):
         
-        return plot_pareto_front(self.study.trials, x = x, y = y, color = color,
+        return plot_pareto_front(self.study.trials, 
+            x = x, y = y, 
+            hue = hue, label_pareto_front = label_pareto_front, 
+            include_pruned_trials= include_pruned_trials,
             ax = ax, figsize= figsize, palette = palette, na_color = na_color,
             size = size, alpha = alpha, add_legend = add_legend
         )

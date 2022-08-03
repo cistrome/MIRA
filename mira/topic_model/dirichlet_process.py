@@ -62,7 +62,7 @@ class DPModel:
         )
 
         instance.set_params(
-            num_topics = self._predict_num_topics(self.stick_len, self.num_topics, 0.05)
+            num_topics = self.predict_num_topics()
         )
 
         return instance
@@ -89,19 +89,8 @@ class DPModel:
             np.argmin(expected_comp > contribution)
         )
 
-
-    def get_topic_range(self, max_contribution = 0.1, min_contribution = 0.01):
-
-        min_topics = self._predict_num_topics(
-            self.stick_len, self.num_topics, contribution= max_contribution
-        )
-
-        max_topics = self._predict_num_topics(
-            self.stick_len, self.num_topics, contribution= min_contribution
-        )
-
-        return min_topics, max_topics
-
+    def predict_num_topics(self, contribution = 0.05):
+        return self._predict_num_topics(self.stick_len, self.num_topics, contribution)
 
     @property
     def stick_len(self):

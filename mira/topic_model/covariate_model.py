@@ -34,7 +34,7 @@ class CovariateModel(BaseModel):
             hidden = 128,
             num_layers = 3,
             num_epochs = 40,
-            decoder_dropout = 0.05,
+            decoder_dropout = 0.025,
             cost_beta = 1.,
             encoder_dropout = 0.01,
             use_cuda = True,
@@ -271,7 +271,8 @@ class CovariateModel(BaseModel):
     @adi.wraps_modelfunc(fetch = tmi.fit, 
         fill_kwargs=['features','highly_variable','dataset'],
         requires_adata = False)
-    def get_learning_rate_bounds(self, num_epochs = 3, eval_every = 3, 
+    def get_learning_rate_bounds(self, num_steps = 100, 
+        num_epochs = 3, eval_every = 3, 
         lower_bound_lr = 1e-6, upper_bound_lr = 1,*,
         features, highly_variable, dataset):
         
@@ -283,8 +284,8 @@ class CovariateModel(BaseModel):
         data_loader = dataset.get_dataloader(self, 
             training=True, batch_size=self.batch_size)
 
-        n_batches = len(data_loader)
-        eval_steps = ceil((n_batches * num_epochs)/eval_every)
+        #n_batches = len(data_loader)
+        eval_steps = num_steps #ceil((n_batches * num_epochs)/eval_every)
 
         learning_rates = np.exp(
                 np.linspace(np.log(lower_bound_lr), 
@@ -313,7 +314,7 @@ class CovariateModel(BaseModel):
             t = trange(eval_steps-2, desc = 'Learning rate range test', leave = True)
             _t = iter(t)
 
-            for epoch in range(num_epochs + 1):
+            while True:
 
                 self.train()
                 for batch in self.transform_batch(data_loader, bar = False):
@@ -335,14 +336,11 @@ class CovariateModel(BaseModel):
                         learning_rate_losses.append(
                             step_loss/(eval_every * self.batch_size * self.num_exog_features)
                         )
-
                         step_loss = 0.
-                        try:
-                            next(_t)
-                        except StopIteration:
-                            break
+                        
+                        next(_t)
 
-        except ModelParamError as err:
+        except (ModelParamError, StopIteration) as err:
             pass
             
         self.gradient_lr = np.array(learning_rates[:len(learning_rate_losses)])
