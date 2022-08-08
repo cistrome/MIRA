@@ -157,6 +157,8 @@ class Decoder(nn.Module):
             self.covariate_signal = self.get_batch_effect(X1, covariates, 
                 nullify_covariates = nullify_covariates)
 
+            #print(self.covariate_signal[0,:5])
+
             self.biological_signal = self.get_biological_effect(X1)
 
         return F.softmax(
@@ -278,7 +280,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             hidden = 128,
             num_layers = 3,
             num_epochs = 24,
-            decoder_dropout = 0.025,
+            decoder_dropout = 0.1,
             cost_beta = 1.,
             encoder_dropout = 0.01,
             use_cuda = True,
@@ -486,7 +488,9 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         if tuner.rigor >= 1:
             
             params['decoder_dropout'] = \
-                    trial.suggest_float('decoder_dropout', 0.01, 0.2, log = True)
+                trial.suggest_float('decoder_dropout', 0.025, 0.2, log = True)
+                    #trial.suggest_float('decoder_dropout', 0.01, 0.2, log = True)
+                    
 
         if tuner.rigor >= 2:
 
@@ -517,6 +521,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def recommend_parameters(self, n_samples, n_features, finetune = False):
 
         assert isinstance(n_samples, int) and n_samples > 0
+        n_samples*=0.8
 
         batchsize = self._recommend_batchsize(n_samples)
         epochs = 24 if not finetune else 48
@@ -600,28 +605,13 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             shuffle = True, drop_last=True)
 
 
-    def _get_dataset_statistics(self, dataset):
+    def _get_dataset_statistics(self, dataset, training_bar = True):
 
         self.categorical_transformer = OneHotEncoder(
             sparse = False, 
             dtype = np.float32
         )
-
         self.continuous_transformer = StandardScaler()
-
-        continuous, categorical = [],[]
-        for x in dataset:
-            continuous.append(x['continuous_covariates'])
-            categorical.append(x['categorical_covariates'])
-
-        continuous = np.vstack(continuous)
-        categorical = np.vstack(categorical)
-
-        if continuous.size > 0:
-            self.continuous_transformer.fit(continuous)
-
-        if categorical.size > 0:
-            self.categorical_transformer.fit(categorical)
 
 
     def _get_loss_adjustment(self, batch):
@@ -774,7 +764,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         #assert(len(f) == self.num_exog_features)
         self._features = f
 
-    def _instantiate_model(self,*, features, highly_variable, dataset):
+    def _instantiate_model(self, training_bar = True,*, features, highly_variable, dataset):
 
         assert(isinstance(self.num_epochs, int) and self.num_epochs > 0)
         assert(isinstance(self.batch_size, int) and self.batch_size > 0)
@@ -789,11 +779,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.features = features
         self.highly_variable = highly_variable
 
-        self._get_dataset_statistics(dataset)
+        self._get_dataset_statistics(dataset, training_bar = training_bar)
         batch = next(iter(dataset.get_dataloader(self, training = True, batch_size = 2)))
 
-        self.num_endog_features = batch['endog_features'].shape[-1]
-        self.num_exog_features = batch['exog_features'].shape[-1]
+        self.num_endog_features = self.highly_variable.sum() #batch['endog_features'].shape[-1]
+        self.num_exog_features = len(self.features) #batch['exog_features'].shape[-1]
         self.num_covariates = batch['covariates'].shape[-1]
         self.num_extra_features = batch['extra_features'].shape[-1]
         self.covariate_compensation = self.num_covariates > 0
@@ -1129,7 +1119,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             self._instantiate_model(
                 features = features, 
                 highly_variable = highly_variable, 
-                dataset = dataset
+                dataset = dataset,
+                training_bar = training_bar
             )
 
         early_stopper = EarlyStopping(tolerance=3, patience=1e-4, convergence_check=False)
@@ -1541,7 +1532,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
             yield fn(
                     torch.tensor(latent_composition[start : end], requires_grad = False).to(self.device),
-                    torch.tensor(covariates[start : end], requires_grad = False).to(self.device) if self.num_covariates > 0 else None,
+                    torch.tensor(covariates[start : end].astype(np.float32), requires_grad = False).to(self.device) if self.num_covariates > 0 else None,
                 ).detach().cpu().numpy()
 
 

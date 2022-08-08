@@ -518,6 +518,11 @@ class SpeedyTuner:
         except ConnectionError:
             pass
 
+        if self.max_topics - self.model.num_topics <= 3:
+            logger.error('Optimal # of topics was very close to the maximum topics boundary! Please increase "max_topics" and re-tune.')
+        elif self.model.num_topics - self.min_topics <=3:
+            logger.error('Optimal # of topics was very close to the minimum topics boundary! Please decrease "min_topics" and re-tune.')
+
         return self.model
 
 

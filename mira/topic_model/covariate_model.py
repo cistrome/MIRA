@@ -34,7 +34,7 @@ class CovariateModel(BaseModel):
             hidden = 128,
             num_layers = 3,
             num_epochs = 40,
-            decoder_dropout = 0.025,
+            decoder_dropout = 0.1,
             cost_beta = 1.,
             encoder_dropout = 0.01,
             use_cuda = True,
@@ -56,7 +56,7 @@ class CovariateModel(BaseModel):
             max_momentum = 0.95,
             embedding_dropout = 0.05,
             covariates_hidden = 32,
-            covariates_dropout = 0.025,
+            covariates_dropout = 0.05,
             mask_dropout = 0.05,
             marginal_estimation_size = 256,
             reconstruction_weight = 1.,
@@ -125,6 +125,22 @@ class CovariateModel(BaseModel):
             self.marginal_estimation_size
         ).to(self.device)
 
+    def _get_dataset_statistics(self, dataset, training_bar = True):
+        super()._get_dataset_statistics(dataset, training_bar = training_bar)
+
+        continuous, categorical = [],[]
+        for x in tqdm(dataset, desc = 'Gathering dataset statistics') if training_bar else dataset:
+            continuous.append(x['continuous_covariates'])
+            categorical.append(x['categorical_covariates'])
+
+        continuous = np.vstack(continuous)
+        categorical = np.vstack(categorical)
+
+        if continuous.size > 0:
+            self.continuous_transformer.fit(continuous)
+
+        if categorical.size > 0:
+            self.categorical_transformer.fit(categorical)
 
     '''def _recommend_dependence_beta(self, n_samples):
         if isinstance(self, ExpressionModel):
@@ -323,7 +339,7 @@ class CovariateModel(BaseModel):
                         metrics = self._step(batch, *optimizers, *parameters,
                                 anneal_factor = self.cost_beta, 
                                 batch_size_adjustment = self._get_loss_adjustment(batch),
-                                disentanglement_coef = self.cost_beta)
+                                disentanglement_coef = self.cost_beta * self.dependence_beta)
                     except ValueError:
                         raise ModelParamError()
                         
@@ -355,7 +371,7 @@ class CovariateModel(BaseModel):
         if reinit:
             self._instantiate_model(
                 features = features, highly_variable = highly_variable, 
-                dataset = dataset
+                dataset = dataset, training_bar = training_bar,
             )
 
         early_stopper = EarlyStopping(tolerance=3, patience=1e-4, convergence_check=False)
@@ -396,13 +412,14 @@ class CovariateModel(BaseModel):
             for batch in self.transform_batch(data_loader, bar = False):
                 
                 anneal_factor = anneal_fn(step_count) * self.cost_beta
-                disentanglement_coef = disentangle_fn(step_count)
+                disentanglement_coef = disentangle_fn(step_count) \
+                        * self.cost_beta * self.dependence_beta
 
                 try:
 
                     metrics = self._step(batch, *optimizers, *parameters, 
                         anneal_factor = anneal_factor, batch_size_adjustment = self._get_loss_adjustment(batch),
-                        disentanglement_coef = disentanglement_coef * self.cost_beta)
+                        disentanglement_coef = disentanglement_coef )
 
                 except ValueError:
                     raise ModelParamError('Gradient overflow caused parameter values that were too large to evaluate.\nTry setting a lower maximum learning rate or changing the model seed.')

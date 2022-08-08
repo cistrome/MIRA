@@ -116,9 +116,6 @@ class AccessibilityModel:
     def peaks(self):
         return self.features
 
-    def _get_min_resources(self):
-        return self.num_epochs//2
-
     def _recommend_num_layers(self, n_samples):
         return 2
 
@@ -161,14 +158,13 @@ class AccessibilityModel:
         return dense_matrix
 
     @staticmethod
-    def _binarize_matrix(X, expected_width):
+    def _binarize_matrix(X):
         assert(isinstance(X, np.ndarray) or isspmatrix(X))
         
         if not isspmatrix(X):
             X = sparse.csr_matrix(X)
 
         assert(len(X.shape) == 2)
-        assert(X.shape[1] == expected_width)
         
         assert(np.isclose(X.data.astype(np.uint16), X.data, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
 
@@ -219,14 +215,14 @@ class AccessibilityModel:
     def preprocess_endog(self, X):
         
         return self._get_padded_idx_matrix(
-                self._binarize_matrix(X, self.num_endog_features)
+                self._binarize_matrix(X)
                 ).astype(np.int32)
 
     def preprocess_exog(self, X):
 
         return self._get_padded_idx_matrix(
-                self._binarize_matrix(X, self.num_exog_features)
-                ).astype(np.int64)
+                self._binarize_matrix(X)
+            ).astype(np.int64)
 
     '''def get_rd_fn(self):
         
@@ -281,8 +277,7 @@ class AccessibilityModel:
             
             params.update(
                 dict(
-                    hidden = int(2**trial.suggest_discrete_uniform('hidden', 7, 8, 1)),
-                    decoder_dropout = trial.suggest_float('decoder_dropout', 0.001, 0.2, log = True),
+                    decoder_dropout = trial.suggest_float('decoder_dropout', 0.05, 0.2, log = True),
                 )
             )
 
@@ -299,17 +294,11 @@ class AccessibilityModel:
 
         return params
 
-    def get_dataloader(self, dataset, training = False, batch_size = 512):
-        
-        if self.dataset_loader_workers == 0:
-            logger.warn('Dataset loader allocated no extra workers. This will slow down training by ~50%.')
-
-        return super().get_dataloader(dataset, training = training,
-                        batch_size=batch_size)
 
     def _argsort_peaks(self, topic_num):
         assert(isinstance(topic_num, int) and topic_num < self.num_topics and topic_num >= 0)
         return np.argsort(self._score_features()[topic_num, :])
+
 
     def rank_peaks(self, topic_num):
         return self.peaks[self._argsort_peaks(topic_num)]

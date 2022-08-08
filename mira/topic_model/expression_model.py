@@ -1,5 +1,4 @@
 
-from tokenize import Name
 import torch
 import torch.nn.functional as F
 from mira.topic_model.base import BaseModel, get_fc_stack
@@ -106,8 +105,8 @@ class ExpressionModel:
 
         return np.clip(np.nan_to_num(r_ij), -10, 10)
 
-    def _get_dataset_statistics(self, dataset):
-        super()._get_dataset_statistics(dataset)
+    def _get_dataset_statistics(self, dataset, training_bar = True):
+        super()._get_dataset_statistics(dataset, training_bar = training_bar)
 
         def convert(x):
             return x['endog_features'].toarray().reshape(-1)
