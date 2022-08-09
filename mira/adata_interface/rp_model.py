@@ -189,7 +189,7 @@ def wraps_rp_func(adata_adder = lambda self, expr_adata, atac_adata, output, **k
             if not 'softmax_denom' in expr_adata.obs.columns:
                 self.expr_model._get_softmax_denom(expr_adata, include_batcheffects = True)
 
-            if not 'batch_effects' in expr_adata.layers and batch_correction:
+            if not 'batch_effect' in expr_adata.layers and batch_correction:
                 self.expr_model.get_batch_effect(expr_adata)
 
             expr_softmax_denom = expr_adata.obs_vector('softmax_denom')

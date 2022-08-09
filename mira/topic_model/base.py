@@ -453,6 +453,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         else:
             return 128
 
+    def _recommend_embedding_size(self, n_samples):
+        return None
 
     def _recommend_hidden(self, n_samples):
         if n_samples <= 1000:
@@ -521,7 +523,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def recommend_parameters(self, n_samples, n_features, finetune = False):
 
         assert isinstance(n_samples, int) and n_samples > 0
-        n_samples*=0.8
 
         batchsize = self._recommend_batchsize(n_samples)
         epochs = 24 if not finetune else 48
@@ -532,6 +533,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             'num_layers' : self._recommend_num_layers(n_samples),
             'num_epochs' : epochs,
             'num_topics' : self._recommend_num_topics(n_samples),
+            'embedding_size' : self._recommend_embedding_size(n_samples)
         }
 
         return params

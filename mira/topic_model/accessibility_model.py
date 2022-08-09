@@ -119,6 +119,12 @@ class AccessibilityModel:
     def _recommend_num_layers(self, n_samples):
         return 2
 
+    def _recommend_embedding_size(self, n_samples):
+        if n_samples <= 2000:
+            return 128
+        
+        return 256
+
     def _get_padded_idx_matrix(self, accessibility_matrix):
 
         width = int(accessibility_matrix.sum(-1).max())
