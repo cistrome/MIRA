@@ -116,14 +116,15 @@ class AccessibilityModel:
     def peaks(self):
         return self.features
 
-    def _recommend_num_layers(self, n_samples):
-        return 2
 
-    def _recommend_embedding_size(self, n_samples):
+    def _recommend_hidden(self, n_samples):
         if n_samples <= 2000:
             return 128
-        
-        return 256
+        else:
+            return 256
+
+    def _recommend_embedding_size(self, n_samples):
+        return None
 
     def _get_padded_idx_matrix(self, accessibility_matrix):
 

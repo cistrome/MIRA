@@ -103,6 +103,8 @@ class CovariateModel(BaseModel):
         self.marginal_estimation_size = marginal_estimation_size
         self.cost_beta = cost_beta
 
+    def _recommend_num_layers(self, n_samples):
+        return 3
 
     def _get_weights(self, on_gpu = True, inference_mode = False,*,
             num_exog_features, num_endog_features, 
