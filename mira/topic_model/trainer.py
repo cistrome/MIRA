@@ -586,7 +586,7 @@ class SpeedyTuner:
                 tau = 0.1,
                 min_points = startup_trials,
                 num_candidates = 300,
-                cl_function = np.mean if self.n_jobs > 1 else np.max
+                cl_function = np.mean #if self.n_jobs > 1 else np.max
             )
 
         elif self.rigor >= 2:

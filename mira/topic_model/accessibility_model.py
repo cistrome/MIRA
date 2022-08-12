@@ -1,23 +1,20 @@
 
 import numpy as np
 import pyro
-import pyro.distributions as dist
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from tqdm.auto import tqdm
 import warnings
 from sklearn.preprocessing import scale
 from scipy import sparse
 from scipy.stats import fisher_exact
 from scipy.sparse import isspmatrix
-from mira.topic_model.base import BaseModel, get_fc_stack, logger, encoder_layer
-from pyro.contrib.autoname import scope
-from pyro import poutine
 from sklearn.preprocessing import scale
 import mira.adata_interface.core as adi
 import mira.adata_interface.regulators as ri
 from mira.plots.factor_influence_plot import plot_factor_influence
+from mira.topic_model.accessibility_encoders import \
+        DANEncoder, DANSkipEncoder
+
 
 class ZeroPaddedBinaryMultinomial(pyro.distributions.Multinomial):
     
@@ -56,75 +53,21 @@ class ZeroPaddedMultinomial(pyro.distributions.Multinomial):
         return log_factorial_n - log_factorial_xs + log_powers
 
 
-class DANEncoder(nn.Module):
-
-    def __init__(self, embedding_size = None, *,num_endog_features, num_topics, embedding_dropout,
-        hidden, dropout, num_layers, num_exog_features, num_covariates, num_extra_features):
-        super().__init__()
-
-        if embedding_size is None:
-            embedding_size = hidden
-
-        self.word_dropout_rate = embedding_dropout
-        self.embedding = nn.Embedding(num_endog_features + 1, embedding_size, padding_idx=0)
-        self.embedding_bn = nn.BatchNorm1d(embedding_size)
-
-        self.num_topics = num_topics
-        self.calc_readdepth = True
-
-        self.output_layer = encoder_layer(hidden, 2*num_topics, 
-                dropout = dropout, nonlin = False)
-
-        hidden_input = embedding_size + 1 + num_covariates + num_extra_features
-        self.hidden_layers = get_fc_stack(
-            layer_dims = [hidden_input, *[hidden]*(num_layers-2)],
-            dropout = dropout, skip_nonlin = False
-        )
-
-    def forward(self, idx, read_depth, covariates, extra_features):
-       
-        if self.training:
-            corrupted_idx = torch.multiply(
-                torch.empty_like(idx).bernoulli_(1-self.word_dropout_rate),
-                idx
-            )
-        else:
-            corrupted_idx = idx
-
-        if self.calc_readdepth: # for compatibility with older models
-            read_depth = (corrupted_idx > 0).sum(-1, keepdim=True)
-
-        embeddings = self.embedding(corrupted_idx) # N, T, D
-        embeddings = self.embedding_bn(embeddings.sum(1)/read_depth)
-
-        hidden_input = torch.hstack([embeddings, read_depth.log(), covariates, extra_features]) #inject read depth into model
-        
-        X = self.output_layer(
-            self.hidden_layers(hidden_input) + embeddings # skip connection
-        )
-
-        theta_loc = X[:, :self.num_topics]
-        theta_scale = F.softplus(X[:, self.num_topics:(2*self.num_topics)])  
-
-        return theta_loc, theta_scale
-
-
-    def topic_comps(self, idx, read_depth, covariates, extra_features):
-        theta = self.forward(idx, read_depth, covariates, extra_features)[0]
-        theta = theta.exp()/theta.exp().sum(-1, keepdim = True)
-       
-        return theta.detach().cpu().numpy()
-
 
 class AccessibilityModel:
 
-    encoder_model = DANEncoder
     count_model = 'binary'
 
     @property
     def peaks(self):
         return self.features
 
+    @property
+    def encoder_model(self):
+        if self.skipconnection_atac_encoder:
+            return DANSkipEncoder
+        else:
+            return DANEncoder
 
     def _recommend_hidden(self, n_samples):
         if n_samples <= 2000:

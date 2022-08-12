@@ -10,7 +10,6 @@ from pyro.infer import SVI, TraceMeanField_ELBO
 from tqdm.auto import tqdm, trange
 import numpy as np
 import logging
-from math import ceil
 import time
 from sklearn.base import BaseEstimator
 import mira.adata_interface.core as adi
@@ -19,7 +18,6 @@ import gc
 import matplotlib.pyplot as plt
 from scipy.cluster.hierarchy import linkage
 import mira.topic_model.ilr_tools as ilr
-from torch.utils.data import DataLoader
 import time
 from torch.distributions import kl_divergence
 from collections import defaultdict
@@ -231,6 +229,9 @@ def load_model(filename):
         data['cls_name'], data['cls_bases'], {}
     )
 
+    if not 'skipconnection_atac_encoder' in data['params']:
+        data['params']['skipconnection_atac_encoder'] = False # for backwards compat with old ATAC model encoder
+
     model = _class(**data['params'])
     model._set_weights(data['fit_params'], data['weights'])
 
@@ -299,6 +300,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             max_momentum = 0.95,
             embedding_dropout = 0.05,
             reconstruction_weight = 1.,
+            skipconnection_atac_encoder = True,
             ):
         '''
         Learns regulatory "topics" from single-cell multiomics data. Topics capture 
@@ -444,6 +446,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.max_momentum = max_momentum
         self.embedding_dropout = embedding_dropout
         self.cost_beta = cost_beta
+        self.skipconnection_atac_encoder = skipconnection_atac_encoder
+
 
     def _recommend_batchsize(self, n_samples):
         if n_samples < 5000:
@@ -624,9 +628,10 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             num_covariates, num_extra_features):
         
         try:
-            del self.svi
+            del self.svi, self.encoder, self.decoder
         except AttributeError:
             pass
+
         gc.collect()
         pyro.clear_param_store()
         torch.cuda.empty_cache()
@@ -1245,7 +1250,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             dataset=dataset)
 
 
-    def _run_encoder_fn(self, fn, dataset, batch_size = 512, bar = True, desc = 'Predicting latent vars'):
+    def _run_encoder_fn(self, fn, dataset, batch_size = 256, bar = True, desc = 'Predicting latent vars'):
 
         assert(isinstance(batch_size, int) and batch_size > 0)
         
@@ -1281,7 +1286,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @adi.wraps_modelfunc(tmi.fetch_features, tmi.add_topic_comps,
         fill_kwargs=['dataset'])
-    def predict(self, batch_size = 512, bar = True,*, dataset):
+    def predict(self, batch_size = 256, bar = True,*, dataset):
         '''
         Predict the topic compositions of cells in the data. Adds the 
         topic compositions to the `.obsm` field of the adata object.
@@ -1333,7 +1338,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @adi.wraps_modelfunc(tmi.fetch_features, 
         fill_kwargs=['dataset'])
-    def _untransformed_Z(self, batch_size = 512, bar = True,*, dataset):
+    def _untransformed_Z(self, batch_size = 256, bar = True,*, dataset):
 
         return self._run_encoder_fn(self.encoder.untransformed_Z, 
                 dataset, batch_size = batch_size, bar = bar)
@@ -1434,7 +1439,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     def _evaluate_vae_loss(self, model, losses, 
-        batch_size = 512, bar = False,*, dataset):
+        batch_size = 256, bar = False,*, dataset):
 
         self.eval()
         self._set_seeds()
@@ -1456,14 +1461,14 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
         fill_kwargs=['dataset'], requires_adata = False)
-    def distortion_rate_loss(self, batch_size = 512, bar = False, 
+    def distortion_rate_loss(self, batch_size = 256, bar = False, 
             _beta_weight = 1.,*, dataset):
         
         return self._distortion_rate_loss(batch_size= batch_size, _beta_weight = _beta_weight,
             dataset = dataset)
 
 
-    def _distortion_rate_loss(self, batch_size = 512, _beta_weight = 1., bar = False,*,dataset):
+    def _distortion_rate_loss(self, batch_size = 256, _beta_weight = 1., bar = False,*,dataset):
 
         self.eval()
         vae_loss, rate = self._evaluate_vae_loss(
@@ -1479,7 +1484,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
         fill_kwargs=['dataset'], requires_adata = False)
-    def score(self, batch_size = 512, *, dataset):
+    def score(self, batch_size = 256, *, dataset):
         '''
         Get normalized ELBO loss for data. This method is only available on
         topic models that have not been loaded from disk.
@@ -1524,7 +1529,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     
     def _run_decoder_fn(self, fn, latent_composition, covariates,
-        batch_size = 512, bar = True, desc = 'Imputing features'):
+        batch_size = 256, bar = True, desc = 'Imputing features'):
 
         assert(isinstance(batch_size, int) and batch_size > 0)
         
@@ -1539,7 +1544,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
 
     def _batched_impute(self, latent_composition, covariates, 
-        batch_size = 512, bar = True):
+        batch_size = 256, bar = True):
 
         return self._run_decoder_fn(partial(self.decoder, nullify_covariates = True), 
                     latent_composition, covariates,
@@ -1548,7 +1553,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, adi.add_layer,
         fill_kwargs=['topic_compositions','covariates','extra_features'])
-    def impute(self, batch_size = 512, bar = True, *, topic_compositions,
+    def impute(self, batch_size = 256, bar = True, *, topic_compositions,
         covariates, extra_features):
         '''
         Impute the relative frequencies of features given the cells' topic
@@ -1585,7 +1590,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         ])
 
     def batched_batch_effect(self, latent_composition, covariates, 
-        batch_size = 512, bar = True):
+        batch_size = 256, bar = True):
 
         return self._run_decoder_fn(self.decoder.get_batch_effect, 
                     latent_composition, covariates,
@@ -1594,7 +1599,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_layer, add_layer = 'batch_effect'),
         fill_kwargs=['topic_compositions','covariates','extra_features'])
-    def get_batch_effect(self, batch_size = 512, bar = True, *, topic_compositions,
+    def get_batch_effect(self, batch_size = 256, bar = True, *, topic_compositions,
         covariates, extra_features):
 
         if self.num_covariates == 0:
@@ -1609,7 +1614,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_obs_col, colname = 'softmax_denom'), 
         fill_kwargs = ['topic_compositions','covariates', 'extra_features'])
     def _get_softmax_denom(self, topic_compositions, covariates, extra_features,
-            batch_size = 512, bar = True, include_batcheffects = True):
+            batch_size = 256, bar = True, include_batcheffects = True):
 
         return np.concatenate([
             x for x in self._run_decoder_fn(

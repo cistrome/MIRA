@@ -61,6 +61,7 @@ class CovariateModel(BaseModel):
             marginal_estimation_size = 256,
             reconstruction_weight = 1.,
             dependence_beta = 1.,
+            skipconnection_atac_encoder = True
             ):
         super().__init__()
 
@@ -102,6 +103,7 @@ class CovariateModel(BaseModel):
         self.mask_dropout = mask_dropout
         self.marginal_estimation_size = marginal_estimation_size
         self.cost_beta = cost_beta
+        self.skipconnection_atac_encoder = skipconnection_atac_encoder
 
     def _recommend_num_layers(self, n_samples):
         return 3
@@ -109,6 +111,11 @@ class CovariateModel(BaseModel):
     def _get_weights(self, on_gpu = True, inference_mode = False,*,
             num_exog_features, num_endog_features, 
             num_covariates, num_extra_features):
+
+        try:
+            del self.dependence_network
+        except AttributeError:
+            pass
 
         super()._get_weights(
             on_gpu=on_gpu, 
