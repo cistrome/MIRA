@@ -78,6 +78,7 @@ class AccessibilityModel:
     def _recommend_embedding_size(self, n_samples):
         return None
 
+
     def _get_padded_idx_matrix(self, accessibility_matrix):
 
         width = int(accessibility_matrix.sum(-1).max())
@@ -116,6 +117,7 @@ class AccessibilityModel:
         
         return dense_matrix
 
+
     @staticmethod
     def _binarize_matrix(X):
         assert(isinstance(X, np.ndarray) or isspmatrix(X))
@@ -132,46 +134,7 @@ class AccessibilityModel:
         return X
 
 
-    ### OLD CODE ###
-    '''def _get_padded_idx_matrix(self, accessibility_matrix):
-
-        width = int(accessibility_matrix.sum(-1).max())
-
-        dense_matrix = []
-        for i in range(accessibility_matrix.shape[0]):
-            row = accessibility_matrix[i,:].indices + 1
-            if len(row) == width:
-                dense_matrix.append(np.array(row)[np.newaxis, :])
-            else:
-                dense_matrix.append(np.concatenate([np.array(row), np.zeros(width - len(row))])[np.newaxis, :]) #0-pad tail to "width"
-
-        dense_matrix = np.vstack(dense_matrix)
-        
-        return dense_matrix
-
-
-    def get_endog_fn(self):
-
-        def preprocess_endog(X):
-        
-            return self._get_padded_idx_matrix(
-                    self._binarize_matrix(X, self.num_endog_features)).astype(np.int32)
-
-        return preprocess_endog
-                   
-
-    def get_exog_fn(self):
-        
-        def preprocess_exog(X):
-
-            return self._get_padded_idx_matrix(
-                    self._binarize_matrix(X, self.num_exog_features)
-                    ).astype(np.int64)
-
-        return preprocess_exog'''
-
-
-    def preprocess_endog(self, X):
+    '''def preprocess_endog(self, X):
         
         return self._get_padded_idx_matrix(
                 self._binarize_matrix(X)
@@ -181,49 +144,18 @@ class AccessibilityModel:
 
         return self._get_padded_idx_matrix(
                 self._binarize_matrix(X)
-            ).astype(np.int64)
+            ).astype(np.int64)'''
 
-    '''def get_rd_fn(self):
+
+    def preprocess_endog(self, X):
         
-        def preprocess_read_depth(X):
-            return np.array((X > 0).sum(-1)).reshape((-1,1)).astype(np.float32)
-        
-        return preprocess_read_depth
-
-
-    def get_endog_fn(self):
-
-        def preprocess_endog_binary(X):
-        
-            return self._get_padded_idx_matrix(
-                    self._binarize_matrix(X, self.num_endog_features)).astype(np.int32)
-
-        def preprocess_endog(X):
-        
-            return self._get_padded_idx_matrix(X).astype(np.int64)
-
-        if self.count_model == 'binary':
-            return preprocess_endog_binary
-
-        return preprocess_endog
+        return self._get_padded_idx_matrix(X).astype(np.int64)
                    
 
-    def get_exog_fn(self):
-        
-        def preprocess_exog(X):
+    def preprocess_exog(self, X):
 
-            return self._dense_counts_matrix(X).astype(np.int64)
+        return self._dense_counts_matrix(X).astype(np.int64)
 
-        def preprocess_exog_binary(X):
-
-            return self._get_padded_idx_matrix(
-                    self._binarize_matrix(X, self.num_exog_features)
-                    ).astype(np.int64)
-
-        if self.count_model == 'binary':
-            return preprocess_exog_binary
-
-        return preprocess_exog'''
 
     def suggest_parameters(self, tuner, trial):
 

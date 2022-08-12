@@ -41,7 +41,6 @@ class TopicModelDataset:
 
             endog, exog = sparse.vstack(endog_features), sparse.vstack(exog_features)
 
-
             # covars, categorical, continuous
             covariates = np.hstack([
                 np.array(covariates), 
@@ -68,6 +67,18 @@ class TopicModelDataset:
 
         return collate(**_transpose_list_of_dict(batch))
 
+    def check_meta(self, model):
+        
+        for check, value in self.get_fit_meta().items():
+            assert getattr(model, check) == value, \
+                    'This on-disk dataset may not have been compiled with ' \
+                    'this model\'s parameters. Mismatch in {}: model has {}, dataset has {}'.format(
+                        check, getattr(model, check), value
+                    )
+
+
+    def get_fit_meta(self):
+        return self._fit_meta
 
     def get_dataloader(self,
         model,
@@ -123,7 +134,8 @@ class OnDiskDataset(TopicModelDataset, IterableDataset):
         meta = {
             'features' : features,
             'highly_variable' : highly_variable,
-            'length' : len(dataset)
+            'length' : len(dataset),
+            'fit_meta' : dataset.get_fit_meta(),
         }
         
         with open(os.path.join(dirname, 'dataset_meta.pkl'), 'wb') as f:
@@ -150,6 +162,7 @@ class OnDiskDataset(TopicModelDataset, IterableDataset):
 
         self.features = self.dataset_meta['features']
         self.highly_variable = self.dataset_meta['highly_variable']
+        self._fit_meta = self.dataset_meta['fit_meta']
 
         self.chunk_names = glob.glob(
             os.path.join(dirname, 'chunks', '*.pkl')
@@ -183,21 +196,21 @@ class OnDiskDataset(TopicModelDataset, IterableDataset):
 class InMemoryDataset(TopicModelDataset, Dataset):
 
     @classmethod
-    def get_features(cls, model, adata):
+    def get_features(cls, adata, endogenous_key, exogenous_key):
 
-        if model.exogenous_key is None:
+        if exogenous_key is None:
             predict_mask = np.ones(adata.shape[-1]).astype(bool)
         else:
-            predict_mask = adata.var_vector(model.exogenous_key)
-            logger.info('Predicting expression from genes from col: ' + model.exogenous_key)
+            predict_mask = adata.var_vector(exogenous_key)
+            logger.info('Predicting expression from genes from col: ' + exogenous_key)
                 
         adata = adata[:, predict_mask]
 
-        if model.endogenous_key is None:
+        if endogenous_key is None:
             highly_variable = np.ones(adata.shape[-1]).astype(bool)
         else:
-            highly_variable = adata.var_vector(model.endogenous_key)
-            logger.info('Using highly-variable genes from col: ' + model.endogenous_key)
+            highly_variable = adata.var_vector(endogenous_key)
+            logger.info('Using highly-variable genes from col: ' + endogenous_key)
 
         features = adata.var_names.values
         highly_variable = highly_variable
@@ -205,10 +218,24 @@ class InMemoryDataset(TopicModelDataset, Dataset):
         return features, highly_variable
 
 
-    def __init__(self, adata,*,
-        features, highly_variable, 
+    def __init__(self, adata,
+        exogenous_key = None, endogenous_key = None,
+        features = None, highly_variable = None,*,
         categorical_covariates, continuous_covariates, covariates_keys, 
-        extra_features_keys, counts_layer):
+        extra_features_keys, counts_layer,
+        ):
+
+        self._fit_meta = dict(
+            categorical_covariates = categorical_covariates,
+            continuous_covariates = continuous_covariates,
+            extra_features_keys = extra_features_keys,
+            counts_layer = counts_layer,
+            exogenous_key = exogenous_key,
+            endogenous_key = endogenous_key,
+        )
+
+        if features is None or highly_variable is None:
+            features, highly_variable = self.get_features(adata, endogenous_key, exogenous_key)
 
         assert len(features) == len(highly_variable)
 
@@ -243,12 +270,10 @@ class InMemoryDataset(TopicModelDataset, Dataset):
 
 def fit_adata(self, adata):
 
-    features, highly_variable = InMemoryDataset.get_features(self, adata)
-
     dataset = InMemoryDataset(
         adata, 
-        features=features,
-        highly_variable=highly_variable,
+        endogenous_key=self.endogenous_key,
+        exogenous_key=self.exogenous_key,
         covariates_keys=self.covariates_keys,
         continuous_covariates=self.continuous_covariates,
         categorical_covariates=self.categorical_covariates,
@@ -269,6 +294,8 @@ def fit_on_disk_dataset(self, dirname):
         dirname = dirname, 
         seed = self.seed
     )
+
+    dataset.check_meta(self)
     
     return dict(
         features = dataset.features,
@@ -295,8 +322,10 @@ def fetch_features(self, adata_or_dirname):
     if isinstance(adata_or_dirname, str):
 
         dataset = OnDiskDataset(dirname=adata_or_dirname)
+
         assert all(self.features == dataset.features)
         assert all(self.highly_variable == dataset.highly_variable)
+        dataset.check_meta(self)
 
         return {'dataset' : dataset}
 

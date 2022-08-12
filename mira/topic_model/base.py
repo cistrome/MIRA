@@ -550,7 +550,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         if dirname is None:
             raise ValueError('Must provide a "dirname" for to write the dataset')
 
-        tmi.OnDiskDataset.write_to_disk(batch_size = self.batch_size,
+        tmi.OnDiskDataset.write_to_disk(
+            batch_size = self.batch_size,
             dirname = dirname, 
             features = features,
             highly_variable = highly_variable, 

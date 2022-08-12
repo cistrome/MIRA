@@ -147,10 +147,12 @@ class AccessibilityDirichletModel(DirichletMarginals):
                 peak_probs = self.decoder(theta, covariates)
                 
                 if self.count_model == 'binary':
+                    #print('this')
                     pyro.sample(
                         'obs', ZeroPaddedBinaryMultinomial(total_count = 1, probs = peak_probs), obs = exog_features,
                     )
                 else:
+                    #print('here')
                     pyro.sample(
                         'obs', ZeroPaddedMultinomial(probs = peak_probs, validate_args = False), obs = (exog_features, endog_features),
                     )
