@@ -101,23 +101,6 @@ class AccessibilityModel:
         return dense_matrix
 
 
-    def _dense_counts_matrix(self, accessibility_matrix):
-
-        width = int((accessibility_matrix > 0).sum(-1).max())
-
-        dense_matrix = []
-        for i in range(accessibility_matrix.shape[0]):
-            row = accessibility_matrix[i,:].data
-            if len(row) == width:
-                dense_matrix.append(np.array(row)[np.newaxis, :])
-            else:
-                dense_matrix.append(np.concatenate([np.array(row), np.zeros(width - len(row))])[np.newaxis, :]) #0-pad tail to "width"
-
-        dense_matrix = np.vstack(dense_matrix)
-        
-        return dense_matrix
-
-
     @staticmethod
     def _binarize_matrix(X):
         assert(isinstance(X, np.ndarray) or isspmatrix(X))
@@ -134,7 +117,7 @@ class AccessibilityModel:
         return X
 
 
-    '''def preprocess_endog(self, X):
+    def preprocess_endog(self, X):
         
         return self._get_padded_idx_matrix(
                 self._binarize_matrix(X)
@@ -144,9 +127,26 @@ class AccessibilityModel:
 
         return self._get_padded_idx_matrix(
                 self._binarize_matrix(X)
-            ).astype(np.int64)'''
+            ).astype(np.int64)
 
 
+    '''
+    def _dense_counts_matrix(self, accessibility_matrix):
+
+        width = int((accessibility_matrix > 0).sum(-1).max())
+
+        dense_matrix = []
+        for i in range(accessibility_matrix.shape[0]):
+            row = accessibility_matrix[i,:].data
+            if len(row) == width:
+                dense_matrix.append(np.array(row)[np.newaxis, :])
+            else:
+                dense_matrix.append(np.concatenate([np.array(row), np.zeros(width - len(row))])[np.newaxis, :]) #0-pad tail to "width"
+
+        dense_matrix = np.vstack(dense_matrix)
+        
+        return dense_matrix
+    
     def preprocess_endog(self, X):
         
         return self._get_padded_idx_matrix(X).astype(np.int64)
@@ -154,36 +154,7 @@ class AccessibilityModel:
 
     def preprocess_exog(self, X):
 
-        return self._dense_counts_matrix(X).astype(np.int64)
-
-
-    def suggest_parameters(self, tuner, trial):
-
-        params = dict(        
-            num_topics = trial.suggest_int('num_topics', tuner.min_topics, 
-                tuner.max_topics, log=True),
-        )
-
-        if tuner.rigor >= 1:
-            
-            params.update(
-                dict(
-                    decoder_dropout = trial.suggest_float('decoder_dropout', 0.05, 0.2, log = True),
-                )
-            )
-
-        if tuner.rigor >= 2:
-
-            ## kitchen sink strategy
-            params.update(dict(
-                encoder_dropout = trial.suggest_float('encoder_dropout', 0.0001, 0.1, log = True),
-                num_layers = trial.suggest_categorical('num_layers', (2,3,)),
-                max_momentum = trial.suggest_float('max_momentum', 0.90, 0.98, log = True),
-                min_momentum = trial.suggest_float('min_momentum', 0.8, 0.89, log = True),
-                weight_decay = trial.suggest_float('weight_decay', 0.00001, 0.1, log = True)
-            ))
-
-        return params
+        return self._dense_counts_matrix(X).astype(np.int64)'''
 
 
     def _argsort_peaks(self, topic_num):

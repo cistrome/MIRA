@@ -352,6 +352,7 @@ class SpeedyTuner:
         sampler = None,
         log_steps = False,
         log_every = 10,
+        min_dropout = None,
         evaluation_function = None,
     ):
         self.model = model
@@ -371,6 +372,7 @@ class SpeedyTuner:
         self.log_every = log_every
         self.model_dir = model_dir
         self.rigor = rigor
+        self.min_dropout = min_dropout
         self.evaluation_function = evaluation_function
         self.study = self.create_study()
 

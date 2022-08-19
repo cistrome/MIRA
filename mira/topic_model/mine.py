@@ -119,47 +119,33 @@ def dual_ema_loss(x, running_mean, alpha):
 
 class WassersteinDual(Wasserstein):
 
-    lr = 1e-4
-    hidden = 64
-    loss_beta = 5000
 
-    def __init__(self, T, alpha=0.01):
-        super().__init__(T, alpha = alpha)
+    def __init__(self, T, marg_estimation_size = 256):
+        super().__init__(T, alpha = None)
+        self.marg_estimation_size = marg_estimation_size
 
-    def forward(self, x, z, z_marg=None):
-        if z_marg is None:
-            z_marg = z[torch.randperm(x.shape[0])]
+    def get_marg(self, x, z):
 
-        t = self.T((x, z)).mean()
-        t_marg = self.T((x, z_marg)).mean()
+        batch_size = x.shape[0]
 
-        self.running_mean = dual_ema_loss(
-            t_marg, self.running_mean, self.alpha)
+        valid_pairs = np.argwhere(np.ones((batch_size,batch_size)) - np.identity(batch_size)).astype(int)
+        x_idx, z_idx = valid_pairs[:,0], valid_pairs[:,1]
 
-        return -t + t_marg
-        
+        samp = np.random.choice(len(x_idx), size = self.marg_estimation_size)
 
-class WassersteinDualEMA(Wasserstein):
+        return x[x_idx[samp]], z[z_idx[samp]]
 
 
-    def __init__(self, T, alpha = 0.1):
-        super().__init__(T, alpha = alpha)
-        
-
-
-    def forward(self, x, z, z_marg=None):
-        if z_marg is None:
-            z_marg = z[torch.randperm(x.shape[0])]
+    def forward(self, x, z):
 
         t = self.T((x, z)).mean()
-        t_marg = self.T((x, z_marg)).mean()
 
-        if self.training:
-            self.running_mean = dual_ema_loss(
-                t_marg, self.running_mean, self.alpha)
-            
-            t_marg = self.running_mean
-
+        x_marg, z_marg = self.get_marg(x,z)
+        
+        marginals = self.T((x_marg, z_marg))
+        
+        t_marg = marginals.mean()
+        
         return -t + t_marg
 
 

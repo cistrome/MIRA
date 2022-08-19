@@ -131,7 +131,7 @@ class Decoder(nn.Module):
             self.batch_effect_model = nn.Sequential(
                 ConcatLayer(1),
                 encoder_layer(num_topics + num_covariates, 
-                    covariates_hidden, dropout=1/20, nonlin=True),
+                    covariates_hidden, dropout=covariates_dropout, nonlin=True),
                 nn.Linear(covariates_hidden, num_exog_features),
                 nn.BatchNorm1d(num_exog_features, affine = False),
             )
@@ -241,6 +241,7 @@ def load_model(filename):
 class BaseModel(torch.nn.Module, BaseEstimator):
 
     _decoder_model = Decoder
+    _min_dropout = 0.05
 
     @classmethod
     def load(cls, filename):
@@ -483,19 +484,19 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             (n_samples**0.2 - 1)/0.2
         )
 
-
     def suggest_parameters(self, tuner, trial): 
 
         params = dict(        
             num_topics = trial.suggest_int('num_topics', tuner.min_topics, 
-                tuner.max_topics, log=True),
+                tuner.max_topics, log=False),
         )
 
         if tuner.rigor >= 1:
             
+            min_dropout = self._min_dropout if tuner.min_dropout is None else tuner.min_dropout
+
             params['decoder_dropout'] = \
-                trial.suggest_float('decoder_dropout', 0.025, 0.2, log = True)
-                    #trial.suggest_float('decoder_dropout', 0.01, 0.2, log = True)
+                trial.suggest_float('decoder_dropout', min_dropout, 0.2, log = True)
                     
 
         if tuner.rigor >= 2:
@@ -511,17 +512,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             ))
 
         return params
-
-        '''params = dict(
-            num_topics = trial.suggest_int('num_topics', tuner.min_topics, tuner.max_topics, log=True),
-            decoder_dropout = trial.suggest_float('decoder_dropout', 0.001, 0.1, log = True),
-            covariates_dropout = trial.suggest_float('covariates_dropout', 0.001, 0.1, log = True),
-            mask_dropout = trial.suggest_float('mask_dropout', 0.001, 0.1, log = True),
-            covariates_hidden = trial.suggest_categorical('covariates_hidden', (32, 64, 128)),
-            dependence_hidden = trial.suggest_categorical('dependence_hidden', (64,128)),
-        )
-
-        return params'''
 
 
     def recommend_parameters(self, n_samples, n_features, finetune = False):
