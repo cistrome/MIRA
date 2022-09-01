@@ -155,8 +155,6 @@ class Decoder(nn.Module):
             self.covariate_signal = self.get_batch_effect(X1, covariates, 
                 nullify_covariates = nullify_covariates)
 
-            #print(self.covariate_signal[0,:5])
-
             self.biological_signal = self.get_biological_effect(X1)
 
         return F.softmax(
@@ -287,7 +285,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             encoder_dropout = 0.01,
             use_cuda = True,
             seed = 0,
-            min_learning_rate = 1e-6,
+            min_learning_rate = 1e-3,
             max_learning_rate = 1e-1,
             beta = 0.92,
             batch_size = 64,

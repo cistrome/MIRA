@@ -39,7 +39,7 @@ class CovariateModel(BaseModel):
             encoder_dropout = 0.01,
             use_cuda = True,
             seed = 0,
-            min_learning_rate = 1e-6,
+            min_learning_rate = 1e-3,
             max_learning_rate = 1e-1,
             beta = 0.95,
             batch_size = 64,
