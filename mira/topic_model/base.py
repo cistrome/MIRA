@@ -1,5 +1,4 @@
 from functools import partial
-from random import triangular
 from scipy import interpolate
 import pyro
 import torch
@@ -23,7 +22,9 @@ from torch.distributions import kl_divergence
 from collections import defaultdict
 from mira.topic_model.mine import ConcatLayer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
+from sklearn.model_selection import train_test_split
+import os
+from shutil import rmtree
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +201,66 @@ class OneCycleLR_Wrapper(torch.optim.lr_scheduler.OneCycleLR):
     def __init__(self, optimizer, **kwargs):
         max_lr = kwargs.pop('max_lr')
         super().__init__(optimizer, max_lr, **kwargs)
+
+
+class DataCache:
+
+    def __init__(self, model, adata, prefix, 
+        cache_dir = './', seed = 0, train_size = 0.8):
+
+        self.cache_dir = cache_dir
+        self.model = model
+        self.prefix = prefix
+        self.adata = adata
+        self.seed = seed
+        self.train_size = train_size
+
+    def get_cache_path(self):
+        return os.path.join(
+            self.cache_dir, '.' + str(self.prefix) + '-' + self.model.get_datacache_hash()
+        )
+
+    @property
+    def train_cache(self):
+        return os.path.join(self.get_cache_path(), 'train/')
+
+    @property
+    def test_cache(self):
+        return os.path.join(self.get_cache_path(), 'test/')
+
+    def rm_cache(self):
+        rmtree(self.get_cache_path())
+
+    def cache_data(self, overwrite = False):
+
+        if os.path.isdir(self.get_cache_path()):
+            if overwrite:
+                self.rm_cache()
+                os.mkdir(self.get_cache_path())
+            else:
+                logger.warn('Cache already exists for this dataset, skipping writing step. If you wish to overwrite, \n'
+                            'pass "overwrite = True" to this method.')
+                return self.train_cache, self.test_cache
+        else:
+            os.mkdir(self.get_cache_path())
+
+        train, test = self.model.train_test_split(
+            self.adata, 
+            seed = self.seed, 
+            train_size = self.train_size
+        )
+
+        self.model.write_ondisk_dataset(train, dirname = self.train_cache)
+        self.model.write_ondisk_dataset(test, dirname = self.test_cache)
+
+        return self.train_cache, self.test_cache
+
+
+    def __enter__(self):
+        return self.cache_data()
+        
+    def __exit__(self ,type, value, traceback):
+        self.rm_cache()
 
 
 def load_model(filename):
@@ -447,6 +508,93 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.cost_beta = cost_beta
         self.skipconnection_atac_encoder = skipconnection_atac_encoder
 
+    def get_datacache_hash(self):
+
+        def none_to_list(x):
+            if x is None:
+                return []
+            else:
+                return x
+
+        return str(hash(
+            ':'.join(
+                map(str, [
+                    self.endogenous_key, 
+                    self.exogenous_key, 
+                    self.counts_layer,
+                    str(self.__class__),
+                    *none_to_list(self.continuous_covariates),
+                    *none_to_list(self.categorical_covariates),
+                    *none_to_list(self.covariates_keys),
+                    *none_to_list(self.extra_features_keys),
+                ])
+            )
+        ))
+
+    @staticmethod
+    def digitize_categorical_covariate(covar):
+
+        covar = np.array(covar).astype(str).reshape(-1)
+        categories = np.unique(covar)
+        category_map = dict(zip(categories, range(len(categories))))
+
+        return np.array(
+            list(map(lambda x : category_map[x], covar))
+        ).astype(int)
+
+
+    @staticmethod
+    def digitize_continuous_covariate(covar):
+
+        covar = np.array(covar).reshape(-1).astype(float)
+        mean, std = covar.mean(), covar.std()
+
+        standardized = np.floor(
+            (covar - mean)/std
+        ).astype(int)
+
+        return np.clip(standardized, -3, 3)
+
+
+    def train_test_split(self, adata,
+        train_size = 0.8, seed = 0,
+        stratify = None):
+
+        def none_to_list(x):
+            if x is None:
+                return []
+            else:
+                return x
+
+        if stratify is None \
+            and (not self.categorical_covariates is None \
+            or not self.continuous_covariates is None) :
+
+            covariates_bins = []
+            if not self.categorical_covariates is None:
+                for covar in self.categorical_covariates:
+                    covariates_bins.append(
+                        self.digitize_categorical_covariate(
+                            adata.obs_vector(covar)
+                        )
+                    )
+
+            if not self.continuous_covariates is None:
+                for covar in self.continuous_covariates:
+                    covariates_bins.append(
+                        self.digitize_continuous_covariate(
+                            adata.obs_vector(covar)
+                        )
+                    )
+
+            stratify = list(map(tuple,  list(zip(*covariates_bins)) ))
+
+        return train_test_split(adata, 
+            train_size = train_size, 
+            random_state = seed, 
+            shuffle = True, 
+            stratify = stratify
+        )
 
     def _recommend_batchsize(self, n_samples):
         if n_samples < 5000:

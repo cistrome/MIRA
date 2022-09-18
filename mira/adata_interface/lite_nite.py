@@ -26,12 +26,16 @@ def fetch_logp_data(self, adata, counts_layer = None):
         nite_logp = nite_logp[:, overlapped_genes].toarray(),
         gene_expr = expression[:, overlapped_genes].toarray(),
         genes = adata.var_names[overlapped_genes].values,
+        litemodel_logp = adata[:,overlapped_genes].varm['LITE_model_logp'],
+        nitemodel_logp = adata[:,overlapped_genes].varm['NITE_model_logp'],
     )
     
 
 def add_NITE_score_gene(adata, output):
 
     genes, nite_score, nonzero_counts = output
+
+    print(nite_score)
     
     adata.var['NITE_score'] = \
         project_matrix(adata.var_names.values, genes, nite_score[np.newaxis,:]).reshape(-1)

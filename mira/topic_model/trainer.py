@@ -1,5 +1,4 @@
 
-from multiprocessing.sharedctypes import Value
 import numpy as np
 from sklearn.model_selection import train_test_split
 from functools import partial
@@ -17,12 +16,13 @@ import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)  # Setup the root logger.
 from mira.topic_model.base import logger as baselogger
-from mira.topic_model.base import ModelParamError
+from mira.topic_model.base import ModelParamError, DataCache
 from optuna.exceptions import ExperimentalWarning
 import warnings
 warnings.filterwarnings("ignore", category=ExperimentalWarning, module="optuna")
 from mira.adata_interface.topic_model import logger as interfacelogger
 from mira.adata_interface.core import logger as corelogger
+import time
 
 from torch.utils.tensorboard import SummaryWriter
 import torch
@@ -354,6 +354,7 @@ class SpeedyTuner:
         log_every = 10,
         min_dropout = None,
         evaluation_function = None,
+        train_size = 0.8,
     ):
         self.model = model
         self.n_jobs = n_jobs
@@ -374,6 +375,7 @@ class SpeedyTuner:
         self.rigor = rigor
         self.min_dropout = min_dropout
         self.evaluation_function = evaluation_function
+        self.train_size = train_size
         self.study = self.create_study()
 
     def __str__(self):
@@ -413,7 +415,7 @@ class SpeedyTuner:
                 min_trials = self.min_trials)
         else:
             return lambda s,t : None
-            
+
     @property
     def parallel(self):
         return self.n_jobs > 1
@@ -483,47 +485,76 @@ class SpeedyTuner:
                     'Automatic train/test splitting not supported for on-disk dataset. Make sure to save '
                     'training and testing partitions manually.'
                 )
+            # write datacache
 
-            train, test = self.train_test_split(train, seed = self.seed)
+            cache = DataCache(
+                self.model, train, 
+                self.study_name.replace('/','-'), 
+                cache_dir = './', 
+                seed = self.seed, 
+                train_size = self.train_size
+            )
+            logger.info('Writing data cache to: {}'.format(cache.get_cache_path()))
+            train, test = cache.cache_data(overwrite=True)
+            # automatically write cache
         
-        lock = Locker(self.study_name)
-
-        tune_func = partial(
-                self._tune_step,
-                train = train, 
-                test = test,
-                lock = lock,
-        )
-
-        remaining_trials = self.iters - self.n_completed_trials
         try:
-            self.get_stop_callback()(self.study, None)
-        except FailureToImproveException:
-            remaining_trials = 0
+            lock = Locker(self.study_name)
 
-        if remaining_trials > 0:
+            tune_func = partial(
+                    self._tune_step,
+                    train = train, 
+                    test = test,
+                    lock = lock,
+            )
+
+            remaining_trials = self.iters - self.n_completed_trials
+            try:
+                self.get_stop_callback()(self.study, None)
+            except FailureToImproveException:
+                remaining_trials = 0
+
+            def delay_range(n):
+                for i in range(n):
+                    if i < self.n_jobs:
+                        time.sleep(0.5)
+
+                    yield i
+
+            if remaining_trials > 0:
+
+                try:
+                    
+                    logger.info('Launched tuning trials. Wait for dashboard.')
+                    with joblib_print_callback(self):
+                        Parallel(n_jobs= self.n_jobs, verbose = 0)\
+                            (delayed(tune_func)() for i in delay_range(remaining_trials))
+
+                except (KeyboardInterrupt, FailureToImproveException):
+                    pass
+
+            self.model = self.fetch_best_weights()
 
             try:
-
-                with joblib_print_callback(self):
-                    Parallel(n_jobs= self.n_jobs, verbose = 0)\
-                        (delayed(tune_func)() for i in range(remaining_trials))
-
-            except (KeyboardInterrupt, FailureToImproveException):
+                _clear_page()
+                print(self)
+            except ConnectionError:
                 pass
 
-        self.model = self.fetch_best_weights()
+            if self.max_topics - self.model.num_topics <= 3:
+                logger.error('Optimal # of topics was very close to the maximum topics boundary! Please increase "max_topics" and re-tune.')
+            elif self.model.num_topics - self.min_topics <=3:
+                logger.error('Optimal # of topics was very close to the minimum topics boundary! Please decrease "min_topics" and re-tune.')
 
-        try:
-            _clear_page()
-            print(self)
-        except ConnectionError:
-            pass
-
-        if self.max_topics - self.model.num_topics <= 3:
-            logger.error('Optimal # of topics was very close to the maximum topics boundary! Please increase "max_topics" and re-tune.')
-        elif self.model.num_topics - self.min_topics <=3:
-            logger.error('Optimal # of topics was very close to the minimum topics boundary! Please decrease "min_topics" and re-tune.')
+        finally:
+            try:
+                cache # clean up cache
+            except UnboundLocalError:
+                pass
+            else:
+                logger.info('Deleting cache ...')
+                cache.rm_cache()
+            
 
         return self.model
 
@@ -768,8 +799,6 @@ class SpeedyTuner:
         except KeyError:
             raise KeyError('No model saved for trial {}. Trial was either pruned or failed.'\
                     .format(str(trial_num)))
-
-        
 
 
     def fetch_best_weights(self):

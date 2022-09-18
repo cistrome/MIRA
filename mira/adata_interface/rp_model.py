@@ -13,14 +13,19 @@ logger = logging.getLogger(__name__)
 def add_predictions(adata, output, model_type = 'LITE', sparse = True):
 
     features, predictions = output
-    expr_predictions, logp_data = list(zip(*predictions))
+    expr_predictions, logp_data, logp_model = list(zip(*predictions))
     
-    #(adata, output, add_layer = 'imputed', sparse = False):
     add_layer(adata, (features, np.hstack(expr_predictions)), 
         add_layer = model_type + '_prediction', sparse = True)
 
     add_layer(adata, (features, np.hstack(logp_data)), 
         add_layer = model_type + '_logp', sparse = True)
+
+    logp_model = project_matrix(adata.var_names, features, 
+            np.array(logp_model)[None,:]
+    )
+
+    adata.varm[model_type + '_model_logp'] = logp_model.reshape(-1)
 
 
 def get_peak_and_tss_data(self, adata, tss_data = None, peak_chrom = 'chr', peak_start = 'start', peak_end = 'end', 
@@ -48,7 +53,6 @@ def get_peak_and_tss_data(self, adata, tss_data = None, peak_chrom = 'chr', peak
         )
     except KeyError as err:
         raise KeyError('Missing column in TSS annotation. Please make sure you indicate the correct names for columns through the keyword arguments.')
-
 
     return return_dict
 

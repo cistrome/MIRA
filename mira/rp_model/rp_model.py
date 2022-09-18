@@ -14,7 +14,8 @@ import warnings
 from mira.rp_model.optim import LBFGS as stochastic_LBFGS
 from scipy.stats import nbinom
 from scipy.sparse import isspmatrix
-from mira.adata_interface.rp_model import wraps_rp_func, add_isd_results, add_predictions, fetch_TSS_from_adata
+from mira.adata_interface.rp_model import wraps_rp_func, add_isd_results, \
+    add_predictions, fetch_TSS_from_adata
 import mira.adata_interface.rp_model as rpi
 from mira.adata_interface.core import add_layer, wraps_modelfunc
 import mira.adata_interface.core as adi
@@ -963,14 +964,44 @@ class GeneModel:
 
     def predict(self, features):
 
-        trace = self.get_posterior_sample(features)
+        class RPLogpTracker(TraceMeanField_ELBO):
+    
+            def rate_distortion(self, model_trace, guide_trace):
+
+                model_logp = 0.
+                data_logp = 0.
+
+                for name, model_site in model_trace.nodes.items():
+
+                    if model_site["type"] == "sample":
+                        if model_site["is_observed"]:
+                            data_logp += model_site["log_prob_sum"].clone().detach().numpy()
+                        else:
+
+                            guide_site = guide_trace.nodes[name]
+
+                            model_logp += model_site['fn'].log_prob(
+                                guide_site['fn']()
+                            ).sum().clone().detach().numpy()
+
+                return model_logp, data_logp
+        
+        features = {k : self._t(v) for k, v in features.items()}
+        self.bn.eval()
+
+        guide = AutoDelta(self.model, init_loc_fn = init_to_value(values = self.posterior_map))
+        
+        loss_fn = RPLogpTracker()
+        trace, guide_trace = loss_fn._get_trace(self.model, guide, [], features)
+        
+        rate, distortion = loss_fn.rate_distortion(trace, guide_trace)
         
         expression_prediction = self.to_numpy(
-            trace.nodes[self.prefix + '/prediction']['value'])[:, np.newaxis]
+                trace.nodes[self.prefix + '/prediction']['value'])[:, np.newaxis]
 
         logp_data = self._get_logp(features['gene_expr'], trace)
-
-        return expression_prediction, logp_data
+        
+        return expression_prediction, logp_data, rate
 
 
     def score(self, features):

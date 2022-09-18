@@ -4,7 +4,9 @@ import numpy as np
 from functools import partial
 
 
-def _get_NITE_score(gene_expr, lite_logp, nite_logp, median_nonzero_expression = None, axis = 0):
+def _get_NITE_score(gene_expr, lite_logp, nite_logp, 
+        litemodel_logp, nitemodel_logp,
+        median_nonzero_expression = None, axis = 0):
 
     assert(gene_expr.shape == lite_logp.shape == nite_logp.shape)
 
@@ -15,7 +17,17 @@ def _get_NITE_score(gene_expr, lite_logp, nite_logp, median_nonzero_expression =
         assert(isinstance(median_nonzero_expression, int) and median_nonzero_expression > 0)
         median_nonzero = median_nonzero_expression
 
-    delta = -2 * (lite_logp.sum(axis).reshape(-1) - nite_logp.sum(axis).reshape(-1))
+    n_cells = gene_expr.shape[0]
+
+    delta_logp_model = litemodel_logp.reshape(-1) - nitemodel_logp.reshape(-1)
+    if axis == 1:
+        delta_logp_model = (delta_logp_model/n_cells).sum()
+    elif not axis == 0:
+        raise ValueError('Axes not 0 or 1 not supported')
+
+    delta_logp_X = lite_logp.sum(axis).reshape(-1) - nite_logp.sum(axis).reshape(-1)
+
+    delta = delta_logp_X + delta_logp_model
     effective_sample_size = median_nonzero/(median_nonzero + num_nonzero)
 
     nite_score = effective_sample_size * delta
@@ -27,7 +39,9 @@ def _get_NITE_score(gene_expr, lite_logp, nite_logp, median_nonzero_expression =
     lni.fetch_logp_data, lni.add_NITE_score_gene,
     ['genes','gene_expr','lite_logp','nite_logp']
 )
-def get_NITE_score_genes(median_nonzero_expression = None,*, genes, gene_expr, lite_logp, nite_logp):
+def get_NITE_score_genes(median_nonzero_expression = None,*, 
+    genes, gene_expr, lite_logp, nite_logp,
+    litemodel_logp, nitemodel_logp):
     '''
     Calculates the NITE score (Non-locally Influence Transcriptional Expression) for each **gene**. The NITE
     score quantifies how well changes in local chromatin accessibility explain changes in gene expression.
@@ -66,8 +80,11 @@ def get_NITE_score_genes(median_nonzero_expression = None,*, genes, gene_expr, l
         
     '''
 
-    return (genes, *_get_NITE_score(gene_expr, lite_logp, nite_logp, 
-        median_nonzero_expression = median_nonzero_expression, axis = 0))
+    return (genes, *_get_NITE_score(
+            gene_expr, lite_logp, nite_logp, 
+            litemodel_logp, nitemodel_logp,
+            median_nonzero_expression = median_nonzero_expression, 
+            axis = 0))
 
 
 @adi.wraps_functional(
