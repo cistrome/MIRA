@@ -38,7 +38,8 @@ def _get_n(X):
     return np.array(X.sum(-1)).reshape(-1)
 
 
-def plot_fragment_heatmap(ax,*, accessibility, chrom, start, end, peaks, time, height = 1):
+def plot_fragment_heatmap(ax,*, accessibility, chrom, start, end, peaks, time, height = 1,
+    alpha_mod = 1.):
 
     accessibility.data = np.ones_like(accessibility.data)
     n_i = _get_n(accessibility)
@@ -64,7 +65,7 @@ def plot_fragment_heatmap(ax,*, accessibility, chrom, start, end, peaks, time, h
         
         start, end = (int(position[1]), int(position[2]))
         min_, max_ = alpha.min(), alpha.max()
-        transparency = (alpha - min_)/(max_ - min_)
+        transparency = (alpha - min_)/(max_ - min_) * alpha_mod
         
         for j, a in enumerate(alpha):
             if a > 0:
