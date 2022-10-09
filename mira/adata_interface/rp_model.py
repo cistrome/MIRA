@@ -13,7 +13,13 @@ logger = logging.getLogger(__name__)
 def add_predictions(adata, output, model_type = 'LITE', sparse = True):
 
     features, predictions = output
-    expr_predictions, logp_data, logp_model = list(zip(*predictions))
+    expr_predictions, logp_data, logp_model = list(zip(*
+        [pred for worked, pred in predictions if worked]
+    ))
+
+    features = np.array(
+        [gene for gene, (worked, _) in zip(*output) if worked]
+    )
     
     add_layer(adata, (features, np.hstack(expr_predictions)), 
         add_layer = model_type + '_prediction', sparse = True)

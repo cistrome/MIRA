@@ -544,7 +544,10 @@ class BaseModel:
                 NITE model, respectively.
         
         '''
-        return model.predict(features)
+        try:
+            return True, model.predict(features)
+        except ValueError:
+            return False, None
 
     @wraps_rp_func(lambda self, expr_adata, atac_data, output, **kwargs: \
         add_layer(expr_adata, (self.features, np.hstack(output)), add_layer = self.model_type + '_logp', sparse = True),
@@ -1108,7 +1111,8 @@ class GeneModel:
 
 
     @staticmethod
-    def _prob_ISD(hits_matrix,*, upstream_weights, downstream_weights, 
+    def _prob_ISD(hits_matrix,*, correction_vector,
+        upstream_weights, downstream_weights, 
         promoter_weights, upstream_idx, promoter_idx, downstream_idx,
         upstream_distances, downstream_distances, read_depth, 
         softmax_denom, gene_expr, NITE_features, params, bn_eps):
@@ -1158,7 +1162,9 @@ class GeneModel:
         #f_Z = (f_Z - f_Z[:,0].mean(0,keepdims = True))/np.sqrt(f_Z[:, 0].var(0, keepdims = True) + bn_eps)
         f_Z = (f_Z - params['bn_mean'])/np.sqrt(params['bn_var'] + bn_eps)
 
-        indep_rate = np.exp(params['gamma'] * f_Z + params['bias'])
+        indep_rate = np.exp(params['gamma'] * f_Z + params['bias'] + \
+                correction_vector[:, np.newaxis])
+                
         compositional_rate = indep_rate/softmax_denom
 
         mu = np.exp(read_depth) * compositional_rate
@@ -1178,7 +1184,7 @@ class GeneModel:
             n_bins = n_bins, n_samples = n_samples)
         
         
-        for k in 'gene_expr,upstream_weights,downstream_weights,promoter_weights,softmax_denom,read_depth,NITE_features'.split(','):
+        for k in 'gene_expr,correction_vector,upstream_weights,downstream_weights,promoter_weights,softmax_denom,read_depth,NITE_features'.split(','):
             features[k] = features[k][informative_samples]
 
         samples_mask = np.zeros(N)
