@@ -5,27 +5,28 @@ import torch.nn.functional as F
 
 class DANEncoder(nn.Module):
 
-    def __init__(self, embedding_size = None, *,num_endog_features, num_topics, hidden, dropout, num_layers):
+    def __init__(self, embedding_size = None, *,num_endog_features, num_topics, embedding_dropout,
+        hidden, dropout, num_layers, num_exog_features, num_covariates, num_extra_features):
         super().__init__()
 
         if embedding_size is None:
             embedding_size = hidden
 
-        self.dropout_rate = dropout
-        self.drop = nn.Dropout(dropout)
+        self.word_dropout_rate = embedding_dropout
         self.embedding = nn.Embedding(num_endog_features + 1, embedding_size, padding_idx=0)
         self.num_topics = num_topics
         self.calc_readdepth = True
         self.fc_layers = get_fc_stack(
-            layer_dims = [embedding_size + 1, *[hidden]*(num_layers-2), 2*num_topics],
+            layer_dims = [embedding_size + 1 + num_covariates + num_extra_features, 
+                *[hidden]*(num_layers-2), 2*num_topics],
             dropout = dropout, skip_nonlin = True
         )
 
-    def forward(self, idx, read_depth):
+    def forward(self, idx, read_depth, covariates, extra_features):
        
         if self.training:
             corrupted_idx = torch.multiply(
-                torch.empty_like(idx).bernoulli_(1-self.dropout_rate),
+                torch.empty_like(idx).bernoulli_(1-self.word_dropout_rate),
                 idx
             )
         else:
@@ -37,8 +38,7 @@ class DANEncoder(nn.Module):
         embeddings = self.embedding(corrupted_idx) # N, T, D
         ave_embeddings = embeddings.sum(1)/read_depth
 
-        X = torch.cat([ave_embeddings, read_depth.log()], dim = 1) #inject read depth into model
-
+        X = torch.hstack([ave_embeddings, read_depth.log(), covariates, extra_features]) #inject read depth into model
         X = self.fc_layers(X)
 
         theta_loc = X[:, :self.num_topics]
