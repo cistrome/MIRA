@@ -1,25 +1,26 @@
 
 
 from mira.topic_model.base import BaseModel, EarlyStopping, ModelParamError, TraceMeanFieldLatentKL
-from mira.topic_model.expression_model import ExpressionModel
-import pyro.distributions as dist
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from torch.optim import AdamW, Adam
-from pyro.infer import SVI, TraceMeanField_ELBO
+from pyro.infer import TraceMeanField_ELBO
 from tqdm.notebook import tqdm, trange
 import numpy as np
 import logging
-from math import ceil
 import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 logger = logging.getLogger(__name__)
-from mira.topic_model.mine import WassersteinDualRobust
+from mira.topic_model.CODAL.mine import WassersteinDualRobust
 from pyro import poutine
 from functools import partial
-import matplotlib.pyplot as plt
 
+def docstring_wrapper(value):
+
+    def inner(func):
+        func.__doc__ = value
+        return func
+
+    return inner
 
 class CovariateModel(BaseModel):
 
@@ -108,6 +109,16 @@ class CovariateModel(BaseModel):
     def _recommend_num_layers(self, n_samples):
         return 3
 
+    def _recommend_cost_beta(self, n_samples):
+        if n_samples <= 4000:
+            return 2.
+        elif n_samples <= 8000:
+            return 1.5
+        elif n_samples <= 12000:
+            return 1.25
+        else:
+            return 1.
+
     def _get_weights(self, on_gpu = True, inference_mode = False,*,
             num_exog_features, num_endog_features, 
             num_covariates, num_extra_features):
@@ -150,17 +161,6 @@ class CovariateModel(BaseModel):
 
         if categorical.size > 0:
             self.categorical_transformer.fit(categorical)
-
-    '''def _recommend_dependence_beta(self, n_samples):
-        if isinstance(self, ExpressionModel):
-            return 1.
-        else:
-            return 4.
-
-    def recommend_parameters(self, n_samples, n_features, finetune = False):
-        parameters = super().recommend_parameters(n_samples, n_features, finetune = finetune)
-        parameters['dependence_beta'] = self._recommend_dependence_beta(n_samples)
-        return parameters'''
 
 
     @adi.wraps_modelfunc(tmi.fetch_features, adi.return_output,
@@ -292,7 +292,7 @@ class CovariateModel(BaseModel):
 
         return params, self.dependence_network.parameters()
 
-
+    @docstring_wrapper(BaseModel.get_learning_rate_bounds.__doc__)
     @adi.wraps_modelfunc(fetch = tmi.fit, 
         fill_kwargs=['features','highly_variable','dataset'],
         requires_adata = False)
@@ -300,6 +300,7 @@ class CovariateModel(BaseModel):
         num_epochs = 3, eval_every = 3, 
         lower_bound_lr = 1e-6, upper_bound_lr = 1,*,
         features, highly_variable, dataset):
+        
         
         self._instantiate_model(
             features = features, highly_variable = highly_variable,
@@ -471,6 +472,7 @@ class CovariateModel(BaseModel):
         self.eval()
         return self
 
+    @docstring_wrapper(BaseModel.set_device.__doc__)
     def set_device(self, device):
         super().set_device(device)
         self.dependence_network = self.dependence_network.to(device)

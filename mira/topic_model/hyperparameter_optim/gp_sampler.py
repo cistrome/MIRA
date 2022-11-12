@@ -10,7 +10,6 @@ from optuna.trial import TrialState as ts
 from optuna.samplers import BaseSampler
 from scipy.stats import norm
 import optuna
-from sklearn.preprocessing import minmax_scale
 import numpy as np
 import matplotlib.pyplot as plt
 import math
@@ -140,15 +139,14 @@ def featurize_trials(trials, search_space, constant_liar,
                 )
     
     # add a dummy constant liar trial to prevent GP from selecting the same
-    # values repeatedly.
-
-    if not constant_liar:
-        last_params = examples[-1][0]
-        
-        for rung, score in constant_liar_scores.items():
-            examples.append(
-                (last_params, rung, score)
-            )
+    # values repeatedly?
+    #if not constant_liar:
+    #    last_params = examples[-1][0]
+    #    
+    #    for rung, score in constant_liar_scores.items():
+    #        examples.append(
+    #            (last_params, rung, score)
+    #        )
         
     params, rungs, scores = list(zip(*examples))
     

@@ -8,7 +8,6 @@ from optuna.trial import TrialState as ts
 from optuna.study._optimize import _run_trial
 optuna.logging.set_verbosity(optuna.logging.CRITICAL)
 import gc
-import sys
 import os
 from joblib import Parallel, delayed
 import fcntl
@@ -27,9 +26,8 @@ import time
 from torch.utils.tensorboard import SummaryWriter
 import torch
 from mira.plots.pareto_front_plot import plot_intermediate_values, plot_pareto_front
-from mira.topic_model.gp_sampler import GP, HyperbandPruner, SuccessiveHalvingPruner
+from mira.topic_model.hyperparameter_optim.gp_sampler import GP, SuccessiveHalvingPruner
 from optuna.storages import RedisStorage
-
 
 try:
     import redis
@@ -328,6 +326,9 @@ class SpeedyTuner:
     def load(cls,*,
         save_name,
         storage = 'sqlite:///mira-tuning.db'):
+        '''
+        Load a tuning run from the given storage object.
+        '''
 
         return cls(
             model = None, min_topics = None, max_topics = None,
@@ -339,6 +340,7 @@ class SpeedyTuner:
         save_name,
         min_topics,
         max_topics,*,
+        storage = 'sqlite:///mira-tuning.db',
         n_jobs = 1,
         max_trials = 128,
         min_trials = 48,
@@ -346,16 +348,78 @@ class SpeedyTuner:
         seed = 2556,
         tensorboard_logdir = 'runs',
         model_dir = 'models',
-        storage = 'sqlite:///mira-tuning.db',
-        rigor = 1,
         pruner = None,
         sampler = None,
         log_steps = False,
         log_every = 10,
-        min_dropout = None,
-        evaluation_function = None,
         train_size = 0.8,
     ):
+        '''
+        A SpeedyTuner object chooses the number of topics and the appropriate
+        regularization to produce a model that best fits the user's dataset.
+
+        The process consists of iteratively training a model using a set of hyperparameters,
+        evaluating the resulting model, and choosing the next set of hyperparameters based on
+        which set is most likely to yield an improvement over previous models trained.
+
+        Parameters
+        ----------
+
+        model : mira.topics.TopicModel
+            Topic model to tune. The provided model should have columns specified
+            to retrieve endogenous and exogenous features, and should have the learning
+            rate configued by ``get_learning_rate_bounds``.
+        save_name : str
+            Table under which to save tuning results in *storage* table. 
+            A good pattern to follow is: "{dataset}/{modality}/{model_id}/{tuning_run}".
+         min_topics : int
+            Minimum number of topics to try. Useful if approximate number of topics is known
+            ahead of time.
+        max_topics : int
+        storage : str or mira.topics.Redis(), default = 'sqlite:///mira-tuning.db'
+            The default value saves the results from tuning in an SQLite table with the 
+            file location ./mira-tuning.db. SQLite tables require no outside libraries,
+            but can only handle read-write for up to 5 concurrent processes. Tuning can be 
+            significantly sped up be running even more concurrent processes, which requires a 
+            REDIS database backend with faster read-write speeds. 
+
+            To use the REDIS backend, start a REDIS server in the background, and pass
+            a `mira.topics.Redis()` object to this paramter. Adjust the url as needed.
+        n_jobs : int>0, default = 1
+            Number of concurrent trials to run at a time. The default SQLite backend can handle
+            up to 5, but the REDIS backend can handle many more (>20!). 
+            
+            Each trial's memory footprint is essentially that of the model parameters, the optimizer,
+            and one batch of training (because the dataset is saved to disk and streamed batch-by-batch
+            during model training). Thus, training a model with 200K cells requires the same memory as
+            on 1000 cells. We suggest taking advantage of the low memory overhead to train currently
+            across as many cores as possible.
+        tensorboard_logdir : str, default = 'runs',
+            Directory in which to save tensorboard log files.
+        min_trials : int>0, default = 48
+            Minimum number of trials to run.
+        max_trials : int>0, default = 128
+            If finding better models, continues to train until reaching this number of trials.
+        stop_condition, int>0, default = 12,
+            Continue tuning until a better model has not been produced for this many iterations.
+        model_logdir : path, default = './models/'
+            Where to save the best models trained during tuning.
+        pruner : None or optuna.pruners.Pruner, default = None
+            If None, uses the default SuccessiveHalving bandit pruner.
+        sampler : None or optuna.pruner.BaseSampler, default = None
+            If None, uses MIRA's default choice of a Gaussian Process sampler with
+            pruning.
+        log_steps : boolean, default = False,
+            Whether to save loss at every step of training. Useful for debugging, but
+            slows down tuning.
+
+        Attributes
+        ----------
+
+        study : optuna.study.Study
+            Optuna study object summarizing tuning results.
+        
+        '''
         self.model = model
         self.n_jobs = n_jobs
         self.min_topics, self.max_topics = min_topics, max_topics
@@ -368,13 +432,9 @@ class SpeedyTuner:
         self.tensorboard_logdir = tensorboard_logdir
         self.stop_condition = stop_condition
         self.min_trials = min_trials
-        self.optimize_usefulness = False
         self.log_steps = log_steps
         self.log_every = log_every
         self.model_dir = model_dir
-        self.rigor = rigor
-        self.min_dropout = min_dropout
-        self.evaluation_function = evaluation_function
         self.train_size = train_size
         self.study = self.create_study()
 
@@ -402,7 +462,13 @@ class SpeedyTuner:
             self.study.tell(t.number, None, ts.FAIL)
 
     def purge(self):
+        '''
+        If tuning is stopped with some trials in progress, those trials will be 
+        saved as "zombie" trials, doomed never to be completed. Upon restart of tuning,
+        those zombie trials can interfere with selection of hyperparamters.
 
+        This function changes the state of all RUNNING trials to FAILED.
+        '''
         # remove zombie trials
         for t in self.study.trials:
             self._set_failed(t)
@@ -430,17 +496,18 @@ class SpeedyTuner:
 
         Parameters
         ----------
-        adata : anndata.AnnData
+        train : anndata.AnnData
             Anndata of expression or accessibility data.
-            Cells must be labeled with test or train set membership using
-            `tuner.train_test_split`.
-        self.n_jobs : int, default = 1
-            Number of tuning processes to launch.
+            If **test** is not provided, this dataset will be partitioned into
+            train and test sets according to the ratio given by the **train_size**
+            parameter.
+        test : anndata.AnnData
+            Anndata of expression or accessibility data. Evaluation set of cells.
         
         Returns
         -------
-        study : optuna.study.Study
-            Study object summarizing results of tuning iterations.
+        mira.topics.TopicModel : Topic model trained with best set of hyperparameters
+            found during tuning.
 
         '''
 
@@ -572,31 +639,11 @@ class SpeedyTuner:
 
         if not self.pruner is None:
             return self.pruner
-
         else:
-            
             return SuccessiveHalvingPruner(
                 min_resource = self.model.num_epochs//3,
                 reduction_factor = 2,
             )
-
-        '''elif self.rigor <= 0:
-
-            return optuna.pruners.SuccessiveHalvingPruner(
-                min_resource=8,
-                reduction_factor=2,
-            )
-
-        elif self.rigor > 0:
-
-            assert self.model.num_epochs % 3 == 0, 'Number of epochs trained must be divisible by 3, e.g. 24, 36, etc.'
-            return HyperbandPruner(
-                min_resource = self.model.num_epochs//3,
-                max_resource = self.model.num_epochs,
-                reduction_factor = 2,
-            )'''
-
-        #    raise ValueError('Pruner {} is not an option'.format(str(self.pruner)))
 
 
     def get_tuner(self):
@@ -604,37 +651,20 @@ class SpeedyTuner:
         if not self.sampler is None:
             return self.sampler
 
-        elif self.rigor < 2:
-            
-            num_tuners = (2 if isinstance(self.pruner, HyperbandPruner) else 1)
-
-            startup_trials = int(
-                    max(15, self.n_jobs//num_tuners)
-                )
-
-            logger.warn('Using GP sampler with {} startup random trials.'.format(str(startup_trials)))
-            
-            return GP(
-                constant_liar = self.parallel,
-                tau = 0.1,
-                min_points = startup_trials,
-                num_candidates = 300,
-                cl_function = np.mean #if self.n_jobs > 1 else np.max
+        num_tuners = 1
+        startup_trials = int(
+                max(15, self.n_jobs//num_tuners)
             )
 
-        elif self.rigor >= 2:
-
-            params = optuna.samplers.TPESampler.hyperopt_parameters()
-            params['n_startup_trials'] = max(10, self.n_jobs)
-
-            return optuna.samplers.TPESampler(
-                seed = self.seed,
-                constant_liar=self.parallel,
-                **params,
-            )
-
-        #else:
-        #    raise ValueError('Sampler {} is not an option'.format(str(self.sampler)))
+        logger.info('Using GP sampler with {} startup random trials.'.format(str(startup_trials)))
+        
+        return GP(
+            constant_liar = self.parallel,
+            tau = 0.1,
+            min_points = startup_trials,
+            num_candidates = 300,
+            cl_function = np.mean
+        )
 
 
     def get_model_save_name(self, trial_number):
@@ -715,14 +745,6 @@ class SpeedyTuner:
                             must_prune = True
                             break
 
-            if not self.evaluation_function is None:
-                raise NotImplementedError()
-                eval_metrics = self.evaluation_function(self.model, train, test)
-                for k, v in eval_metrics.items():
-                    trial.set_user_attr(k, v)
-            else:
-                eval_metrics = {}
-
             metrics = {
                     'number' : trial.number,
                     'epochs_trained' : epoch,
@@ -730,7 +752,6 @@ class SpeedyTuner:
                     'rate' : rate,
                     'trial_score' : trial_score,
                     **metrics,
-                    **eval_metrics
             }
 
             params['study_name'] = self.study_name
@@ -787,6 +808,28 @@ class SpeedyTuner:
 
 
     def fetch_weights(self, trial_num):
+        '''
+        Fetch topic model weights trained in the given trial
+        from disk. Can only fetch weights from trials which were
+        not pruned.
+
+        Parameters
+        ----------
+        trial_num : int
+            Trial number for which to fetch weights
+
+        Raises
+        ------
+
+        ValueError : If trial does not exist
+        KeyError : If trial did not finish
+
+        Returns
+        -------
+
+        mira.topics.TopicModel
+
+        '''
 
         try:
 
@@ -802,6 +845,20 @@ class SpeedyTuner:
 
 
     def fetch_best_weights(self):
+        '''
+        Fetch weights best topic model trained during tuning. This is the "official"
+        topic model for a given dataset.
+
+        Raises
+        ------
+        ValueError : If no trials have been completed
+
+        Returns
+        -------
+        
+        mira.topics.TopicModel
+
+        '''
         try:
             self.study.best_trial
         except ValueError:
@@ -809,16 +866,59 @@ class SpeedyTuner:
 
         return self.fetch_weights(self.study.best_trial.number)
 
+    @property
+    def trial_attrs(self):
+
+        def list_attrs(trial):
+            return [k for k in trial.__dict__.keys() if not k[0] == "_"] + \
+                ['number', 'value', 'elbo'] + list(trial.params.keys()) \
+                + list(trial.user_attrs.keys()) + list(trial.system_attrs.keys())
+
+        return list(set([
+                attr for trial in self.study.trails
+                for attr in list_attrs(trial)
+            ]))
+
 
     def plot_intermediate_values(self,
-        palette = 'Greys', 
-        ax = None, figsize = (10,7),
-        log_hue = False,
+        palette = 'Spectral_r', 
         hue = 'value',
+        ax = None, 
+        figsize = (10,7),
+        log_hue = False,
         na_color = 'lightgrey',
         add_legend = True,
         vmax = None, vmin = None,
         ):
+        '''
+        Plots the evaluation loss achieved at each epoch of training for 
+        all of the trials. 
+
+        Parameters
+        ----------
+
+        palette : str, default = 'Spectral_r'
+            Which color to plot for each trial
+        ax : matplotlib.pyplot.axes or None
+            Provide axes object to function for more control.
+            If no axes are provided, they are created internally.
+        figsize : tuple[int, int], default = (10,7)
+            Size of plot
+        log_hue : boolean, default = False
+            Take the log of the hue value to plot
+        hue : {'value', 'number', 'num_topics', 'decoder_dropout',
+            'rate', 'distortion', ... }, default = "value"
+            Which attribute of each trial to plot. For a full list of attributes,
+            use: **tuner.trial_attrs**. The default "value" is the objective score.
+        vmin, vmax : float
+            Minimum and maximum bounds on continuous color palettes.
+
+        Returns
+        -------
+        
+        matplotlib.pyplot.axes 
+
+        '''
         
         return plot_intermediate_values(self.study.trials,
             palette = palette, ax = ax, figsize = figsize,
@@ -831,7 +931,7 @@ class SpeedyTuner:
     def plot_pareto_front(self, 
         x = 'num_topics',
         y = 'elbo',
-        hue = 'distortion',
+        hue = 'number',
         ax = None, 
         figsize = (7,7),
         palette = 'Blues',
@@ -839,9 +939,45 @@ class SpeedyTuner:
         size = 100,
         alpha = 0.8,
         add_legend = True,
-        label_pareto_front = True,
-        include_pruned_trials = False,
+        label_pareto_front = False,
+        include_pruned_trials = True,
      ):
+        '''
+        Relational plot of tuning trails data. Often, it is most interesting to compare 
+        the objective value ("elbo") versus the number of topics. This serves as 
+        a sanity check that the objective is convex with respect to topics and 
+        that the tuner converged on the appropriate number of topics for the dataset.
+
+        Parameters
+        ----------
+
+        x : str, default="num_topics"
+            Trial attribute to plot on x-axis. Use **tuner.trial_attrs** to see list
+            of possible attributes to plot.
+        y : str, default="elbo"
+            Trial attribute to plot on y-axis. "elbo" and "value" plot the objective score.
+            "distortion" plots the reconstruction loss. "rate" plots the KL-divergence loss.
+        hue : {'value', 'number', 'num_topics', 'decoder_dropout',
+            'rate', 'distortion', ... }
+            Which attribute of each trial to plot. For a full list of attributes,
+            use: **tuner.trial_attrs**
+        ax : matplotlib.pyplot.axes or None
+            Provide axes object to function for more control.
+            If no axes are provided, they are created internally.
+        figsize : tuple[int, int], default = (7,7)
+            Size of plot
+        label_pareto_front : boolean, default=False
+            Only label trials on the pareto front of distortion and rate, e.g. the best
+            trials.
+        include_prunded_trials : boolean, default=True
+            Whether to include pruned trials in the plot.
+
+        Returns
+        -------
+
+        matplotlib.pyplot.axes 
+        
+        '''
         
         return plot_pareto_front(self.study.trials, 
             x = x, y = y, 

@@ -7,7 +7,8 @@ import torch
 import pyro.distributions as dist
 from pyro.contrib.autoname import scope
 from pyro import poutine
-from mira.topic_model.accessibility_model import ZeroPaddedBinaryMultinomial, ZeroPaddedMultinomial
+from mira.topic_model.modality_mixins.accessibility_model \
+    import ZeroPaddedBinaryMultinomial, ZeroPaddedMultinomial
 
 
 class DirichletMarginals:

@@ -1,7 +1,7 @@
 
 import torch
 import torch.nn.functional as F
-from mira.topic_model.base import BaseModel, get_fc_stack
+from mira.topic_model.base import get_fc_stack
 import numpy as np
 import warnings
 from scipy.sparse import isspmatrix

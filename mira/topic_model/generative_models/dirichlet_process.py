@@ -1,11 +1,13 @@
-from mira.topic_model.expression_model import ExpressionEncoder
-from mira.topic_model.accessibility_model import DANEncoder, \
-        ZeroPaddedBinaryMultinomial, ZeroPaddedMultinomial
+from mira.topic_model.modality_mixins.expression_model \
+    import ExpressionEncoder
+from mira.topic_model.modality_mixins.accessibility_model import DANEncoder, \
+    ZeroPaddedBinaryMultinomial, ZeroPaddedMultinomial
 
-from mira.topic_model.dirichlet_model import ExpressionDirichletModel, AccessibilityDirichletModel
+from mira.topic_model.generative_models.lda_generative \
+    import ExpressionDirichletModel, AccessibilityDirichletModel
+
 import pyro.distributions as dist
 import torch
-from torch import nn
 from pyro import poutine
 from pyro.contrib.autoname import scope
 import pyro
@@ -17,7 +19,7 @@ import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 import numpy as np
 from functools import partial
-from mira.topic_model.base import encoder_layer, logger
+from mira.topic_model.base import logger
 
 
 def mix_weights(beta):

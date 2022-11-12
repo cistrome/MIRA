@@ -12,7 +12,7 @@ from sklearn.preprocessing import scale
 import mira.adata_interface.core as adi
 import mira.adata_interface.regulators as ri
 from mira.plots.factor_influence_plot import plot_factor_influence
-from mira.topic_model.accessibility_encoders import \
+from mira.topic_model.modality_mixins.accessibility_encoders import \
         DANEncoder, DANSkipEncoder
 
 
@@ -77,7 +77,6 @@ class AccessibilityModel:
 
     def _recommend_embedding_size(self, n_samples):
         return None
-
 
     def _get_padded_idx_matrix(self, accessibility_matrix):
 

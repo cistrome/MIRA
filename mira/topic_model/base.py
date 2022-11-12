@@ -20,7 +20,7 @@ import mira.topic_model.ilr_tools as ilr
 import time
 from torch.distributions import kl_divergence
 from collections import defaultdict
-from mira.topic_model.mine import ConcatLayer
+from mira.topic_model.CODAL.mine import ConcatLayer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.model_selection import train_test_split
 import os
@@ -28,6 +28,8 @@ from shutil import rmtree
 
 logger = logging.getLogger(__name__)
 
+class TopicModel:
+    pass
 
 class Tracker(defaultdict):
     
@@ -277,8 +279,8 @@ def load_model(filename):
 
     .. code-block:: python
 
-        >>> rna_model = mira.topics.ExpressionTopicModel.load('rna_model.pth')
-        >>> atac_model = mira.topics.AccessibilityTopicModel.load('atac_model.pth')
+        >>> rna_model = mira.topics.load_model('rna_model.pth')
+        >>> atac_model = mira.topics.load_model('atac_model.pth')
 
     '''
 
@@ -363,76 +365,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             skipconnection_atac_encoder = True,
             ):
         '''
-        Learns regulatory "topics" from single-cell multiomics data. Topics capture 
-        patterns of covariance between gene or cis-regulatory elements. 
-        Each cell is represented by a composition over topics, and each 
-        topic corresponds with activations of co-regulated elements.
-
-        One may use enrichment analysis of the topics to understand signaling 
-        and transcription factor drivers of cell states, and embedding of 
-        cell-topic distributions to visualize and cluster cells, 
-        and to perform pseudotime trajectory inference.
-
-        Parameters
-        ----------
-        endogenous_key : str, default=None
-            Column in AnnData that marks features to be used for encoder neural network. 
-            These features should prioritize elements that distinguish 
-            between populations, like highly-variable genes.
-        exogenous_key : str, default=None
-            Column in AnnData that marks features to be used for decoder neural network. 
-            These features should include all elements used for enrichment analysis of topics. 
-            Commonly, this will be genes with a certain amout of expression that 
-            are not necessarily highly variable. For accessibility data, all called peaks may be used.
-        counts_layer : str, default=None
-            Layer in AnnData that countains raw counts for modeling.
-        num_topics : int, default=16
-            Number of topics to learn from data.
-        hidden : int, default=128
-            Number of nodes to use in hidden layers of encoder network
-        num_layers: int, default=3
-            Number of layers to use in encoder network, including output layer
-        num_epochs: int, default=40
-            Number of epochs to train topic model. The One-cycle learning rate policy
-            requires a pre-defined training length, and 40 epochs is 
-            usually an overestimate of the optimal number of epochs to train for.
-        decoder_dropout : float (0., 1.), default=0.2
-            Dropout rate for the decoder network. Prevents node collapse.
-        encoder_dropout : float (0., 1.), default=0.2
-            Dropout rate for the encoder network. Prevents overfitting.
-        use_cuda : boolean, default=True
-            Try using CUDA GPU speedup while training.
-        seed : int, default=None
-            Random seed for weight initialization. 
-            Enables reproduceable initialization of model.
-        dataset_loader_workers : int>=0, default = 0
-            Number of workers to use for dataset loading and preprocessing of each batch.
-            Batches are loaded and transformed as a stream from the in-memory AnnData object.
-            For 0, transformation occurs in the main process. For the accessibility topic model,
-            three workers is recommended.**
-        min_learning_rate : float, default=1e-6
-            Start learning rate for One-cycle learning rate policy.
-        max_learning_rate : float, default=1e-1
-            Peak learning rate for One-cycle policy. 
-        beta : float, default=0.95
-            Momentum parameter for ADAM optimizer.
-        batch_size : int, default=64
-            Minibatch size for stochastic gradient descent while training. 
-            Larger batch sizes train faster, but may produce less optimal models.
-        initial_pseudocounts : int, default=50
-            Initial pseudocounts allocated to approximated hierarchical dirichlet prior.
-            More pseudocounts produces smoother topics, 
-            less pseudocounts produces sparser topics. 
-        nb_parameterize_logspace : boolean, default=True
-            Parameterize negative-binomial distribution using log-space probability 
-            estimates of gene expression. Is more numerically stable.
-        embedding_size : int > 0 or None, default=None
-            Number of nodes in first encoder neural network layer. Default of *None*
-            gives an embedding size of `hidden`.
-        kl_strategy : {'monotonic','cyclic'}, default='monotonic'
-            Whether to anneal KL term using monotonic or cyclic strategies. Cyclic
-            may produce slightly better models.
-
+        
         Attributes
         ----------
         features : np.ndarray[str]
@@ -458,20 +391,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             The names of the columns for the topics added by the
             `predict` method to an anndata object. Useful for quickly accessing
             topic columns for plotting.
-
-        Examples
-        --------
-
-        .. code-block:: python
-
-            >>> model = mira.topics.ExpressionTopicModel(
-            ...    exogenous_key = 'exog', 
-            ...     endogenous_key = 'endog',
-            ...     counts_layer = 'rawcounts',
-            ...     num_topics = 15,
-            ... )
-            >>> model.fit(adata)
-            >>> model.predict(adata)
                 
         '''
         super().__init__()
@@ -560,12 +479,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         train_size = 0.8, seed = 0,
         stratify = None):
 
-        def none_to_list(x):
-            if x is None:
-                return []
-            else:
-                return x
-
         if stratify is None \
             and (not self.categorical_covariates is None \
             or not self.continuous_covariates is None) :
@@ -630,34 +543,23 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             (n_samples**0.2 - 1)/0.2
         )
 
+    def _recommend_cost_beta(self, n_samples):
+
+        if n_samples <= 2000:
+            return 1.5
+        elif n_samples <= 4000:
+            return 1.25
+        else:
+            return 1.
+
     def suggest_parameters(self, tuner, trial): 
 
-        params = dict(        
+        return dict(        
             num_topics = trial.suggest_int('num_topics', tuner.min_topics, 
                 tuner.max_topics, log=False),
+            decoder_dropout = \
+                    trial.suggest_float('decoder_dropout', self._min_dropout, 0.15, log = True)
         )
-
-        if tuner.rigor >= 1:
-            
-            min_dropout = self._min_dropout if tuner.min_dropout is None else tuner.min_dropout
-
-            params['decoder_dropout'] = \
-                trial.suggest_float('decoder_dropout', min_dropout, 0.2, log = True)
-                    
-
-        if tuner.rigor >= 2:
-
-            ## kitchen sink strategy
-            params.update(dict(
-                hidden = trial.suggest_categorical('hidden', [64,128,256,512]),
-                encoder_dropout = trial.suggest_float('encoder_dropout', 0.0001, 0.1, log = True),
-                num_layers = trial.suggest_categorical('num_layers', (2,3,)),
-                max_momentum = trial.suggest_float('max_momentum', 0.90, 0.98, log = True),
-                min_momentum = trial.suggest_float('min_momentum', 0.8, 0.89, log = True),
-                weight_decay = trial.suggest_float('weight_decay', 0.00001, 0.1, log = True)
-            ))
-
-        return params
 
 
     def recommend_parameters(self, n_samples, n_features, finetune = False):
@@ -673,7 +575,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             'num_layers' : self._recommend_num_layers(n_samples),
             'num_epochs' : epochs,
             'num_topics' : self._recommend_num_topics(n_samples),
-            'embedding_size' : self._recommend_embedding_size(n_samples)
+            'embedding_size' : self._recommend_embedding_size(n_samples),
+            'cost_beta' : self._recommend_cost_beta(n_samples)
         }
 
         return params
@@ -971,14 +874,14 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         ----------
         adata : anndata.AnnData
             AnnData of expression or accessibility features to model
-        num_epochs : int, default=6
-            Number of epochs to run the LRRT, may be decreased for larger datasets.
-        eval_every : int, default=10,
+        num_steps : int, default=100
+            Number of steps to run the LRRT.
+        eval_every : int, default=3,
             Aggregate this number of batches per evaluation of the objective loss.
             Larger numbers give lower variance estimates of model performance.
         lower_bound_lr : float, default=1e-6
             Start learning rate of LRRT
-        upper_bound_lr : float, default=1 
+        upper_bound_lr : float, default=5 
             End learning rate of LRRT
 
         Returns
@@ -996,6 +899,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             >>> model.get_learning_rate_bounds(rna_data, num_epochs = 3)
             Learning rate range test: 100%|██████████| 85/85 [00:17<00:00,  4.73it/s]
             (4.619921114045972e-06, 0.1800121741235493)
+
         '''
         self._instantiate_model(
             features = features, 
@@ -1363,13 +1267,12 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             and 5-10 minutes for the accessibility model for a typical experiment
             (5K to 40K cells).
 
-            Optimizing the topic model hyperparameters, however, can take much longer.
-            We recommend running topic model tuners overnight, which is usually sufficient
-            training time. Finding the best number of topics significantly increases
+            Tuning the topic model hyperparameters, however, can take longer.
+            Finding the best number of topics significantly increases
             the interpretability of the model and its faithfullness to the underlying
-            biology and is well worth the wait.
+            biology and is well worth the wait. To learn about topic model tuning, 
+            see :ref:`mira.topics.TopicModelTuner`.
 
-            To learn about topic model tuning, see :ref:`mira.topics.TopicModelTuner`.
         '''
         for _ in self._fit(writer = writer, reinit = reinit, log_every = log_every,
             features = features, highly_variable = highly_variable, dataset = dataset):

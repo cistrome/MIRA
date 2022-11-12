@@ -1,5 +1,4 @@
 
-from xml.dom.minidom import Attr
 import matplotlib
 import numpy as np
 from mira.plots.factor_influence_plot import layout_labels
@@ -32,6 +31,8 @@ def get_trial_attr(trial, attr):
             return np.nan
 
         return trial.value
+    elif attr == 'number':
+        return trial.number
     
     try:
         return trial.params[attr]
@@ -41,6 +42,11 @@ def get_trial_attr(trial, attr):
     try:
         return trial.user_attrs[attr]
     except KeyError():
+        pass
+
+    try:
+        return trial.system_attrs[attr]
+    except KeyError:
         pass
 
     try:
@@ -89,8 +95,8 @@ def plot_pareto_front(trials,
       size = 100,
       alpha = 0.8,
       add_legend = True,
-      label_pareto_front = True,
-      include_pruned_trials = False,
+      label_pareto_front = False,
+      include_pruned_trials = True,
      ):
     
     trials = [t for t in trials if t.state in [ts.PRUNED, ts.COMPLETE]]
@@ -106,7 +112,10 @@ def plot_pareto_front(trials,
     else:
         pareto_front_trials = [t.number for t in trials] # just label all
 
-    is_pareto_front = np.array([ t.number in pareto_front_trials for t in trials ])
+    is_pareto_front = np.array([ 
+        t.number in pareto_front_trials and completed[i] \
+        for i, t in enumerate(trials)
+    ])
     
     if ax is None:
         fig, ax = plt.subplots(1,1,figsize = figsize)
@@ -152,14 +161,6 @@ def plot_pareto_front(trials,
     if include_pruned_trials:
         ax.margins(0.1)
         xlim, ylim = ax.get_xlim(), ax.get_ylim()
-    
-    #if x.lower() == 'rate' and y.lower() == 'distortion':
-    #    R0, D0 = best_trial.user_attrs['rate'], best_trial.user_attrs['distortion']
-    #    ax.plot(
-    #        (R0+D0 - 1,0),(0,R0+D0 - 1), '--',
-    #        label = 'min ELBO', color = 'black',
-    #    )
-    #    ylim = (ylim[0]*0.999, ylim[1])
     
     ax.set(
         xlim = xlim, ylim = ylim,
