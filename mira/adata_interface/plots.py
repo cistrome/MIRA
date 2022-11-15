@@ -128,3 +128,22 @@ def fetch_streamplot_data(self, adata,
         features = features,
         feature_labels = feature_labels,
     )
+
+def fetch_disentanglement_plot(self, adata, gene = None, hue = None, layer = None):
+
+    assert not gene is None
+    if not 'imputed' in adata.layers:
+        raise KeyError('User must compute expression preductions using "model.impute(adata)" before running this function.')
+    
+    if not 'batch_effect' in adata.layers:
+        raise KeyError('User must compute technical effects using "model.get_batch_effects(adata)" before running this function.'
+             )
+
+    if hue is None:
+        hue = gene
+
+    return {
+        'expression_rates' : adata.obs_vector(gene, layer = 'imputed'),
+        'technical_effects' : adata.obs_vector(gene, layer = 'batch_effect'),
+        'hue_values' : adata.obs_vector(hue, layer = layer),
+    }

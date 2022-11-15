@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 class TopicModel:
     pass
 
-class Tracker(defaultdict):
+class Writer(defaultdict):
     
     def __init__(self):
         super().__init__(list)
@@ -1255,6 +1255,15 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         ----------
         adata : anndata.AnnData
             AnnData of expression or accessibility features to model
+        writer : torch.utils.tensorboard.SummarWriter object or mira.topics.Writer object
+            Tracks per-batch loss metrics during training. The tensorboard object
+            writes tensorboard log files, which can be visualized using TensorBoard.
+            The MIRA Writer just tracks values in an in-memory dictionary.
+        log_every : int, default = 10
+            Average the batch metrics every "log_every" steps.
+        reinit : boolean : default = True
+            If fitting an already-trained model, whether to re-initialize weights with
+            random values or keep the existing weights.
 
         Returns
         -------

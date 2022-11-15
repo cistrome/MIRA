@@ -41,7 +41,7 @@ def get_trial_attr(trial, attr):
 
     try:
         return trial.user_attrs[attr]
-    except KeyError():
+    except KeyError:
         pass
 
     try:
