@@ -39,6 +39,20 @@ class DP_EncoderMixin:
         return theta
 
 
+    def sample_posterior(self, X, read_depth, covariates, extra_features,
+            n_samples = 100):
+
+        theta_loc, theta_scale, _, _  = self.forward(X, read_depth, covariates, extra_features)
+        # theta = z*std + mu
+        alpha = torch.randn(*theta_loc.shape, n_samples)*theta_scale[:,:,None] + theta_loc[:,:,None]
+        vi = torch.sigmoid(alpha)
+        theta = mix_weights(torch.transpose(vi, -2,-1)[:,:,:-1])
+
+        theta = torch.transpose(theta, -2, -1)
+        
+        return theta.detach().cpu().numpy()
+
+
 class DPModel:
 
     def get_topic_model(self):

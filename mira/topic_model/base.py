@@ -1377,8 +1377,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         '''
 
         return dict(
-            cell_topic_dists = self._run_encoder_fn(self.encoder.topic_comps, 
-                dataset, batch_size = batch_size, bar = bar),
+            cell_topic_dists = self._run_encoder_fn(self.encoder.sample_posterior, 
+                dataset, batch_size = batch_size, bar = bar).mean(-1),
             topic_feature_dists = self.get_topic_feature_distribution(),
             topic_feature_activations = self._score_features(),
             feature_names = self.features,

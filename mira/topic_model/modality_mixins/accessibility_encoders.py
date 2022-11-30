@@ -2,6 +2,7 @@ from mira.topic_model.base import get_fc_stack, encoder_layer
 import torch
 from torch import nn
 import torch.nn.functional as F
+import numpy as np
 
 class DANEncoder(nn.Module):
 
@@ -52,6 +53,19 @@ class DANEncoder(nn.Module):
         theta = theta.exp()/theta.exp().sum(-1, keepdim = True)
        
         return theta.detach().cpu().numpy()
+
+
+    def sample_posterior(self, X, read_depth, covariates, extra_features,
+            n_samples = 100):
+
+        theta_loc, theta_scale, _, _  = self.forward(X, read_depth, covariates, extra_features)
+        theta_loc, theta_scale = theta_loc.detach().cpu().numpy(), theta_scale.detach().cpu().numpy()
+
+        # theta = z*std + mu
+        theta = np.random.randn(*theta_loc.shape, n_samples)*theta_scale[:,:,None] + theta_loc[:,:,None]
+        theta = np.exp(theta)/np.exp(theta).sum(-2, keepdims = True)
+        
+        return theta
 
 
 class DANSkipEncoder(nn.Module):
@@ -114,3 +128,16 @@ class DANSkipEncoder(nn.Module):
         theta = theta.exp()/theta.exp().sum(-1, keepdim = True)
        
         return theta.detach().cpu().numpy()
+
+
+    def sample_posterior(self, X, read_depth, covariates, extra_features,
+            n_samples = 100):
+
+        theta_loc, theta_scale, _, _  = self.forward(X, read_depth, covariates, extra_features)
+        theta_loc, theta_scale = theta_loc.detach().cpu().numpy(), theta_scale.detach().cpu().numpy()
+
+        # theta = z*std + mu
+        theta = np.random.randn(*theta_loc.shape, n_samples)*theta_scale[:,:,None] + theta_loc[:,:,None]
+        theta = np.exp(theta)/np.exp(theta).sum(-2, keepdims = True)
+        
+        return theta

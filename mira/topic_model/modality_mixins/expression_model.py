@@ -49,9 +49,21 @@ class ExpressionEncoder(torch.nn.Module):
         return theta_loc, theta_scale, rd_loc, rd_scale
 
 
+    def sample_posterior(self, X, read_depth, covariates, extra_features,
+            n_samples = 100):
+
+        theta_loc, theta_scale, _, _  = self.forward(X, read_depth, covariates, extra_features)
+        theta_loc, theta_scale = theta_loc.detach().cpu().numpy(), theta_scale.detach().cpu().numpy()
+
+        # theta = z*std + mu
+        theta = np.random.randn(*theta_loc.shape, n_samples)*theta_scale[:,:,None] + theta_loc[:,:,None]
+        theta = np.exp(theta)/np.exp(theta).sum(-2, keepdims = True)
+        
+        return theta
+
     def topic_comps(self, X, read_depth, covariates, extra_features):
 
-        theta = self.forward(X, read_depth, covariates, extra_features)[0]
+        theta  = self.forward(X, read_depth, covariates, extra_features)[0]
         theta = theta.exp()/theta.exp().sum(-1, keepdim = True)
         
         return theta.detach().cpu().numpy()
