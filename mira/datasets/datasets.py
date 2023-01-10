@@ -126,6 +126,14 @@ def ShareseqSkin_Ma2020(download_directory = 'mira-datasets'):
 # TUTORIALS #
 #############
 
+def CodalFrankencellTutorial(download_directory = 'mira-datasets'):
+
+    Dataset(
+        remote_url='http://cistrome.org/~alynch/data/mira-data/codal/CODAL_tutorial.tar.gz',
+        tar=True, is_directory=True,
+        download_directory=download_directory,
+    )()
+
 
 def StreamGraphTutorial(download_directory = 'mira-datasets'):
     '''
