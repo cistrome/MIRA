@@ -51,7 +51,7 @@ Then, configure the jupyterlab kernel:
 Install via pip from github:
 
 ```
-(codal) $ pip install git+https://github.com/AllenWLynch/MIRA-dev.git
+(codal) $ pip install git+https://github.com/cistrome/MIRA.git@CODAL
 ```
 
 This can also be used to update the package.
