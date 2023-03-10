@@ -558,7 +558,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             num_topics = trial.suggest_int('num_topics', tuner.min_topics, 
                 tuner.max_topics, log=False),
             decoder_dropout = \
-                    trial.suggest_float('decoder_dropout', self._min_dropout, 0.15, log = True)
+                    trial.suggest_float('decoder_dropout', self._min_dropout, 0.1, log = True)
         )
 
 
