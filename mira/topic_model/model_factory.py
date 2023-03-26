@@ -12,8 +12,30 @@ from mira.topic_model.base import TopicModel as mira_topic_model
 import numpy as np
 
 
+def TopicModel(*args, **kwargs):
+    return make_model(*args, **kwargs)
 
-def TopicModel(
+
+class ExpressionTopicModel(ExpressionDirichletModel, ExpressionModel, BaseModel):
+    '''
+    Generic class for topics models for analyzing gene expression data. All GEX topic models inherit
+    from this class and implement the same methods.
+    '''
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+class AccessibilityTopicModel(AccessibilityDirichletModel, AccessibilityModel, BaseModel):
+    '''
+    Generic class for topics models for analyzing chromatin accessibility data. All accessibility topic models inherit
+    from this class and implement the same methods.
+    '''
+    
+    def __init__(self, *args, **kwargs):
+        pass
+
+
+def make_model(
     n_samples, n_features,*,
     feature_type,
     highly_variable_key = None,
@@ -79,7 +101,8 @@ def TopicModel(
         tuned. The "dirichlet_process" latent space automatically infers the number of topics
         during training, but requires large datasets to work well (>40000 cells).
     
-    **Model Parameters**
+    Other Parameters
+    ----------------
     
     cost_beta : float>0, default = 1.
         Multiplier of the regularization loss terms (KL divergence and mutual information 
@@ -127,7 +150,7 @@ def TopicModel(
         Whether to anneal KL term using monotonic or cyclic strategies. Cyclic
         may produce slightly better models.
 
-    **CODAL models only**
+    CODAL models only
 
     dependence_lr : float>0, default=1e-4
         Learning rate for tuning the mutual information estimator
@@ -152,7 +175,7 @@ def TopicModel(
         Changing this value to more than 1 weights mutual information regularization more highly
         than KL-divergence regularization of the loss. 
 
-    **Accessibility models only**
+    Accessibility models only
 
     embedding_dropout : float>0, default=0.05
         Bernoulli corruption of bag of peaks input to DAN encoder.
@@ -197,7 +220,7 @@ def TopicModel(
     Examples
     --------
 
-    ..code-block :: python
+    .. code-block :: python
 
         >>> model = mira.topics.TopicModel(
             ...    *rna_data.shape,

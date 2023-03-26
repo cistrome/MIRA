@@ -552,13 +552,14 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         else:
             return 1.
 
+
     def suggest_parameters(self, tuner, trial): 
 
         return dict(        
             num_topics = trial.suggest_int('num_topics', tuner.min_topics, 
                 tuner.max_topics, log=False),
             decoder_dropout = \
-                    trial.suggest_float('decoder_dropout', self._min_dropout, 0.15, log = True)
+                    trial.suggest_float('decoder_dropout', self._min_dropout, 0.1, log = True)
         )
 
 
@@ -1638,7 +1639,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 batch_size = batch_size, bar = bar)
         ])
 
-    def batched_batch_effect(self, latent_composition, covariates, 
+    
+    def _batched_batch_effect(self, latent_composition, covariates, 
         batch_size = 256, bar = True):
 
         return self._run_decoder_fn(self.decoder.get_batch_effect, 
@@ -1650,12 +1652,44 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         fill_kwargs=['topic_compositions','covariates','extra_features'])
     def get_batch_effect(self, batch_size = 256, bar = True, *, topic_compositions,
         covariates, extra_features):
+        '''
+        Compute the estimated technical effects for each gene in each cell.
+
+        Parameters
+        ----------
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            AnnData of expression or accessibility features to model
+        batch_size : int>0, default=512
+            Minibatch size to run cells through encoder network to predict 
+            topic compositions. Set to highest value where tensors will fit in
+            memory to increase speed.
+
+        Returns
+        -------
+        anndata.AnnData
+            `.layers['batch_effect']` : np.ndarray[float] of shape (n_cells, n_features)
+                Estimated batch effects
+        
+        Examples
+        --------
+
+        .. code-block::
+
+            >>> model.get_batch_effects(rna_data)
+            >>> rna_data
+            View of AnnData object with n_obs × n_vars = 18482 × 22293
+                layers: 'batch_effect'
+
+        '''
 
         if self.num_covariates == 0:
             raise ValueError('Cannot compute batch effect with no covariates.')
 
         return self.features, np.vstack([
-            x for x  in self.batched_batch_effect(topic_compositions, covariates,
+            x for x  in self._batched_batch_effect(topic_compositions, covariates,
                 batch_size = batch_size, bar = bar)
         ])
 

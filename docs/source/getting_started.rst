@@ -18,25 +18,43 @@ Getting Started
     :target: https://www.biorxiv.org/content/10.1101/2021.12.06.471401v1
 
 
+MIRA versus CODAL
+-----------------
+
+If you are looking to use the CODAL method for comparative single-cell atlas construction,
+you're in the right place. MIRA's topic modeling methods were originally developed for single-cell
+multiomic analysis, but work identically for non-multiome single-cell experiments. Now, MIRA's topic models
+perform inference using the CODAL objective for disentangling biological effects from technical
+effects in batched data. 
+
 
 System Requirements
 -------------------
 
 * Linux or MacOS
-* Python >=3.5, <3.8
+* Python >=3.5
 * (optional) CUDA-enabled GPU
 
 Data
 ----
 
+**Single-cell Multiome**
+
 .. image :: /_static/data_example.png
     :width: 350
     :align: center
 
-MIRA takes scRNA-seq and scATAC-seq count matrices from a single-cell multiomics experiment,
+MIRA takes scRNA-seq and scATAC-seq count matrices from a single-cell multiomics experiment or experiments (batched),
 where each cell is measured using both assays, and measurements are linked by a shared cell
 barcode. We demonstrated MIRA using SHARE-seq data and commercial 10X genomics multiome data, 
 but MIRA's assumptions and models are extensible to other multiome protocols.
+
+**scRNA-seq or scATAC-seq only**
+
+When working with non-multiomic data, some of MIRA's functionalities are limited. However, one can use MIRA's 
+topic models to analyze single-mode datasets. Again, MIRA needs a count matrix as input.
+
+**Notes on Preprocessing**
 
 Since MIRA starts from count matrices, one can use any method for read preprocessing and 
 cell QC. Of note, we find that CellRanger's ATAC-seq peak-calling method finds fewer
@@ -61,8 +79,6 @@ or
 
 Installation will take about a minute.
 
-Please note, currently MIRA may only be installed on Python <3.8 due to some dependencies' requirements. 
-We are working to make it accessible on newer Python versions. 
 To set up an a new analysis, we recommend starting with a fresh environment:
 
 .. code-block:: bash
