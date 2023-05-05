@@ -331,6 +331,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         return model
 
+
     def __init__(self,
             endogenous_key = None,
             exogenous_key = None,
@@ -1596,7 +1597,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def _batched_impute(self, latent_composition, covariates, 
         batch_size = 256, bar = True):
 
-        return self._run_decoder_fn(partial(self.decoder, nullify_covariates = True), 
+        return self._run_decoder_fn(
+                    partial(self.decoder, nullify_covariates = True), 
                     latent_composition, covariates,
                      batch_size= batch_size, bar = bar)
         

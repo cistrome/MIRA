@@ -20,6 +20,33 @@ class ExpressionTopicModel(ExpressionDirichletModel, ExpressionModel, BaseModel)
     '''
     Generic class for topics models for analyzing gene expression data. All GEX topic models inherit
     from this class and implement the same methods.
+
+    Attributes
+    ----------
+    features : np.ndarray[str]
+        Array of exogenous feature names, all features used in learning topics
+    highly_variable : np.ndarray[boolean]
+        Boolean array marking which features were 
+        "highly_variable"/endogenous, used to train encoder
+    encoder : torch.nn.Sequential
+        Encoder neural network
+    decoder : torch.nn.Sequential
+        Decoder neural network
+    num_exog_features : int
+        Number of exogenous features to predict using decoder network
+    num_endog_features : int
+        Number of endogenous feature used for encoder network
+    device : torch.device
+        Device on which model is allocated
+    enrichments : dict
+        Results from enrichment analysis of topics. For expression topic model,
+        this gives geneset enrichments from Enrichr. For accessibility topic
+        model, this gives motif enrichments.
+    topic_cols : list
+        The names of the columns for the topics added by the
+        `predict` method to an anndata object. Useful for quickly accessing
+        topic columns for plotting.
+        
     '''
 
     def __init__(self, *args, **kwargs):
@@ -190,32 +217,6 @@ def make_model(
         A CODAL (if there are technical covariates in the dataset) or MIRA topic model.
         Hyperparameters of the topic model are chosen based on the supplied dataset
         properties. 
-
-    Attributes
-    ----------
-    features : np.ndarray[str]
-        Array of exogenous feature names, all features used in learning topics
-    highly_variable : np.ndarray[boolean]
-        Boolean array marking which features were 
-        "highly_variable"/endogenous, used to train encoder
-    encoder : torch.nn.Sequential
-        Encoder neural network
-    decoder : torch.nn.Sequential
-        Decoder neural network
-    num_exog_features : int
-        Number of exogenous features to predict using decoder network
-    num_endog_features : int
-        Number of endogenous feature used for encoder network
-    device : torch.device
-        Device on which model is allocated
-    enrichments : dict
-        Results from enrichment analysis of topics. For expression topic model,
-        this gives geneset enrichments from Enrichr. For accessibility topic
-        model, this gives motif enrichments.
-    topic_cols : list
-        The names of the columns for the topics added by the
-        `predict` method to an anndata object. Useful for quickly accessing
-        topic columns for plotting.
 
     Examples
     --------
