@@ -6,10 +6,9 @@ User Guide
 Setting up
 ----------
 
-To use MIRA, you need a single-cell multiomics experiment preprocessed and formatted
+To use MIRA, you need a single-cell multiomics, scRNA-seq, or scATAC-seq experiment preprocessed and formatted
 as a **peaks by cells count matrix for scATAC-seq** and **genes by cells count matrix
-for scRNA-seq**. Don't worry about joining the data on the cell barcodes just yet. 
-Before starting with MIRA, make sure to filter low quality cells, doublets, etc.
+for scRNA-seq**. Before starting with MIRA, make sure to filter low quality cells, doublets, etc.
 
 These tutorials also depend on `scanpy`. To install:
 
@@ -29,7 +28,7 @@ genes and cell states.
 .. toctree::
    :maxdepth: 2
 
-   notebooks/tutorial_topic_model_tuning_full.ipynb
+   notebooks/tutorial_CODAL.ipynb
    notebooks/tutorial_joint_representation.ipynb
    notebooks/tutorial_topic_analysis.ipynb
    notebooks/tutorial_mira.time.ipynb

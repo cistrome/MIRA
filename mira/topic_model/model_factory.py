@@ -12,8 +12,57 @@ from mira.topic_model.base import TopicModel as mira_topic_model
 import numpy as np
 
 
+def TopicModel(*args, **kwargs):
+    return make_model(*args, **kwargs)
 
-def TopicModel(
+
+class ExpressionTopicModel(ExpressionDirichletModel, ExpressionModel, BaseModel):
+    '''
+    Generic class for topics models for analyzing gene expression data. All GEX topic models inherit
+    from this class and implement the same methods.
+
+    Attributes
+    ----------
+    features : np.ndarray[str]
+        Array of exogenous feature names, all features used in learning topics
+    highly_variable : np.ndarray[boolean]
+        Boolean array marking which features were 
+        "highly_variable"/endogenous, used to train encoder
+    encoder : torch.nn.Sequential
+        Encoder neural network
+    decoder : torch.nn.Sequential
+        Decoder neural network
+    num_exog_features : int
+        Number of exogenous features to predict using decoder network
+    num_endog_features : int
+        Number of endogenous feature used for encoder network
+    device : torch.device
+        Device on which model is allocated
+    enrichments : dict
+        Results from enrichment analysis of topics. For expression topic model,
+        this gives geneset enrichments from Enrichr. For accessibility topic
+        model, this gives motif enrichments.
+    topic_cols : list
+        The names of the columns for the topics added by the
+        `predict` method to an anndata object. Useful for quickly accessing
+        topic columns for plotting.
+        
+    '''
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+class AccessibilityTopicModel(AccessibilityDirichletModel, AccessibilityModel, BaseModel):
+    '''
+    Generic class for topics models for analyzing chromatin accessibility data. All accessibility topic models inherit
+    from this class and implement the same methods.
+    '''
+    
+    def __init__(self, *args, **kwargs):
+        pass
+
+
+def make_model(
     n_samples, n_features,*,
     feature_type,
     highly_variable_key = None,
@@ -79,7 +128,8 @@ def TopicModel(
         tuned. The "dirichlet_process" latent space automatically infers the number of topics
         during training, but requires large datasets to work well (>40000 cells).
     
-    **Model Parameters**
+    Other Parameters
+    ----------------
     
     cost_beta : float>0, default = 1.
         Multiplier of the regularization loss terms (KL divergence and mutual information 
@@ -127,7 +177,7 @@ def TopicModel(
         Whether to anneal KL term using monotonic or cyclic strategies. Cyclic
         may produce slightly better models.
 
-    **CODAL models only**
+    CODAL models only
 
     dependence_lr : float>0, default=1e-4
         Learning rate for tuning the mutual information estimator
@@ -152,7 +202,7 @@ def TopicModel(
         Changing this value to more than 1 weights mutual information regularization more highly
         than KL-divergence regularization of the loss. 
 
-    **Accessibility models only**
+    Accessibility models only
 
     embedding_dropout : float>0, default=0.05
         Bernoulli corruption of bag of peaks input to DAN encoder.
@@ -168,36 +218,10 @@ def TopicModel(
         Hyperparameters of the topic model are chosen based on the supplied dataset
         properties. 
 
-    Attributes
-    ----------
-    features : np.ndarray[str]
-        Array of exogenous feature names, all features used in learning topics
-    highly_variable : np.ndarray[boolean]
-        Boolean array marking which features were 
-        "highly_variable"/endogenous, used to train encoder
-    encoder : torch.nn.Sequential
-        Encoder neural network
-    decoder : torch.nn.Sequential
-        Decoder neural network
-    num_exog_features : int
-        Number of exogenous features to predict using decoder network
-    num_endog_features : int
-        Number of endogenous feature used for encoder network
-    device : torch.device
-        Device on which model is allocated
-    enrichments : dict
-        Results from enrichment analysis of topics. For expression topic model,
-        this gives geneset enrichments from Enrichr. For accessibility topic
-        model, this gives motif enrichments.
-    topic_cols : list
-        The names of the columns for the topics added by the
-        `predict` method to an anndata object. Useful for quickly accessing
-        topic columns for plotting.
-
     Examples
     --------
 
-    ..code-block :: python
+    .. code-block :: python
 
         >>> model = mira.topics.TopicModel(
             ...    *rna_data.shape,

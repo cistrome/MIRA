@@ -292,6 +292,7 @@ class CovariateModel(BaseModel):
 
         return params, self.dependence_network.parameters()
 
+
     @docstring_wrapper(BaseModel.get_learning_rate_bounds.__doc__)
     @adi.wraps_modelfunc(fetch = tmi.fit, 
         fill_kwargs=['features','highly_variable','dataset'],
@@ -300,7 +301,6 @@ class CovariateModel(BaseModel):
         num_epochs = 3, eval_every = 3, 
         lower_bound_lr = 1e-6, upper_bound_lr = 1,*,
         features, highly_variable, dataset):
-        
         
         self._instantiate_model(
             features = features, highly_variable = highly_variable,
@@ -471,6 +471,7 @@ class CovariateModel(BaseModel):
         self.set_device('cpu')
         self.eval()
         return self
+
 
     @docstring_wrapper(BaseModel.set_device.__doc__)
     def set_device(self, device):

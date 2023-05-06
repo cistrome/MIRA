@@ -671,6 +671,58 @@ class LITE_Model(BaseModel):
         * Chromatin differential: the relative levels of nearby accessibility versus gene expression.
         * *Insilico*-deletion: predicts transcription factor regulators based on a model of nearby binding in influential CREs, as determined by the RP model.
         
+        Parameters
+        ----------
+
+        expr_model: mira.topics.ExpressionTopicModel
+            Trained MIRA expression topic model.
+        accessibility_model : mira.topics.AccessibilityTopicModel
+            Trained MIRA accessibility topic model.
+        genes : np.ndarray[str], list[str]
+            List of genes for which to learn RP models.
+        learning_rate : float>0
+            Learning rate for L-BGFS optimizer.
+        counts_layer : str, default=None
+            Layer in AnnData that countains raw counts for modeling.
+        initialization_model : mira.rp.LITE_Model, mira.rp.NITE_Model, None
+            Initialize parameters of RP model using the provided model before
+            further optimization with L-BGFS. This is used when training the NITE
+            model, which is initialized with the LITE model parameters learned 
+            for the same genes, then retrained to optimized the NITE model's 
+            extra parameters. This procedure speeds training.
+
+        Attributes
+        ----------
+        genes : np.ndarray[str]
+            Array of gene names for models
+        features : np.ndarray[str]
+            Array of gene names for models
+        models : list[mira.rp.GeneModel]
+            List of trained RP models
+        model_type : {"NITE", "LITE"}
+        
+        Examples
+        --------
+
+        Setup requires RNA and ATAC AnnData objects with shared cell barcodes
+        and trained topic models for both modes:
+
+        .. code-block:: python
+            
+            >>> rp_args = dict(expr_adata = rna_data, atac_adata = atac_data)
+        
+        Instantiating a LITE model (local chromatin accessibility only):
+
+        .. code-block:: python
+
+            >>> litemodel = mira.rp.LITE_Model(
+            ...     expr_model = rna_model, 
+            ...     accessibility_model = atac_model,
+            ...     counts_layer = 'counts',
+            ...     genes = ['LEF1','WNT3','EDA','NOTCH1'],
+            ... )
+            >>> litemodel.fit(**rp_args)
+
         '''
         
         super().__init__(
@@ -714,6 +766,57 @@ class NITE_Model(BaseModel):
         The predictive capacity of local vs. cell-wide chromatin in predicting a gene's
         expression state determines a gene's *NITE Score*, and edulicates whether that
         gene is primarily regulated by local or nonlocal mechanisms.
+
+        Parameters
+        ----------
+
+        expr_model: mira.topics.ExpressionTopicModel
+            Trained MIRA expression topic model.
+        accessibility_model : mira.topics.AccessibilityTopicModel
+            Trained MIRA accessibility topic model.
+        genes : np.ndarray[str], list[str]
+            List of genes for which to learn RP models.
+        learning_rate : float>0
+            Learning rate for L-BGFS optimizer.
+        counts_layer : str, default=None
+            Layer in AnnData that countains raw counts for modeling.
+        initialization_model : mira.rp.LITE_Model, mira.rp.NITE_Model, None
+            Initialize parameters of RP model using the provided model before
+            further optimization with L-BGFS. This is used when training the NITE
+            model, which is initialized with the LITE model parameters learned 
+            for the same genes, then retrained to optimized the NITE model's 
+            extra parameters. This procedure speeds training.
+
+        Attributes
+        ----------
+        genes : np.ndarray[str]
+            Array of gene names for models
+        features : np.ndarray[str]
+            Array of gene names for models
+        models : list[mira.rp.GeneModel]
+            List of trained RP models
+        model_type : {"NITE", "LITE"}
+        
+        Examples
+        --------
+
+        Setup requires RNA and ATAC AnnData objects with shared cell barcodes
+        and trained topic models for both modes:
+
+        .. code-block:: python
+            
+            >>> rp_args = dict(expr_adata = rna_data, atac_adata = atac_data)
+        
+        Instantiating a NITE model (local chromatin accessibility only):
+
+            >>> nitemodel = mira.rp.NITE_Model(
+            ...     expr_model = rna_model, 
+            ...     accessibility_model = atac_model,
+            ...     counts_layer = 'counts',
+            ...     genes = litemodel.genes,
+            ...     instantiation_model = litemodel
+            ... )
+            >>> nitemodel.fit(**rp_args)
 
         '''
 

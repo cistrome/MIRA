@@ -192,7 +192,8 @@ def plot_intermediate_values(trials, palette = 'Greys',
                             vmin = None,
                             vmax = None,
                             ax = None, 
-                            figsize = (10,7)):
+                            figsize = (10,7),
+                            **plot_kwargs):
     
     if ax is None:
         fig, ax = plt.subplots(1,1,figsize = figsize)
@@ -203,7 +204,9 @@ def plot_intermediate_values(trials, palette = 'Greys',
         except KeyError:
             return np.nan
 
-    trial_values = np.array([ get_or_nan(t) for t in trials ] )
+    trials = [t for t in trials if t.state in [ts.PRUNED, ts.COMPLETE]]
+
+    trial_values = np.array([ get_or_nan(t) for t in trials] )
 
     cbar_params = dict(orientation = 'vertical', pad = 0.01, shrink = 0.5, 
                                  aspect = 15, anchor = (1.05, 0.5), label = hue)
@@ -227,6 +230,7 @@ def plot_intermediate_values(trials, palette = 'Greys',
             list(trial.intermediate_values.keys()),
             list(trial.intermediate_values.values()),
             c = _c,
+            **plot_kwargs,
         )
         
     ax.set(yscale = 'log',

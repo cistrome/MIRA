@@ -396,7 +396,7 @@ def fetch_topic_comps(self, adata, key = 'X_topic_compositions'):
     covariates = np.hstack([covariates, categorical_covariates, continuous_covariates])
     extra_features = fetch_columns(self, adata, self.extra_features_keys)
 
-    return dict(topic_compositions = adata.obsm[key],
+    return dict(topic_compositions = adata.obsm[key].astype(np.float32),
                 covariates = covariates, extra_features = extra_features)
 
 

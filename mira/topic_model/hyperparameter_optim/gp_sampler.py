@@ -243,107 +243,8 @@ class GP(BaseSampler):
         self._random_sampler.reseed_rng()
         
         
-    def debug_plot(self, X,y, X_hat, score_mu, score_std, p_survives, f):
-        
-        fig, ax = plt.subplots(2,1,figsize=(5,3),
-                              sharex=True)
-        
-        if True:#X_hat.shape[-1] == 2:
-        
-            sns.scatterplot(
-                x = X[:,0],
-                y = y,
-                ax=ax[0],
-                c = X[:,-1],
-                cmap = 'viridis',
-                vmin = -2,
-                s = 20,
-                linewidth = 0.1,
-                edgecolor = 'black',
-            )
-
-            sns.lineplot(
-                y = score_mu,
-                x = X_hat[:,0],
-                color = 'red',
-                ax=ax[0],
-            )
-            
-            sns.lineplot(
-                y = score_mu - score_std,
-                x = X_hat[:,0],
-                color = 'red',
-                ax=ax[0],
-                alpha = 0.1
-            )
-            
-            sns.scatterplot(
-                x = X_hat[:,0],
-                y = X_hat[:,1],
-                ax = ax[1],
-                size = f * p_survives,
-                hue = f * p_survives,
-                palette = sns.color_palette('light:blue', as_cmap=True),
-                sizes=(5,20),
-                legend=False
-            )
-            
-            '''sns.lineplot(
-                x = X_hat[:,0],
-                y = minmax_scale(f),
-                ax=ax[1],
-                color = 'black',
-            )
-
-            sns.lineplot(
-                x = X_hat[:,0],
-                y = p_survives,
-                ax=ax[1],
-                color = 'orange',
-            )'''
-
-            ax[0].set(yscale = 'log')
-            sns.despine()
-        
-        '''elif if X_hat.shape[-1] == 3:
-            
-            sns.scatterplot(
-                x = X[:,0],
-                y = X[:,1],
-                ax = ax[0],
-                c = X[:,2],
-                cmap = 'Greys',
-                s = 5,
-            )
-
-            sns.lineplot(
-                y = score_mu,
-                x = X_hat[:,0],
-                color = 'red',
-                ax=ax[0],
-            )
-
-            sns.lineplot(
-                x = X_hat[:,0],
-                y = f,
-                ax=ax[1],
-                color = 'black',
-            )
-
-            sns.lineplot(
-                x = X_hat[:,0],
-                y = p_survives,
-                ax=ax[1],
-                color = 'orange',
-            )
-
-            ax[0].set(yscale = 'log')
-            sns.despine()'''
-            
-        plt.show()
-
-        
     def sample_relative(self, study, trial, search_space):
+
         if search_space == {}:
             return {}
         
@@ -359,7 +260,7 @@ class GP(BaseSampler):
         
         params, rungs, scores = featurize_trials(trials, search_space, self._constant_liar,
                                                  get_constant_liar_scores(trials, self._cl_function))
-        
+
         X = format_params_as_input(params, rungs, transformer, search_space)
         y = np.array(scores)
                 
@@ -390,9 +291,13 @@ class GP(BaseSampler):
                                 best_value, temp= self._tau, direction=study.direction,)
         
         if self._debug:
-            self.debug_plot(X, y, X_hat[candidate_rungs == max_rung],
-                            score_mu, score_std, p_survives, f)
+            #self.debug_plot(X, y, X_hat[candidate_rungs == max_rung],
+            #                score_mu, score_std, p_survives, f)
+
+            return X, y, X_hat[candidate_rungs == max_rung],\
+                            score_mu, score_std, p_survives, f
         
+
         return sampled_candidates[np.argmax(p_survives * f)]
     
     def infer_relative_search_space(self, study, trial):
