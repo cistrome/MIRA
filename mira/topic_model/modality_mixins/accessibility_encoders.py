@@ -58,7 +58,7 @@ class DANEncoder(nn.Module):
     def sample_posterior(self, X, read_depth, covariates, extra_features,
             n_samples = 100):
 
-        theta_loc, theta_scale, _, _  = self.forward(X, read_depth, covariates, extra_features)
+        theta_loc, theta_scale  = self.forward(X, read_depth, covariates, extra_features)
         theta_loc, theta_scale = theta_loc.detach().cpu().numpy(), theta_scale.detach().cpu().numpy()
 
         # theta = z*std + mu
@@ -133,7 +133,7 @@ class DANSkipEncoder(nn.Module):
     def sample_posterior(self, X, read_depth, covariates, extra_features,
             n_samples = 100):
 
-        theta_loc, theta_scale, _, _  = self.forward(X, read_depth, covariates, extra_features)
+        theta_loc, theta_scale  = self.forward(X, read_depth, covariates, extra_features)
         theta_loc, theta_scale = theta_loc.detach().cpu().numpy(), theta_scale.detach().cpu().numpy()
 
         # theta = z*std + mu
