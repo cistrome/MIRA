@@ -1,4 +1,3 @@
-import seaborn as sns
 from optuna._transform import _SearchSpaceTransform
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
