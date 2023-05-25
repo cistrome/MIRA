@@ -57,7 +57,7 @@ class DPModel:
 
     def get_topic_model(self):
 
-        generative_model, feature_model, baseclass \
+        _, feature_model, baseclass, docclass \
                 = self.__class__.__bases__
 
         names = self.__class__.__name__.split('_')
@@ -69,7 +69,7 @@ class DPModel:
 
         _class = type(
             '_'.join(['dirichlet', *names[1:]]),
-            (generative_model, feature_model, baseclass),
+            (generative_model, feature_model, baseclass, docclass),
             {}
         )
 
