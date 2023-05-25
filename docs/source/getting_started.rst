@@ -15,7 +15,7 @@ Getting Started
     :target: https://anaconda.org/bioconda/mira-multiome
 
 .. image:: https://zenodo.org/badge/DOI/10.1101/2021.12.06.471401.svg
-    :target: https://www.biorxiv.org/content/10.1101/2021.12.06.471401v1
+    :target: https://www.nature.com/articles/s41592-022-01595-z
 
 
 MIRA versus CODAL
