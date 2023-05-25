@@ -19,7 +19,7 @@ import mira.adata_interface.core as adi
 import mira.adata_interface.topic_model as tmi
 import numpy as np
 from functools import partial
-from mira.topic_model.base import logger
+from mira.topic_model.base import encoder_layer, logger
 
 
 def mix_weights(beta):
@@ -55,35 +55,6 @@ class DP_EncoderMixin:
 
 class DPModel:
 
-    def get_topic_model(self):
-
-        generative_model, feature_model, baseclass \
-                = self.__class__.__bases__
-
-        names = self.__class__.__name__.split('_')
-
-        if isinstance(self, ExpressionDirichletProcessModel):
-            generative_model = ExpressionDirichletModel
-        else:
-            generative_model = AccessibilityDirichletModel
-
-        _class = type(
-            '_'.join(['dirichlet', *names[1:]]),
-            (generative_model, feature_model, baseclass),
-            {}
-        )
-
-        instance = _class(
-            **self.get_params()
-        )
-
-        instance.set_params(
-            num_topics = self.predict_num_topics()
-        )
-
-        return instance
-
-
     def _get_save_data(self):
         save_data = super()._get_save_data()
         save_data['weights']['stick_len'] = self.stick_len
@@ -99,14 +70,20 @@ class DPModel:
 
 
     @staticmethod
-    def _predict_num_topics(stick_len, num_topics, contribution = 0.05):
-        expected_comp = np.power(stick_len, np.arange(num_topics))
-        return int(
-            np.argmin(expected_comp > contribution)
-        )
+    def _get_topic_range(stick_len, num_topics,
+        max_contribution = 0.1, min_contribution = 0.01):
 
-    def predict_num_topics(self, contribution = 0.05):
-        return self._predict_num_topics(self.stick_len, self.num_topics, contribution)
+        expected_comp = np.power(stick_len, np.arange(num_topics))
+        
+        min_topics, max_topics = np.argmin(expected_comp > max_contribution), np.argmin(expected_comp > min_contribution)
+        return min_topics, max_topics
+
+
+    def get_topic_range(self, max_contribution = 0.1, min_contribution = 0.01):
+
+        return self._get_topic_range(self.stick_len, self.num_topics,
+            min_contribution = min_contribution, max_contribution = max_contribution)
+
 
     @property
     def stick_len(self):
