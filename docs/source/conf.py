@@ -24,8 +24,8 @@ copyright = '2022, Allen W. Lynch'
 author = 'Allen W. Lynch'
 
 # The full version, including alpha/beta/rc tags
-release = '1.0.0'
-version = '1.0.0'
+release = '2.0.1a1'
+version = '2.0.1a1'
 
 
 # -- General configuration ---------------------------------------------------
