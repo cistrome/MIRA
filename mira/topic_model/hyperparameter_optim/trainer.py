@@ -360,6 +360,7 @@ class SpeedyTuner:
 
     @classmethod
     def load(cls,*,
+        model,
         save_name,
         storage = 'sqlite:///mira-tuning.db'):
         '''
@@ -367,15 +368,15 @@ class SpeedyTuner:
         '''
 
         return cls(
-            model = None, min_topics = None, max_topics = None,
+            model = model, min_topics = None, max_topics = None,
             storage = storage, save_name = save_name,
         )
 
-    def __init__(self,
+    def __init__(self,*,
         model,
         save_name,
         min_topics,
-        max_topics,*,
+        max_topics,
         storage = 'sqlite:///mira-tuning.db',
         n_jobs = 1,
         max_trials = 128,
