@@ -10,6 +10,7 @@ from mira.topic_model.generative_models.lda_generative import \
 from mira.topic_model.base import BaseModel, logger
 from mira.topic_model.base import TopicModel as mira_topic_model
 import numpy as np
+from torch import load, device
 
 
 def TopicModel(*args, **kwargs):
@@ -50,7 +51,7 @@ class ExpressionTopicModel(ExpressionDirichletModel, ExpressionModel, BaseModel)
     '''
 
     def __init__(self, *args, **kwargs):
-        pass
+        raise NotImplementedError('This is a faux class used for documentation purposes. Please instantiate a topic model using "mira.topics.make_model(...)"')
 
 class AccessibilityTopicModel(AccessibilityDirichletModel, AccessibilityModel, BaseModel):
     '''
@@ -59,7 +60,7 @@ class AccessibilityTopicModel(AccessibilityDirichletModel, AccessibilityModel, B
     '''
     
     def __init__(self, *args, **kwargs):
-        pass
+        raise NotImplementedError('This is a faux class used for documentation purposes. Please instantiate a topic model using "mira.topics.make_model(...)"')
 
 
 def make_model(
@@ -299,3 +300,65 @@ def make_model(
     instance.set_params(**parameter_recommendations)
 
     return instance
+
+
+def load_model(filename):
+    '''
+    Load a pre-trained topic model from disk.
+    
+    Parameters
+    ----------
+    filename : str
+        File name of saved topic model
+
+    Examples
+    --------
+
+    .. code-block:: python
+
+        >>> rna_model = mira.topics.load_model('rna_model.pth')
+        >>> atac_model = mira.topics.load_model('atac_model.pth')
+
+    '''
+
+    data = load(filename, map_location=device('cpu'))
+
+    # mira v2 data save format
+    if 'cls_name' in data.keys():
+        _class = type(
+            data['cls_name'], data['cls_bases'], {}
+        )
+
+        if not 'skipconnection_atac_encoder' in data['params']:
+            data['params']['skipconnection_atac_encoder'] = False # for backwards compat with old ATAC model encoder
+
+    else:
+
+        # mira v1 data save format
+        is_rna_model = 'residual_pi' in data['fit_params'].keys()
+        if is_rna_model:
+            _class = type(
+                '_'.join(['dirichlet','expression','model']),
+                (ExpressionDirichletModel, ExpressionModel, BaseModel, mira_topic_model),
+                {}
+            )
+        else:
+            _class = type(
+                '_'.join(['dirichlet','expression','model']),
+                (AccessibilityDirichletModel, AccessibilityModel, BaseModel, mira_topic_model),
+                {}
+            )
+            data['params']['skipconnection_atac_encoder'] = False
+        
+        data['fit_params']['num_extra_features'] = 0
+        data['fit_params']['num_covariates'] = 0
+
+        for i in range( data['params']['num_layers'] - (not is_rna_model) ):
+            data['weights'][f'encoder.fc_layers.{i}.1.running_mean'] -= data['weights'][f'encoder.fc_layers.{i}.0.bias']
+            del data['weights'][f'encoder.fc_layers.{i}.0.bias']
+
+
+    model = _class(**data['params'])
+    model._set_weights(data['fit_params'], data['weights'])
+    
+    return model

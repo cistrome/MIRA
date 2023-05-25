@@ -26,6 +26,7 @@ from sklearn.model_selection import train_test_split
 import os
 from shutil import rmtree
 
+
 logger = logging.getLogger(__name__)
 
 class TopicModel:
@@ -263,41 +264,7 @@ class DataCache:
         
     def __exit__(self ,type, value, traceback):
         self.rm_cache()
-
-
-def load_model(filename):
-    '''
-    Load a pre-trained topic model from disk.
-    
-    Parameters
-    ----------
-    filename : str
-        File name of saved topic model
-
-    Examples
-    --------
-
-    .. code-block:: python
-
-        >>> rna_model = mira.topics.load_model('rna_model.pth')
-        >>> atac_model = mira.topics.load_model('atac_model.pth')
-
-    '''
-
-    data = torch.load(filename, map_location=torch.device('cpu'))
-
-    _class = type(
-        data['cls_name'], data['cls_bases'], {}
-    )
-
-    if not 'skipconnection_atac_encoder' in data['params']:
-        data['params']['skipconnection_atac_encoder'] = False # for backwards compat with old ATAC model encoder
-
-    model = _class(**data['params'])
-    model._set_weights(data['fit_params'], data['weights'])
-
-    return model
-    
+ 
 
 class BaseModel(torch.nn.Module, BaseEstimator):
 

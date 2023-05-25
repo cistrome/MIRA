@@ -238,7 +238,8 @@ class AccessibilityModel:
 
     @adi.wraps_modelfunc(ri.fetch_factor_hits_and_latent_comps, ri.make_motif_score_adata,
         ['metadata','hits_matrix','topic_compositions'])
-    def get_motif_scores(self, batch_size=512,*, metadata, hits_matrix, topic_compositions):
+    def get_motif_scores(self, batch_size=512,*, metadata, hits_matrix, topic_compositions, 
+                         extra_features, covariates):
         '''
         Get motif scores for each cell based on the probability of sampling a motif
         from the posterior distribution over accessible sites in a cell.
@@ -268,7 +269,7 @@ class AccessibilityModel:
     
         motif_scores = np.vstack([
             hits_matrix.dot(np.log(peak_probabilities).T).T
-            for peak_probabilities in self._batched_impute(topic_compositions)
+            for peak_probabilities in self._batched_impute(topic_compositions, covariates)
         ])
 
         with warnings.catch_warnings():

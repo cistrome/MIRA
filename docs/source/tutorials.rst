@@ -29,6 +29,7 @@ genes and cell states.
    :maxdepth: 2
 
    notebooks/tutorial_CODAL.ipynb
+   notebooks/tutorial_atlas_integration.ipynb
    notebooks/tutorial_joint_representation.ipynb
    notebooks/tutorial_topic_analysis.ipynb
    notebooks/tutorial_mira.time.ipynb
