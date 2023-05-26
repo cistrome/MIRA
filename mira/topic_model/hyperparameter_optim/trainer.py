@@ -409,7 +409,7 @@ class SpeedyTuner:
         save_name : str (required)
             Table under which to save tuning results in *storage* table. 
             A good pattern to follow is: `dataset/modality/model_id/tuning_run`.
-         min_topics : int (required)
+        min_topics : int (required)
             Minimum number of topics to try. 
         max_topics : int
             Maximum number of topics to try. 
