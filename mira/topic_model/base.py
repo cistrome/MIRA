@@ -395,6 +395,26 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.cost_beta = cost_beta
         self.skipconnection_atac_encoder = skipconnection_atac_encoder
 
+    def _spawn_submodel(self, generative_model):
+
+        _, feature_model, baseclass, docclass \
+                = self.__class__.__bases__
+
+        names = self.__class__.__name__.split('_')
+
+        _class = type(
+            '_'.join(['dirichletprocess', *names[1:]]),
+            (generative_model, feature_model, baseclass, docclass),
+            {}
+        )
+
+        instance = _class(
+            **self.get_params()
+        )
+
+        return instance
+    
+
     def get_datacache_hash(self):
 
         def none_to_list(x):
@@ -1300,7 +1320,15 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             method='ward', metric='euclidean')
 
         return linkage_matrix
+    
 
+    @adi.wraps_modelfunc(tmi.fetch_features, fill_kwargs=['dataset'])
+    def _predict_topic_comps_direct_return(self, batch_size = 256, bar = True,*, dataset):
+
+        return self._run_encoder_fn(self.encoder.sample_posterior, 
+                dataset, batch_size = batch_size, bar = bar).mean(-1)
+    
+    
 
     @adi.wraps_modelfunc(tmi.fetch_features, tmi.add_topic_comps,
         fill_kwargs=['dataset'])

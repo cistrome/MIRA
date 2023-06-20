@@ -1,6 +1,8 @@
 
 from mira.topic_model.hyperparameter_optim.trainer \
-    import SpeedyTuner, Redis
+    import BayesianTuner, Redis
+
+from mira.topic_model.hyperparameter_optim.gradient_tuner import GradientTuner
 
 
 from torch.utils.tensorboard import SummaryWriter as TensorboardTracker

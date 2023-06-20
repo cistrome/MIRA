@@ -8,10 +8,28 @@ import pyro.distributions as dist
 from pyro.contrib.autoname import scope
 from pyro import poutine
 from mira.topic_model.modality_mixins.accessibility_model \
-    import ZeroPaddedBinaryMultinomial, ZeroPaddedMultinomial
+    import ZeroPaddedBinaryMultinomial
+
+from mira.topic_model.generative_models.dirichlet_process \
+    import ExpressionDirichletProcessModel, AccessibilityDirichletProcessModel
+
 
 
 class DirichletMarginals:
+
+    def _get_dp_model(self):
+
+        if isinstance(self, ExpressionDirichletModel):
+            generative_model = ExpressionDirichletProcessModel
+        else:
+            generative_model = AccessibilityDirichletProcessModel
+
+        return self._spawn_submodel(generative_model)
+    
+
+    def get_topic_model(self):
+        return self
+
 
     def model(self):
         

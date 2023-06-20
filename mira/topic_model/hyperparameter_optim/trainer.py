@@ -340,7 +340,7 @@ def joblib_print_callback(tuner):
         joblib.parallel.BatchCompletionCallBack = old_batch_callback
 
 
-class SpeedyTuner:
+class BayesianTuner:
 
     @classmethod
     def optimize():

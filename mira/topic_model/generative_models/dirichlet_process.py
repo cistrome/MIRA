@@ -3,8 +3,8 @@ from mira.topic_model.modality_mixins.expression_model \
 from mira.topic_model.modality_mixins.accessibility_model import DANEncoder, \
     ZeroPaddedBinaryMultinomial, ZeroPaddedMultinomial
 
-from mira.topic_model.generative_models.lda_generative \
-    import ExpressionDirichletModel, AccessibilityDirichletModel
+#from mira.topic_model.generative_models.lda_generative \
+#    import ExpressionDirichletModel, AccessibilityDirichletModel
 
 import pyro.distributions as dist
 import torch
@@ -55,33 +55,18 @@ class DP_EncoderMixin:
 
 class DPModel:
 
-    def get_topic_model(self):
-
-        _, feature_model, baseclass, docclass \
-                = self.__class__.__bases__
-
-        names = self.__class__.__name__.split('_')
+    '''def get_topic_model(self):
 
         if isinstance(self, ExpressionDirichletProcessModel):
             generative_model = ExpressionDirichletModel
         else:
             generative_model = AccessibilityDirichletModel
 
-        _class = type(
-            '_'.join(['dirichlet', *names[1:]]),
-            (generative_model, feature_model, baseclass, docclass),
-            {}
-        )
+        return self._spawn_submodel(generative_model)
+    
 
-        instance = _class(
-            **self.get_params()
-        )
-
-        instance.set_params(
-            num_topics = self.predict_num_topics()
-        )
-
-        return instance
+    def get_dp_model(self):
+        return self'''
 
 
     def _get_save_data(self):
@@ -89,6 +74,7 @@ class DPModel:
         save_data['weights']['stick_len'] = self.stick_len
 
         return save_data
+
 
     def _set_weights(self, fit_params, weights):
         
@@ -98,15 +84,16 @@ class DPModel:
         self._stick_len = stick_len
 
 
-    @staticmethod
-    def _predict_num_topics(stick_len, num_topics, contribution = 0.05):
-        expected_comp = np.power(stick_len, np.arange(num_topics))
-        return int(
-            np.argmin(expected_comp > contribution)
+    @adi.wraps_modelfunc(tmi.fetch_topic_comps, 
+        partial(adi.add_obsm, add_key = 'X_umap_features'),
+        fill_kwargs=['topic_compositions', 'covariates','extra_features'])
+    def predict_num_topics(self, min_contribution = 0.05,*, 
+            topic_compositions, covariates, extra_features):
+
+        return np.sum(
+            topic_compositions.max(0) > min_contribution
         )
 
-    def predict_num_topics(self, contribution = 0.05):
-        return self._predict_num_topics(self.stick_len, self.num_topics, contribution)
 
     @property
     def stick_len(self):
@@ -130,13 +117,16 @@ class DPModel:
     def boxcox(x, a):
         return ( x**a - 1)/a
 
+
     @staticmethod
     def get_active_topics(topic_compositions, min_contribution = 0.05):
         dead_topics = topic_compositions.max(0) < min_contribution
 
         return ~dead_topics
     
-    @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_obsm, add_key = 'X_umap_features'),
+
+    @adi.wraps_modelfunc(tmi.fetch_topic_comps, 
+        partial(adi.add_obsm, add_key = 'X_umap_features'),
         fill_kwargs=['topic_compositions', 'covariates','extra_features'])
     def get_umap_features(self, box_cox = 0.5, min_contribution = 0.05,*, 
             topic_compositions, covariates, extra_features):
@@ -152,10 +142,10 @@ class DPModel:
         transformed = topic_compositions/np.power(self.stick_len, np.arange(num_topics))[np.newaxis, :]
 
         return self.boxcox(transformed, box_cox).dot(basis)
-    
 
     def _t(self, val):
         return torch.tensor(val, requires_grad = False, device = self.device)
+
 
 
 class DP_ExpressionEncoder(ExpressionEncoder, DP_EncoderMixin):

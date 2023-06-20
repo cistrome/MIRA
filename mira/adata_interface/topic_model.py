@@ -357,6 +357,7 @@ def add_test_column(adata, output):
     add_obs_col(adata, test_cell_mask, colname = test_column)
 
 
+
 def fetch_split_train_test(self, adata):
     assert(adata.obs_vector(self.test_column).dtype == bool), 'Test set column must be boolean vector'
     assert(adata.obs_vector(self.test_column).any()), 'No cells are in the test set.'
