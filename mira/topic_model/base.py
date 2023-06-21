@@ -311,7 +311,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             hidden = 128,
             num_layers = 3,
             num_epochs = 24,
-            decoder_dropout = 0.1,
+            decoder_dropout = 0.055,
             cost_beta = 1.,
             encoder_dropout = 0.01,
             use_cuda = True,
@@ -540,14 +540,17 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         else:
             return 1.
 
+    def _recommend_num_epochs(self, n_samples):
 
+        return int( np.min([round((200000 / n_samples) * 24), 24]) )
+    
     def suggest_parameters(self, tuner, trial): 
 
         return dict(        
             num_topics = trial.suggest_int('num_topics', tuner.min_topics, 
                 tuner.max_topics, log=False),
             decoder_dropout = \
-                    trial.suggest_float('decoder_dropout', self._min_dropout, 0.1, log = True)
+                    trial.suggest_float('decoder_dropout', self._min_dropout, 0.065, log = True)
         )
 
 
@@ -555,14 +558,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         assert isinstance(n_samples, int) and n_samples > 0
 
-        batchsize = self._recommend_batchsize(n_samples)
-        epochs = 24 if not finetune else 48
-
         params = {
-            'batch_size' : batchsize,
+            'batch_size' : self._recommend_batchsize(n_samples),
             'hidden' : self._recommend_hidden(n_samples),
             'num_layers' : self._recommend_num_layers(n_samples),
-            'num_epochs' : epochs,
+            'num_epochs' : self._recommend_num_epochs(n_samples),
             'num_topics' : self._recommend_num_topics(n_samples),
             'embedding_size' : self._recommend_embedding_size(n_samples),
             'cost_beta' : self._recommend_cost_beta(n_samples)
@@ -1177,7 +1177,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             n_epochs = self.num_epochs, n_batches_per_epoch = n_batches)
 
         step_count = 0
-        t = trange(self.num_epochs, desc = 'Epoch 0', leave = True) if training_bar else range(self.num_epochs)
+        t = trange(self.num_epochs, desc = 'Training model', leave = True) if training_bar else range(self.num_epochs)
         _t = iter(t)
         epoch = 0
 
@@ -1209,12 +1209,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             epoch_loss = running_loss/(n_observations * self.num_exog_features)
             self.training_loss.append(epoch_loss)
             recent_losses = self.training_loss[-5:]
-
-            if training_bar:
-                t.set_description("Epoch {} done. Recent losses: {}".format(
-                    str(epoch + 1),
-                    ' --> '.join('{:.3e}'.format(loss) for loss in recent_losses)
-                ))
 
             try:
                 next(_t)
@@ -1332,7 +1326,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @adi.wraps_modelfunc(tmi.fetch_features, tmi.add_topic_comps,
         fill_kwargs=['dataset'])
-    def predict(self, batch_size = 256, bar = True,*, dataset):
+    def predict(self, batch_size = 256, bar = True, box_cox = 0.5, *, dataset):
         '''
         Predict the topic compositions of cells in the data. Adds the 
         topic compositions to the `.obsm` field of the adata object.
@@ -1351,6 +1345,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         adata : anndata.AnnData
             `.obsm['X_topic_compositions']` : np.ndarray[float] of shape (n_cells, n_topics)
                 Topic compositions of cells
+            `.obsm['X_umap_features']` : np.ndarray[float] of shape (n_cells, n_topics)
+                ILR transformed topic embeddings for use with nearest neighbors graph
             `.obs['topic_1'] ... .obs['topic_N']` : np.ndarray[float] of shape (n_cells,)
                 Columns for the activation of each topic.
 
@@ -1373,13 +1369,19 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         '''
 
+        topic_expectations = self._run_encoder_fn(self.encoder.sample_posterior, 
+                                    dataset, batch_size = batch_size, bar = bar).mean(-1)
+
+        basis = ilr.gram_schmidt_basis(topic_expectations.shape[-1])
+        ilr_transformed = ilr.centered_boxcox_transform(topic_expectations, a = box_cox).dot(basis)
+
         return dict(
-            cell_topic_dists = self._run_encoder_fn(self.encoder.sample_posterior, 
-                dataset, batch_size = batch_size, bar = bar).mean(-1),
+            cell_topic_dists = topic_expectations,
             topic_feature_dists = self.get_topic_feature_distribution(),
             topic_feature_activations = self._score_features(),
             feature_names = self.features,
-            #topic_dendogram = self.cluster_topics(),
+            umap_features = ilr_transformed,
+            topic_dendogram = self.cluster_topics(),
         )
 
     @adi.wraps_modelfunc(tmi.fetch_features, 

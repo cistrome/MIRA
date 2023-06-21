@@ -241,7 +241,7 @@ def make_model(
         if n_samples < 40000:
             logger.warn(
                 'The dirichlet process model is intended for atlas-level experiments.\n'
-                'For smaller datasets, please use the "dirichlet" latent space, and use the tuner'
+                'For smaller datasets, please use the "dirichlet" latent space, and use the tuner '
                 'to find the optimal number of topics.'
             )
             

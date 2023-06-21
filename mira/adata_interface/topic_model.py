@@ -419,6 +419,7 @@ def add_topic_comps(adata, output, add_key = 'X_topic_compositions',
     cell_topic_dists = output['cell_topic_dists']
     
     add_obsm(adata, cell_topic_dists, add_key = add_key)
+    add_obsm(adata, output['umap_features'], add_key = 'X_umap_features')
 
     if add_cols:
         K = cell_topic_dists.shape[-1]
@@ -434,8 +435,8 @@ def add_topic_comps(adata, output, add_key = 'X_topic_compositions',
             output['feature_names'], output['topic_feature_activations']).T,
             add_key='topic_feature_activations')
 
-    #logger.info('Added key to uns: topic_dendogram')
-    #adata.uns['topic_dendogram'] = output['topic_dendogram']
+    logger.info('Added key to uns: topic_dendogram')
+    adata.uns['topic_dendogram'] = output['topic_dendogram']
 
 
 def add_umap_features(adata, output, add_key = 'X_umap_features'):

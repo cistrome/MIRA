@@ -31,7 +31,12 @@ Topic Modeling
    :toctree: topicmodeling
    :template: tuner.rst
 
-   mira.topics.SpeedyTuner
+   mira.topics.BayesianTuner
+
+.. autosummary::
+   :toctree: topicmodeling
+   
+   mira.topics.gradient_tune
 
 .. autosummary::
    :toctree: topicmodeling

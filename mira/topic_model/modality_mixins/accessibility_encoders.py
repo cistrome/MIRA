@@ -4,7 +4,30 @@ from torch import nn
 import torch.nn.functional as F
 import numpy as np
 
-class DANEncoder(nn.Module):
+
+class EncoderBase(nn.Module):
+
+    def topic_comps(self, idx, read_depth, covariates, extra_features):
+        theta = self.forward(idx, read_depth, covariates, extra_features)[0]
+        theta = theta.exp()/theta.exp().sum(-1, keepdim = True)
+       
+        return theta.detach().cpu().numpy()
+
+
+    def sample_posterior(self, X, read_depth, covariates, extra_features,
+            n_samples = 100):
+
+        theta_loc, theta_scale = self.forward(X, read_depth, covariates, extra_features)
+        theta_loc, theta_scale = theta_loc.detach().cpu().numpy(), theta_scale.detach().cpu().numpy()
+
+        # theta = z*std + mu
+        theta = np.random.randn(*theta_loc.shape, n_samples)*theta_scale[:,:,None] + theta_loc[:,:,None]
+        theta = np.exp(theta)/np.exp(theta).sum(-2, keepdims = True)
+        
+        return theta
+
+
+class DANEncoder(EncoderBase):
 
     def __init__(self, embedding_size = None, *,num_endog_features, num_topics, embedding_dropout,
         hidden, dropout, num_layers, num_exog_features, num_covariates, num_extra_features):
@@ -48,29 +71,10 @@ class DANEncoder(nn.Module):
         return theta_loc, theta_scale
 
 
-    def topic_comps(self, idx, read_depth):
-        theta = self.forward(idx, read_depth)[0]
-        theta = theta.exp()/theta.exp().sum(-1, keepdim = True)
-       
-        return theta.detach().cpu().numpy()
-
-
-    def sample_posterior(self, X, read_depth, covariates, extra_features,
-            n_samples = 100):
-
-        theta_loc, theta_scale  = self.forward(X, read_depth, covariates, extra_features)
-        theta_loc, theta_scale = theta_loc.detach().cpu().numpy(), theta_scale.detach().cpu().numpy()
-
-        # theta = z*std + mu
-        theta = np.random.randn(*theta_loc.shape, n_samples)*theta_scale[:,:,None] + theta_loc[:,:,None]
-        theta = np.exp(theta)/np.exp(theta).sum(-2, keepdims = True)
-        
-        return theta
-
 
 class DANSkipEncoder(nn.Module):
 
-    def __init__(self, embedding_size = None, *,num_endog_features, num_topics, embedding_dropout,
+    def __init__(self, embedding_size = None,*, num_endog_features, num_topics, embedding_dropout,
         hidden, dropout, num_layers, num_exog_features, num_covariates, num_extra_features):
         super().__init__()
 
@@ -92,8 +96,10 @@ class DANSkipEncoder(nn.Module):
         hidden_input = embedding_size + 1 + num_covariates + num_extra_features
         self.hidden_layers = get_fc_stack(
             layer_dims = [hidden_input, *[hidden]*(num_layers-2)],
-            dropout = dropout, skip_nonlin = False
+            dropout = dropout, 
+            skip_nonlin = False
         )
+
 
     def forward(self, idx, read_depth, covariates, extra_features):
        
@@ -123,21 +129,4 @@ class DANSkipEncoder(nn.Module):
         return theta_loc, theta_scale
 
 
-    def topic_comps(self, idx, read_depth, covariates, extra_features):
-        theta = self.forward(idx, read_depth, covariates, extra_features)[0]
-        theta = theta.exp()/theta.exp().sum(-1, keepdim = True)
-       
-        return theta.detach().cpu().numpy()
-
-
-    def sample_posterior(self, X, read_depth, covariates, extra_features,
-            n_samples = 100):
-
-        theta_loc, theta_scale = self.forward(X, read_depth, covariates, extra_features)
-        theta_loc, theta_scale = theta_loc.detach().cpu().numpy(), theta_scale.detach().cpu().numpy()
-
-        # theta = z*std + mu
-        theta = np.random.randn(*theta_loc.shape, n_samples)*theta_scale[:,:,None] + theta_loc[:,:,None]
-        theta = np.exp(theta)/np.exp(theta).sum(-2, keepdims = True)
-        
-        return theta
+    

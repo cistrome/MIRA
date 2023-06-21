@@ -1,6 +1,6 @@
 from mira.topic_model.modality_mixins.expression_model \
     import ExpressionEncoder
-from mira.topic_model.modality_mixins.accessibility_model import DANEncoder, \
+from mira.topic_model.modality_mixins.accessibility_model import DANEncoder, DANSkipEncoder, \
     ZeroPaddedBinaryMultinomial, ZeroPaddedMultinomial
 
 #from mira.topic_model.generative_models.lda_generative \
@@ -215,9 +215,11 @@ class ExpressionDirichletProcessModel(DPModel):
                     read_depth = pyro.sample(
                         "read_depth", dist.LogNormal(rd_loc.reshape((-1,1)), rd_scale.reshape((-1,1))).to_event(1)
                     )
-                            
+
+        self.stick_len
+
     
-class DP_AccessibilityEncoder(DANEncoder, DP_EncoderMixin):
+class DP_AccessibilityEncoder(DANSkipEncoder, DP_EncoderMixin):
     pass
 
 
@@ -258,6 +260,7 @@ class AccessibilityDirichletProcessModel(DPModel):
                     )
 
 
+
     @scope(prefix= 'atac')
     def guide(self,*,endog_features, exog_features, covariates, read_depth, 
             extra_features, anneal_factor = 1., batch_size_adjustment = 1.):
@@ -281,3 +284,5 @@ class AccessibilityDirichletProcessModel(DPModel):
                             dist.Normal(theta_loc, theta_scale), [SigmoidTransform()]
                         ).to_event(1)
                     )
+
+        self.stick_len

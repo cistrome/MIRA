@@ -34,8 +34,8 @@ class CovariateModel(BaseModel):
             num_topics = 16,
             hidden = 128,
             num_layers = 3,
-            num_epochs = 40,
-            decoder_dropout = 0.1,
+            num_epochs = 24,
+            decoder_dropout = 0.055,
             cost_beta = 1.,
             encoder_dropout = 0.01,
             use_cuda = True,
@@ -205,6 +205,7 @@ class CovariateModel(BaseModel):
         vae_loss+= dependence_loss
 
         return distortion, rate * _beta_weight, {'disentanglement_loss' : dependence_loss } #loss_vae/self.num_exog_features
+
 
 
     def model_step(self, batch, opt, parameters, last_batch_z = None,

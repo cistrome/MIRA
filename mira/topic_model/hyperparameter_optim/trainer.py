@@ -14,13 +14,14 @@ import fcntl
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)  # Setup the root logger.
-from mira.topic_model.base import logger as baselogger
 from mira.topic_model.base import ModelParamError, DataCache
 from optuna.exceptions import ExperimentalWarning
 import warnings
 warnings.filterwarnings("ignore", category=ExperimentalWarning, module="optuna")
 from mira.adata_interface.topic_model import logger as interfacelogger
 from mira.adata_interface.core import logger as corelogger
+from mira.topic_model.base import logger as baselogger
+
 import time
 
 from torch.utils.tensorboard import SummaryWriter
@@ -707,7 +708,7 @@ class BayesianTuner:
 
         num_tuners = 1
         startup_trials = int(
-                max(15, self.n_jobs//num_tuners)
+                max(10, self.n_jobs//num_tuners)
             )
 
         logger.info('Using GP sampler with {} startup random trials.'.format(str(startup_trials)))
