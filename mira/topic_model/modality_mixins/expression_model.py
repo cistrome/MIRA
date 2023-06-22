@@ -95,7 +95,7 @@ class ExpressionModel:
         return self.features
 
     @staticmethod
-    def _residual_transform(y_ij, pi_j_hat):
+    def _residual_transform(y_ij, pi_j_hat, n_bar):
         
         n_i = y_ij.sum(axis = 1, keepdims = True)
 
@@ -115,7 +115,11 @@ class ExpressionModel:
                 )
             )
 
+        #rescale
+        r_ij = r_ij/np.sqrt(n_bar)
+
         return np.clip(np.nan_to_num(r_ij), -10, 10)
+
 
     def _get_dataset_statistics(self, dataset, training_bar = True):
         super()._get_dataset_statistics(dataset, training_bar = training_bar)
@@ -123,13 +127,16 @@ class ExpressionModel:
         def convert(x):
             return x['endog_features'].toarray().reshape(-1)
 
+        ns = []
         for x in dataset:
+            ns.extend(x['endog_features'].sum(1))
             try:
                 cummulative_counts = cummulative_counts + convert(x)
             except NameError:
                 cummulative_counts = convert(x)
             
         self.residual_pi = cummulative_counts/cummulative_counts.sum()
+        self.n_bar = np.mean(ns)
 
 
     @adi.wraps_modelfunc(tmi.fetch_features, partial(adi.add_obs_col, colname = 'model_read_scale'),
@@ -152,7 +159,12 @@ class ExpressionModel:
         
         assert(np.isclose(X.astype(np.int64), X, 1e-2).all()), 'Input data must be raw transcript counts, represented as integers. Provided data contains non-integer values.'
 
-        X = self._residual_transform(X, self.residual_pi).astype(np.float32)
+        try:
+            n_bar = self.n_bar
+        except AttributeError:
+            n_bar = 1 # backwards compatitability
+
+        X = self._residual_transform(X, self.residual_pi, n_bar).astype(np.float32)
 
         return X
 
@@ -174,6 +186,10 @@ class ExpressionModel:
     def _get_save_data(self):
         data = super()._get_save_data()
         data['fit_params']['residual_pi'] = self.residual_pi
+        try:
+            data['fit_params']['n_bar'] = self.n_bar
+        except AttributeError:
+            data['fit_params']['n_bar'] = 1
 
         return data
     
@@ -205,6 +221,7 @@ class ExpressionModel:
         assert(isinstance(topic_num, int) and topic_num < self.num_topics and topic_num >= 0)
 
         return self.genes[np.argsort(self._score_features()[topic_num, :])]
+
 
     def rank_modules(self, gene):
         '''

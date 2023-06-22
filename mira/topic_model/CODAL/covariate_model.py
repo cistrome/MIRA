@@ -232,7 +232,7 @@ class CovariateModel(BaseModel):
         
         opt.step()
 
-        return loss.item(), bioloss, dependence_loss
+        return loss.item(), bioloss.item(), dependence_loss.item()
 
 
     def dependence_step(self, batch, opt, parameters,
@@ -354,7 +354,7 @@ class CovariateModel(BaseModel):
                     except ValueError:
                         raise ModelParamError()
                         
-                    step_loss += metrics['ELBO_loss'].item()
+                    step_loss += metrics['ELBO_loss']
 
                     batches_complete+=1
                     
