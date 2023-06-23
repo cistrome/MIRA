@@ -42,7 +42,7 @@ class DP_EncoderMixin:
     def sample_posterior(self, X, read_depth, covariates, extra_features,
             n_samples = 100):
 
-        theta_loc, theta_scale, _, _  = self.forward(X, read_depth, covariates, extra_features)
+        theta_loc, theta_scale = self.forward(X, read_depth, covariates, extra_features)[:2]
         # theta = z*std + mu
         alpha = torch.randn(*theta_loc.shape, n_samples)*theta_scale[:,:,None] + theta_loc[:,:,None]
         vi = torch.sigmoid(alpha)

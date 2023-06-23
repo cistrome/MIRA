@@ -72,7 +72,7 @@ class DANEncoder(EncoderBase):
 
 
 
-class DANSkipEncoder(nn.Module):
+class DANSkipEncoder(EncoderBase):
 
     def __init__(self, embedding_size = None,*, num_endog_features, num_topics, embedding_dropout,
         hidden, dropout, num_layers, num_exog_features, num_covariates, num_extra_features):

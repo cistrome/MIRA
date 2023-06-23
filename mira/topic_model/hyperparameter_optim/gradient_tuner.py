@@ -1,5 +1,5 @@
 
-from mira.adata_interface.topic_model import fit_adata
+from mira.adata_interface.topic_model import fit as fit_adata
 from mira.topic_model.base import ModelParamError
 import logging
 logger = logging.getLogger(__name__)
@@ -86,5 +86,5 @@ def gradient_tune(model, data, max_attempts = 5):
 
         topic_max_contributions = _dp_model._predict_topic_comps_direct_return(data).max(0)
 
-        return _select_elbow(topic_max_contributions), np.array(sorted(topic_max_contributions)[::-1])
+        return sorted(topic_max_contributions)[::-1]
 

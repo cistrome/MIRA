@@ -4,3 +4,4 @@ from mira.plots.factor_influence_plot import plot_factor_influence, compare_driv
 from mira.plots.enrichment_plot import plot_enrichments
 from mira.plots.eigengap_plot import plot_eigengap
 from mira.plots.disentanglement_plot import plot_disentanglement
+from mira.plots.topic_contribution_plot import plot_topic_contributions

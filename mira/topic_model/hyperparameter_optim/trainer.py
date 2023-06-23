@@ -708,14 +708,14 @@ class BayesianTuner:
 
         num_tuners = 1
         startup_trials = int(
-                max(10, self.n_jobs//num_tuners)
+                max(15, self.n_jobs//num_tuners)
             )
 
         logger.info('Using GP sampler with {} startup random trials.'.format(str(startup_trials)))
         
         return GP(
             constant_liar = self.parallel,
-            tau = 0.1,
+            tau = 0.01,
             min_points = startup_trials,
             num_candidates = 300,
             cl_function = np.mean

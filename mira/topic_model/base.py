@@ -1316,7 +1316,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         return linkage_matrix
     
 
-    @adi.wraps_modelfunc(tmi.fetch_features, fill_kwargs=['dataset'])
+    @adi.wraps_modelfunc(tmi.fetch_features, fill_kwargs=['dataset'], requires_adata = False)
     def _predict_topic_comps_direct_return(self, batch_size = 256, bar = True,*, dataset):
 
         return self._run_encoder_fn(self.encoder.sample_posterior, 
