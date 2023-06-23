@@ -92,6 +92,8 @@ Plotting
    mira.pl.plot_scatter_chromatin_differential
    mira.pl.plot_enrichments
    mira.pl.compare_driver_TFs_plot
+   mira.pl.plot_topic_contributions
+   mira.pl.plot_disentanglement
 
 Tools
 ~~~~~

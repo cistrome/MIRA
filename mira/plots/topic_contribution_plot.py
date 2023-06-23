@@ -14,6 +14,7 @@ def plot_topic_contributions(
         **plot_kwargs,
     ):
     '''
+    Utility plot for choosing representative number of topics for a dataset in conjuction with the `gradient_tune` method.
 
     Parameters
     ----------
