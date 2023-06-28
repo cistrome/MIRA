@@ -4,30 +4,11 @@ from mira.topic_model.base import ModelParamError
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-from mira.topic_model.hyperparameter_optim.trainer import DisableLogger, baselogger, corelogger, interfacelogger
-import numpy as np
-from numpy.matlib import repmat
+from mira.topic_model.hyperparameter_optim.trainer import DisableLogger, baselogger, \
+        corelogger, interfacelogger
 
 
-def _select_elbow(topic_max_contributions):
-
-    curve = sorted(topic_max_contributions)[::-1]
-    nPoints = len(curve)
-    allCoord = np.vstack((range(nPoints), curve)).T
-
-    firstPoint = allCoord[0]
-    lineVec = allCoord[-1] - allCoord[0]
-    lineVecNorm = lineVec / np.sqrt(np.sum(lineVec**2))
-    vecFromFirst = allCoord - firstPoint
-    scalarProduct = np.sum(vecFromFirst * repmat(lineVecNorm, nPoints, 1), axis=1)
-    vecFromFirstParallel = np.outer(scalarProduct, lineVecNorm)
-    vecToLine = vecFromFirst - vecFromFirstParallel
-    distToLine = np.sqrt(np.sum(vecToLine ** 2, axis=1))
-    
-    return int( np.argmax(distToLine) )
-
-
-def gradient_tune(model, data, max_attempts = 5):
+def gradient_tune(model, data, max_attempts = 5, max_topics = None):
     '''
     Tune number of topcis using a gradient-based estimator based on the Dirichlet Process model. 
     This tuner is very fast, though less comprehensive than the BayesianTuner. We recommend using this 
@@ -41,6 +22,10 @@ def gradient_tune(model, data, max_attempts = 5):
         rate configued by ``get_learning_rate_bounds``.
     data : anndata.AnnData
         Anndata of expression or accessibility data.
+    max_topics : int > 0 or None
+        If none, MIRA automatically chooses an upper limit on the number of topics to model
+        based on a generous hueristic calculated from the number of cells in the provided dataset.
+        If a value is provided, that upper limit is used instead.
 
     Returns
     -------
@@ -51,6 +36,10 @@ def gradient_tune(model, data, max_attempts = 5):
     
     '''
 
+    assert max_topics is None or (isinstance(max_topics, (int, float)) and max_topics > 1), \
+        'If provided, `max_topics` must be a positive integer or float.'
+    
+
     with DisableLogger(baselogger), DisableLogger(interfacelogger), DisableLogger(corelogger):
 
         _dp_model = model._get_dp_model()
@@ -58,7 +47,8 @@ def gradient_tune(model, data, max_attempts = 5):
         train_meta = fit_adata(_dp_model, data)
 
         _dp_model.set_params(
-            num_topics = _dp_model._recommend_num_topics(len(train_meta['dataset'])),
+            num_topics = _dp_model._recommend_num_topics(len(train_meta['dataset'])) \
+                    if max_topics is None else int(max_topics),
             max_learning_rate = 0.1,
         )
 
