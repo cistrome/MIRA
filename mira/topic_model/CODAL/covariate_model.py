@@ -62,7 +62,7 @@ class CovariateModel(BaseModel):
             marginal_estimation_size = 256,
             reconstruction_weight = 1.,
             dependence_beta = 1.,
-            skipconnection_atac_encoder = True
+            atac_encoder = 'fast'
             ):
         super().__init__()
 
@@ -104,7 +104,8 @@ class CovariateModel(BaseModel):
         self.mask_dropout = mask_dropout
         self.marginal_estimation_size = marginal_estimation_size
         self.cost_beta = cost_beta
-        self.skipconnection_atac_encoder = skipconnection_atac_encoder
+        self.atac_encoder = atac_encoder
+        
 
     def _recommend_num_layers(self, n_samples):
         return 3

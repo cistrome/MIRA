@@ -1,6 +1,6 @@
 from mira.topic_model.modality_mixins.expression_model \
     import ExpressionEncoder
-from mira.topic_model.modality_mixins.accessibility_model import DANEncoder, DANSkipEncoder, \
+from mira.topic_model.modality_mixins.accessibility_model import DANEncoder, DANSkipEncoder, LSIEncoder, \
     ZeroPaddedBinaryMultinomial, ZeroPaddedMultinomial
 
 #from mira.topic_model.generative_models.lda_generative \
@@ -51,6 +51,7 @@ class DP_EncoderMixin:
         theta = torch.transpose(theta, -2, -1)
         
         return theta.detach().cpu().numpy()
+
 
 
 class DPModel:
@@ -148,12 +149,7 @@ class DPModel:
 
 
 
-class DP_ExpressionEncoder(ExpressionEncoder, DP_EncoderMixin):
-    pass
-
 class ExpressionDirichletProcessModel(DPModel):
-    
-    encoder_model = DP_ExpressionEncoder
     
     @scope(prefix= 'rna')
     def model(self,*,endog_features, exog_features, covariates, read_depth, extra_features, 
@@ -219,13 +215,17 @@ class ExpressionDirichletProcessModel(DPModel):
         self.stick_len
 
     
-class DP_AccessibilityEncoder(DANSkipEncoder, DP_EncoderMixin):
-    pass
-
-
 class AccessibilityDirichletProcessModel(DPModel):
     
-    encoder_model = DP_AccessibilityEncoder
+    @property
+    def encoder_model(self):
+        base_encoder_class = super().encoder_model
+
+        return  type(
+                'DP_' + base_encoder_class.__name__,
+                (base_encoder_class, DP_EncoderMixin),
+                {}
+            )
 
     @scope(prefix= 'atac')
     def model(self,*,endog_features, exog_features, covariates, read_depth, extra_features, 

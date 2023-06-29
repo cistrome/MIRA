@@ -13,8 +13,8 @@ import mira.adata_interface.core as adi
 import mira.adata_interface.regulators as ri
 from mira.plots.factor_influence_plot import plot_factor_influence
 from mira.topic_model.modality_mixins.accessibility_encoders import \
-        DANEncoder, DANSkipEncoder
-
+        DANEncoder, DANSkipEncoder, LSIEncoder
+from mira.topic_model.base import logger
 
 class ZeroPaddedBinaryMultinomial(pyro.distributions.Multinomial):
     
@@ -64,10 +64,18 @@ class AccessibilityModel:
 
     @property
     def encoder_model(self):
-        if self.skipconnection_atac_encoder:
-            return DANSkipEncoder
-        else:
-            return DANEncoder
+
+        encoder_map = {
+            'skipDAN' : DANSkipEncoder,
+            'DAN' : DANEncoder,
+            'fast' : LSIEncoder,
+        }
+
+        try:
+            return encoder_map[self.atac_encoder]
+        except KeyError as err:
+            raise KeyError(f'ATAC encoder type {self.atac_encoder} is not a valid option, please choose from: {", ".join(encoder_map.keys())}') from err
+    
 
     def _recommend_hidden(self, n_samples):
         if n_samples <= 2000:
@@ -117,17 +125,55 @@ class AccessibilityModel:
 
 
     def preprocess_endog(self, X):
+
+        if self.atac_encoder == 'fast':
+
+            if not isspmatrix(X):
+                X = sparse.csr_matrix(X)
+
+            return self._svd_pipeline.transform(X)
         
-        return self._get_padded_idx_matrix(
-                self._binarize_matrix(X)
+        else:
+            return self._get_padded_idx_matrix(
+                    self._binarize_matrix(X)
                 ).astype(np.int32)
+    
 
     def preprocess_exog(self, X):
 
         return self._get_padded_idx_matrix(
                 self._binarize_matrix(X)
             ).astype(np.int64)
+    
 
+    def _get_dataset_statistics(self, dataset, training_bar = True):
+        super()._get_dataset_statistics(dataset, training_bar = training_bar)
+
+        logger.info('Calculating LSI projection of data for "fast" encoder model.')
+
+        X_matrix = sparse.vstack([
+            x['endog_features']
+            for x in dataset
+        ])
+
+        from sklearn.feature_extraction.text import TfidfTransformer
+        from sklearn.pipeline import Pipeline
+        from sklearn.decomposition import TruncatedSVD
+
+        self._svd_pipeline = Pipeline([
+            ('tfidf', TfidfTransformer()),
+            ('svd', TruncatedSVD(n_components= max(128, 3*self.num_topics))),
+        ])
+
+        self._svd_pipeline.fit(X_matrix)
+
+    def _get_save_data(self):
+        data = super()._get_save_data()
+        
+        if self.atac_encoder == 'fast':
+            data['fit_params']['_svd_pipeline'] = self._svd_pipeline
+
+        return data
 
     '''
     def _dense_counts_matrix(self, accessibility_matrix):
