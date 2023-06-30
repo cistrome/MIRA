@@ -201,9 +201,13 @@ def make_model(
 
     embedding_dropout : float>0, default=0.05
         Bernoulli corruption of bag of peaks input to DAN encoder.
-    skipconnection_atac_encoder : boolean, default=True
-        Whether to add a skip connection to the ATAC-seq encoder model. This improves performance
-        in CODAL models.    
+    atac_encoder : str in {"fast","skipDAN","DAN"}, default="skipDAN"
+        Which type of ATAC encoder to use. The best results are given by "skipDAN", which is the default.
+        However, this model is pretty much impossible to train on CPU. If instantiated without GPU,
+        will throw an error and suggest the "fast" encoder.
+
+        The "fast" encoder skips the large embedding layer of the DAN models and calculates a first-pass
+        LSI projection of the data.
 
     Returns
     -------
@@ -311,6 +315,8 @@ def load_model(filename):
                 is_skipencoder = data['params']['skipconnection_atac_encoder']
                 data['params']['atac_encoder'] = 'skipDAN' if is_skipencoder else 'DAN'
 
+                del data['params']['skipconnection_atac_encoder']
+
             else: # if really old and doesn't have skipconnection flag
                 data['params']['atac_encoder'] = 'DAN'
 
@@ -330,7 +336,7 @@ def load_model(filename):
                 (AccessibilityDirichletModel, AccessibilityModel, BaseModel, mira_topic_model),
                 {}
             )
-            data['params']['skipconnection_atac_encoder'] = False
+            data['params']['atac_encoder'] = 'DAN'
         
         data['fit_params']['num_extra_features'] = 0
         data['fit_params']['num_covariates'] = 0

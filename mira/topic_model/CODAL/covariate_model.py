@@ -62,7 +62,7 @@ class CovariateModel(BaseModel):
             marginal_estimation_size = 256,
             reconstruction_weight = 1.,
             dependence_beta = 1.,
-            atac_encoder = 'fast'
+            atac_encoder = 'skipDAN'
             ):
         super().__init__()
 
@@ -105,7 +105,7 @@ class CovariateModel(BaseModel):
         self.marginal_estimation_size = marginal_estimation_size
         self.cost_beta = cost_beta
         self.atac_encoder = atac_encoder
-        
+
 
     def _recommend_num_layers(self, n_samples):
         return 3
@@ -145,6 +145,7 @@ class CovariateModel(BaseModel):
             ),
             self.marginal_estimation_size
         ).to(self.device)
+
 
     def _get_dataset_statistics(self, dataset, training_bar = True):
         super()._get_dataset_statistics(dataset, training_bar = training_bar)

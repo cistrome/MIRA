@@ -68,14 +68,19 @@ class AccessibilityModel:
         encoder_map = {
             'skipDAN' : DANSkipEncoder,
             'DAN' : DANEncoder,
-            'fast' : LSIEncoder,
+            'light' : LSIEncoder,
         }
+
+        if not torch.cuda.is_available() and not self.atac_encoder == 'light':
+            raise ValueError('If a GPU is unavailable, one cannot use the "skipDAN" or "DAN" encoders for the ATAC model. Use a GPU, or '
+                             'switch the "atac_encoder" option to "light", which does not require a GPU.'
+                             )
 
         try:
             return encoder_map[self.atac_encoder]
         except KeyError as err:
             raise KeyError(f'ATAC encoder type {self.atac_encoder} is not a valid option, please choose from: {", ".join(encoder_map.keys())}') from err
-    
+
 
     def _recommend_hidden(self, n_samples):
         if n_samples <= 2000:
@@ -126,7 +131,7 @@ class AccessibilityModel:
 
     def preprocess_endog(self, X):
 
-        if self.atac_encoder == 'fast':
+        if self.atac_encoder == 'light':
 
             if not isspmatrix(X):
                 X = sparse.csr_matrix(X)
@@ -146,31 +151,46 @@ class AccessibilityModel:
             ).astype(np.int64)
     
 
+    def _get_lsi_projection(self, dataset):
+
+        try:
+            self._svd_pipeline
+            logger.warn('LSI projection already calculated. Using the old projection.')
+        except AttributeError:
+            
+            logger.info('Calculating LSI projection of data for "light" encoder model.')
+            X_matrix = sparse.vstack([
+                x['endog_features']
+                for x in dataset
+            ])
+
+            from sklearn.feature_extraction.text import TfidfTransformer
+            from sklearn.pipeline import Pipeline
+            from sklearn.decomposition import TruncatedSVD
+
+            svd_pipeline = Pipeline([
+                ('tfidf', TfidfTransformer()),
+                ('svd', TruncatedSVD(n_components= max(128, 3*self.num_topics))),
+            ])
+
+            svd_pipeline.fit(X_matrix)
+            return svd_pipeline
+        else:
+            return self._svd_pipeline
+        
+    
+
     def _get_dataset_statistics(self, dataset, training_bar = True):
         super()._get_dataset_statistics(dataset, training_bar = training_bar)
 
-        logger.info('Calculating LSI projection of data for "fast" encoder model.')
-
-        X_matrix = sparse.vstack([
-            x['endog_features']
-            for x in dataset
-        ])
-
-        from sklearn.feature_extraction.text import TfidfTransformer
-        from sklearn.pipeline import Pipeline
-        from sklearn.decomposition import TruncatedSVD
-
-        self._svd_pipeline = Pipeline([
-            ('tfidf', TfidfTransformer()),
-            ('svd', TruncatedSVD(n_components= max(128, 3*self.num_topics))),
-        ])
-
-        self._svd_pipeline.fit(X_matrix)
+        if self.atac_encoder == 'light':
+            self._svd_pipeline = self._get_lsi_projection(dataset)
+        
 
     def _get_save_data(self):
         data = super()._get_save_data()
         
-        if self.atac_encoder == 'fast':
+        if self.atac_encoder == 'light':
             data['fit_params']['_svd_pipeline'] = self._svd_pipeline
 
         return data

@@ -330,7 +330,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             max_momentum = 0.95,
             embedding_dropout = 0.05,
             reconstruction_weight = 1.,
-            atac_encoder = 'fast',
+            atac_encoder = 'skipDAN',
             ):
         '''
         
