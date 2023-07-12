@@ -1,10 +1,10 @@
 from mira.topic_model.modality_mixins.expression_model \
     import ExpressionEncoder
-from mira.topic_model.modality_mixins.accessibility_model import DANEncoder, \
+from mira.topic_model.modality_mixins.accessibility_model import DANEncoder, DANSkipEncoder, LSIEncoder, \
     ZeroPaddedBinaryMultinomial, ZeroPaddedMultinomial
 
-from mira.topic_model.generative_models.lda_generative \
-    import ExpressionDirichletModel, AccessibilityDirichletModel
+#from mira.topic_model.generative_models.lda_generative \
+#    import ExpressionDirichletModel, AccessibilityDirichletModel
 
 import pyro.distributions as dist
 import torch
@@ -42,7 +42,7 @@ class DP_EncoderMixin:
     def sample_posterior(self, X, read_depth, covariates, extra_features,
             n_samples = 100):
 
-        theta_loc, theta_scale, _, _  = self.forward(X, read_depth, covariates, extra_features)
+        theta_loc, theta_scale = self.forward(X, read_depth, covariates, extra_features)[:2]
         # theta = z*std + mu
         alpha = torch.randn(*theta_loc.shape, n_samples)*theta_scale[:,:,None] + theta_loc[:,:,None]
         vi = torch.sigmoid(alpha)
@@ -61,6 +61,7 @@ class DPModel:
 
         return save_data
 
+
     def _set_weights(self, fit_params, weights):
         
         stick_len = weights.pop('stick_len')
@@ -69,20 +70,15 @@ class DPModel:
         self._stick_len = stick_len
 
 
-    @staticmethod
-    def _get_topic_range(stick_len, num_topics,
-        max_contribution = 0.1, min_contribution = 0.01):
+    @adi.wraps_modelfunc(tmi.fetch_topic_comps, 
+        partial(adi.add_obsm, add_key = 'X_umap_features'),
+        fill_kwargs=['topic_compositions', 'covariates','extra_features'])
+    def predict_num_topics(self, min_contribution = 0.05,*, 
+            topic_compositions, covariates, extra_features):
 
-        expected_comp = np.power(stick_len, np.arange(num_topics))
-        
-        min_topics, max_topics = np.argmin(expected_comp > max_contribution), np.argmin(expected_comp > min_contribution)
-        return min_topics, max_topics
-
-
-    def get_topic_range(self, max_contribution = 0.1, min_contribution = 0.01):
-
-        return self._get_topic_range(self.stick_len, self.num_topics,
-            min_contribution = min_contribution, max_contribution = max_contribution)
+        return np.sum(
+            topic_compositions.max(0) > min_contribution
+        )
 
 
     @property
@@ -107,13 +103,16 @@ class DPModel:
     def boxcox(x, a):
         return ( x**a - 1)/a
 
+
     @staticmethod
     def get_active_topics(topic_compositions, min_contribution = 0.05):
         dead_topics = topic_compositions.max(0) < min_contribution
 
         return ~dead_topics
     
-    @adi.wraps_modelfunc(tmi.fetch_topic_comps, partial(adi.add_obsm, add_key = 'X_umap_features'),
+
+    @adi.wraps_modelfunc(tmi.fetch_topic_comps, 
+        partial(adi.add_obsm, add_key = 'X_umap_features'),
         fill_kwargs=['topic_compositions', 'covariates','extra_features'])
     def get_umap_features(self, box_cox = 0.5, min_contribution = 0.05,*, 
             topic_compositions, covariates, extra_features):
@@ -129,18 +128,13 @@ class DPModel:
         transformed = topic_compositions/np.power(self.stick_len, np.arange(num_topics))[np.newaxis, :]
 
         return self.boxcox(transformed, box_cox).dot(basis)
-    
 
     def _t(self, val):
         return torch.tensor(val, requires_grad = False, device = self.device)
 
 
-class DP_ExpressionEncoder(ExpressionEncoder, DP_EncoderMixin):
-    pass
 
 class ExpressionDirichletProcessModel(DPModel):
-    
-    encoder_model = DP_ExpressionEncoder
     
     @scope(prefix= 'rna')
     def model(self,*,endog_features, exog_features, covariates, read_depth, extra_features, 
@@ -202,15 +196,21 @@ class ExpressionDirichletProcessModel(DPModel):
                     read_depth = pyro.sample(
                         "read_depth", dist.LogNormal(rd_loc.reshape((-1,1)), rd_scale.reshape((-1,1))).to_event(1)
                     )
-                            
+
+        self.stick_len
+
     
-class DP_AccessibilityEncoder(DANEncoder, DP_EncoderMixin):
-    pass
-
-
 class AccessibilityDirichletProcessModel(DPModel):
     
-    encoder_model = DP_AccessibilityEncoder
+    @property
+    def encoder_model(self):
+        base_encoder_class = super().encoder_model
+
+        return  type(
+                'DP_' + base_encoder_class.__name__,
+                (base_encoder_class, DP_EncoderMixin),
+                {}
+            )
 
     @scope(prefix= 'atac')
     def model(self,*,endog_features, exog_features, covariates, read_depth, extra_features, 
@@ -245,6 +245,7 @@ class AccessibilityDirichletProcessModel(DPModel):
                     )
 
 
+
     @scope(prefix= 'atac')
     def guide(self,*,endog_features, exog_features, covariates, read_depth, 
             extra_features, anneal_factor = 1., batch_size_adjustment = 1.):
@@ -268,3 +269,5 @@ class AccessibilityDirichletProcessModel(DPModel):
                             dist.Normal(theta_loc, theta_scale), [SigmoidTransform()]
                         ).to_event(1)
                     )
+
+        self.stick_len

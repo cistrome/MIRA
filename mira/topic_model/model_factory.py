@@ -10,10 +10,61 @@ from mira.topic_model.generative_models.lda_generative import \
 from mira.topic_model.base import BaseModel, logger
 from mira.topic_model.base import TopicModel as mira_topic_model
 import numpy as np
+from torch import load, device
+from torch.cuda import is_available as gpu_available
 
 
+def TopicModel(*args, **kwargs):
+    return make_model(*args, **kwargs)
 
-def TopicModel(
+
+class ExpressionTopicModel(ExpressionDirichletModel, ExpressionModel, BaseModel):
+    '''
+    Generic class for topics models for analyzing gene expression data. All GEX topic models inherit
+    from this class and implement the same methods.
+
+    Attributes
+    ----------
+    features : np.ndarray[str]
+        Array of exogenous feature names, all features used in learning topics
+    highly_variable : np.ndarray[boolean]
+        Boolean array marking which features were 
+        "highly_variable"/endogenous, used to train encoder
+    encoder : torch.nn.Sequential
+        Encoder neural network
+    decoder : torch.nn.Sequential
+        Decoder neural network
+    num_exog_features : int
+        Number of exogenous features to predict using decoder network
+    num_endog_features : int
+        Number of endogenous feature used for encoder network
+    device : torch.device
+        Device on which model is allocated
+    enrichments : dict
+        Results from enrichment analysis of topics. For expression topic model,
+        this gives geneset enrichments from Enrichr. For accessibility topic
+        model, this gives motif enrichments.
+    topic_cols : list
+        The names of the columns for the topics added by the
+        `predict` method to an anndata object. Useful for quickly accessing
+        topic columns for plotting.
+        
+    '''
+
+    def __init__(self, *args, **kwargs):
+        raise NotImplementedError('This is a faux class used for documentation purposes. Please instantiate a topic model using "mira.topics.make_model(...)"')
+
+class AccessibilityTopicModel(AccessibilityDirichletModel, AccessibilityModel, BaseModel):
+    '''
+    Generic class for topics models for analyzing chromatin accessibility data. All accessibility topic models inherit
+    from this class and implement the same methods.
+    '''
+    
+    def __init__(self, *args, **kwargs):
+        raise NotImplementedError('This is a faux class used for documentation purposes. Please instantiate a topic model using "mira.topics.make_model(...)"')
+
+
+def make_model(
     n_samples, n_features,*,
     feature_type,
     highly_variable_key = None,
@@ -24,7 +75,6 @@ def TopicModel(
     continuous_covariates = None,
     covariates_keys = None,
     extra_features_keys = None,
-    latent_space = 'dirichlet',
     **model_parameters,
 ):
     '''
@@ -73,13 +123,9 @@ def TopicModel(
         percent reads mitochrondria (RNA-seq), or other QC metrics.
     extra_features_keys : str, list[str], np.ndarray[str], or None
         Columns in anndata.obs which contain extra features for the encoder neural network.
-    latent_space : "dirichlet" or "dirichlet-process"
-        Which prior to use for the topic model latent space. "dirichlet" assumes the same
-        latent space as the LDA algorithm. The dimensionality of the latent space must be 
-        tuned. The "dirichlet_process" latent space automatically infers the number of topics
-        during training, but requires large datasets to work well (>40000 cells).
     
-    **Model Parameters**
+    Other Parameters
+    ----------------
     
     cost_beta : float>0, default = 1.
         Multiplier of the regularization loss terms (KL divergence and mutual information 
@@ -127,7 +173,7 @@ def TopicModel(
         Whether to anneal KL term using monotonic or cyclic strategies. Cyclic
         may produce slightly better models.
 
-    **CODAL models only**
+    CODAL models only
 
     dependence_lr : float>0, default=1e-4
         Learning rate for tuning the mutual information estimator
@@ -152,13 +198,17 @@ def TopicModel(
         Changing this value to more than 1 weights mutual information regularization more highly
         than KL-divergence regularization of the loss. 
 
-    **Accessibility models only**
+    Accessibility models only
 
     embedding_dropout : float>0, default=0.05
         Bernoulli corruption of bag of peaks input to DAN encoder.
-    skipconnection_atac_encoder : boolean, default=True
-        Whether to add a skip connection to the ATAC-seq encoder model. This improves performance
-        in CODAL models.    
+    atac_encoder : str in {"fast","skipDAN","DAN"}, default="skipDAN"
+        Which type of ATAC encoder to use. The best results are given by "skipDAN", which is the default.
+        However, this model is pretty much impossible to train on CPU. If instantiated without GPU,
+        will throw an error and suggest the "fast" encoder.
+
+        The "fast" encoder skips the large embedding layer of the DAN models and calculates a first-pass
+        LSI projection of the data.
 
     Returns
     -------
@@ -168,36 +218,10 @@ def TopicModel(
         Hyperparameters of the topic model are chosen based on the supplied dataset
         properties. 
 
-    Attributes
-    ----------
-    features : np.ndarray[str]
-        Array of exogenous feature names, all features used in learning topics
-    highly_variable : np.ndarray[boolean]
-        Boolean array marking which features were 
-        "highly_variable"/endogenous, used to train encoder
-    encoder : torch.nn.Sequential
-        Encoder neural network
-    decoder : torch.nn.Sequential
-        Decoder neural network
-    num_exog_features : int
-        Number of exogenous features to predict using decoder network
-    num_endog_features : int
-        Number of endogenous feature used for encoder network
-    device : torch.device
-        Device on which model is allocated
-    enrichments : dict
-        Results from enrichment analysis of topics. For expression topic model,
-        this gives geneset enrichments from Enrichr. For accessibility topic
-        model, this gives motif enrichments.
-    topic_cols : list
-        The names of the columns for the topics added by the
-        `predict` method to an anndata object. Useful for quickly accessing
-        topic columns for plotting.
-
     Examples
     --------
 
-    ..code-block :: python
+    .. code-block :: python
 
         >>> model = mira.topics.TopicModel(
             ...    *rna_data.shape,
@@ -209,18 +233,7 @@ def TopicModel(
             ... )
     '''
 
-    assert(latent_space in ['dp', 'dirichlet'])
     assert(feature_type in ['expression','accessibility'])
-
-    if latent_space == 'dp':
-        if n_samples < 40000:
-            logger.warn(
-                'The dirichlet process model is intended for atlas-level experiments.\n'
-                'For smaller datasets, please use the "dirichlet" latent space, and use the tuner'
-                'to find the optimal number of topics.'
-            )
-            
-        latent_space = 'dirichlet-process'
 
     basename = 'model'
     if not all([c is None for c in [categorical_covariates, continuous_covariates, covariates_keys]]):
@@ -231,20 +244,13 @@ def TopicModel(
 
     if feature_type == 'expression':
         feature_model = ExpressionModel
+        generative_model = ExpressionDirichletModel
     elif feature_type == 'accessibility':
         feature_model = AccessibilityModel
-
-    generative_map = {
-        ('expression','dirichlet') : ExpressionDirichletModel,
-        ('expression','dirichlet-process') : ExpressionDirichletProcessModel,
-        ('accessibility', 'dirichlet') : AccessibilityDirichletModel,
-        ('accessibility', 'dirichlet-process') : AccessibilityDirichletProcessModel,
-    }
-
-    generative_model = generative_map[(feature_type, latent_space)]
+        generative_model = AccessibilityDirichletModel
 
     _class = type(
-        '_'.join([latent_space, feature_type, basename]),
+        '_'.join(['dirichlet', feature_type, basename]),
         (generative_model, feature_model, baseclass, mira_topic_model),
         {}
     )
@@ -274,4 +280,81 @@ def TopicModel(
     parameter_recommendations.update(model_parameters)
     instance.set_params(**parameter_recommendations)
 
+    if feature_type == 'accessibility' and \
+        not gpu_available() and not instance.atac_encoder == 'light':
+        
+        logger.error('If a GPU is unavailable, one cannot use the "skipDAN" or "DAN" encoders for the ATAC model since training will be impossibly slow.'
+                     'Use a GPU, or switch the "atac_encoder" option to "light", which does not require a GPU.'
+                    )
+
     return instance
+
+
+def load_model(filename):
+    '''
+    Load a pre-trained topic model from disk.
+    
+    Parameters
+    ----------
+    filename : str
+        File name of saved topic model
+
+    Examples
+    --------
+
+    .. code-block:: python
+
+        >>> rna_model = mira.topics.load_model('rna_model.pth')
+        >>> atac_model = mira.topics.load_model('atac_model.pth')
+
+    '''
+
+    data = load(filename, map_location=device('cpu'))
+
+    # mira v2 data save format
+    if 'cls_name' in data.keys():
+        _class = type(
+            data['cls_name'], data['cls_bases'], {}
+        )
+
+        if not 'atac_encoder' in data['params']: # if model was saved before this option was added
+
+            if 'skipconnection_atac_encoder' in data['params']:
+                is_skipencoder = data['params']['skipconnection_atac_encoder']
+                data['params']['atac_encoder'] = 'skipDAN' if is_skipencoder else 'DAN'
+
+                del data['params']['skipconnection_atac_encoder']
+
+            else: # if really old and doesn't have skipconnection flag
+                data['params']['atac_encoder'] = 'DAN'
+
+    else:
+
+        # mira v1 data save format
+        is_rna_model = 'residual_pi' in data['fit_params'].keys()
+        if is_rna_model:
+            _class = type(
+                '_'.join(['dirichlet','expression','model']),
+                (ExpressionDirichletModel, ExpressionModel, BaseModel, mira_topic_model),
+                {}
+            )
+        else:
+            _class = type(
+                '_'.join(['dirichlet','expression','model']),
+                (AccessibilityDirichletModel, AccessibilityModel, BaseModel, mira_topic_model),
+                {}
+            )
+            data['params']['atac_encoder'] = 'DAN'
+        
+        data['fit_params']['num_extra_features'] = 0
+        data['fit_params']['num_covariates'] = 0
+
+        for i in range( data['params']['num_layers'] - (not is_rna_model) ):
+            data['weights'][f'encoder.fc_layers.{i}.1.running_mean'] -= data['weights'][f'encoder.fc_layers.{i}.0.bias']
+            del data['weights'][f'encoder.fc_layers.{i}.0.bias']
+
+
+    model = _class(**data['params'])
+    model._set_weights(data['fit_params'], data['weights'])
+    
+    return model

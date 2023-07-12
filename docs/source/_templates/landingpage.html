@@ -158,14 +158,37 @@
   <a class="reference internal image-reference" href="_images/mira_logo.png"><img alt="MIRA" class="align-center" src="_images/mira_logo.png" style="width: 400px;" /></a>
 <hr class="docutils" />
 <div class="home-content docutils container">
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>conda install -c conda-forge -c bioconda -c liulab-dfci mira-multiome
+<p>
+New version! With the publication of our new manuscript, <a href="https://rdcu.be/dgCQF"><strong>CODAL</strong></a> in Nature Communications,
+we have released an updated version of MIRA with reworked and improved topic modeling capacities! If you
+have used version 1, please take a look at the docs for minor API changes.</p>
+
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip install mira-multiome
 </pre></div>
 </div>
+
 <p><strong>Multimodal models for Integrated Regulatory Analysis</strong>, or MIRA,  is a python package for analyzing
-the dynamic processes of gene regulation using single-cell multiomics datasets.</p>
+the dynamic processes of gene regulation using single-cell RNA-seq, ATAC-seq, or multiomics datasets.</p>
 <p>MIRA works on top of <a class="reference external" href="https://scanpy.readthedocs.io/en/stable/">Scanpy</a> and <a class="reference external" href="https://anndata.readthedocs.io/en/latest/">Anndata</a>
 to provide a rich, comprehensive framework integrating accessibility and expression data for more insights
 into your data. MIRA includes methods for:</p>
+
+<div class="sphinx-bs container pb-4 docutils">
+<div class="row docutils">
+  
+  <div class="d-flex col-lg-12 col-md-6 col-sm-6 col-xs-12 p-2 docutils">
+  <div class="card w-100 shadow text-center docutils">
+  <img alt="img-top" class="card-img-top panel-height" src="_static/codal_example.svg" /><div class="card-body p-0 docutils">
+  </div>
+  <div class="card-footer docutils">
+  <p class="card-text"><a class="sphinx-bs btn text-wrap btn-link stretched-link font-weight-bold reference internal" href="notebooks/tutorial_CODAL.html"><span class="doc">Integration of Single-cell Perturbation Datasets with CODAL</span></a></p>
+  </div>
+  </div>
+  </div>
+
+</div>
+</div>
+
 <div class="sphinx-bs container pb-4 docutils">
 <div class="row docutils">
 <div class="d-flex col-lg-6 col-md-6 col-sm-6 col-xs-12 p-2 docutils">
@@ -173,7 +196,7 @@ into your data. MIRA includes methods for:</p>
 <img alt="img-top" class="card-img-top panel-height" src="_images/topic_model_pictograph.svg" /><div class="card-body p-0 docutils">
 </div>
 <div class="card-footer docutils">
-<p class="card-text"><a class="sphinx-bs btn text-wrap btn-link stretched-link font-weight-bold reference internal" href="notebooks/tutorial_topic_model_tuning_full.html"><span class="doc">Multimodel Topic Modeling</span></a></p>
+<p class="card-text"><a class="sphinx-bs btn text-wrap btn-link stretched-link font-weight-bold reference internal" href="notebooks/tutorial_atlas_integration.html"><span class="doc">Multimodel Atlas Modeling</span></a></p>
 </div>
 </div>
 </div>
@@ -229,7 +252,7 @@ into your data. MIRA includes methods for:</p>
 </div>
 </div>
 </div>
-<p>... And more! Check out the <a class="reference external" href="https://www.biorxiv.org/content/10.1101/2021.12.06.471401v1.full.pdf">MIRA preprint</a> on bioarxiv.
+<p>... And more! Check out the <a class="reference external" href="https://www.nature.com/articles/s41592-022-01595-z">MIRA paper</a> published in Nature Methods.
 Also, see <a class="reference internal" href="getting_started.html"><span class="doc">Getting Started</span></a> for installation and data preparation instructions.</p>
 </div>
 <hr class="docutils" />

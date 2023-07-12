@@ -17,7 +17,7 @@
     :target: https://anaconda.org/bioconda/mira-multiome
 
 .. image:: https://zenodo.org/badge/DOI/10.1101/2021.12.06.471401.svg
-    :target: https://www.biorxiv.org/content/10.1101/2021.12.06.471401v1
+    :target: https://www.nature.com/articles/s41592-022-01595-z
 
 `Github <https://github.com/cistrome/MIRA>`_ | `Website <https://mira-multiome.readthedocs.io/en/latest/>`_ | `Paper <https://www.biorxiv.org/content/10.1101/2021.12.06.471401v1.full.pdf>`_
 
@@ -40,6 +40,11 @@ into your data. MIRA includes methods for:
 
 \.\.\. And more! For mora, check out the `MIRA preprint <https://www.biorxiv.org/content/10.1101/2021.12.06.471401v1.full.pdf>`_ on bioarxiv. 
 
+CODAL
+-----
+
+`CODAL <https://rdcu.be/dgCQF>`_ is our new algorithm for batch effect correction. All MIRA topic models use the new CODAL algorithm for inference.
+
 Documentation
 -------------
 
@@ -52,7 +57,7 @@ Data
     :width: 350
     :align: center
 
-MIRA takes scRNA-seq and scATAC-seq count matrices from a single-cell multiomics experiment,
+MIRA takes count matrices from scRNA-seq, scATAC-seq, or scRNA-seq+scATAC-seq from a single-cell multiomics experiment,
 where each cell is measured using both assays, and measurements are linked by a shared cell
 barcode. We demonstrated MIRA using SHARE-seq data and commercial 10X genomics multiome data, 
 but MIRA's assumptions and models are extensible to other multiome protocols.
@@ -61,32 +66,24 @@ but MIRA's assumptions and models are extensible to other multiome protocols.
 Installation
 ------------
 
-MIRA can be installed from either `Conda <https://anaconda.org/liulab-dfci/mira-multiome>`_ 
-or  `PyPI <https://pypi.org/project/mira-multiome>`_:
-
-.. code-block:: bash
-    
-    conda install -c conda-forge -c bioconda -c liulab-dfci mira-multiome
-
-or
+MIRA from `PyPI <https://pypi.org/project/mira-multiome>`_:
 
 .. code-block:: bash
 
     pip install mira-multiome
 
-Installation will take about a minute.
-
-Please note, currently MIRA may only be installed on Python <3.8 due to some dependencies' requirements. 
-We are working to make it accessible on newer Python versions. 
-To set up an a new analysis, we recommend starting with a fresh environment:
+Installation will take about a minute. To set up an a new analysis, we recommend starting with a fresh environment:
 
 .. code-block:: bash
 
-    conda create --name mira-env -c conda-forge -c pytorch -c bioconda mira-multiome scanpy jupyter leidenalg
+    conda create --name mira-env -c conda-forge -c pytorch -c bioconda scanpy jupyter leidenalg
     conda activate mira-env
+    pip install mira-multiome
     python -m ipykernel install --user --name mira-env
 
 To use the environment in a jupyter notebook, start the notebook server, then go to Kernel > Change kernel > mira-env.
+
+**A conda distribution is coming soon.**
 
 
 Installing with GPU support
@@ -95,6 +92,7 @@ Installing with GPU support
 Training on a GPU reduces the training time of MIRA topic models.
 To install MIRA with PyTorch compiled with GPU support, first install MIRA, as above. Then, follow instructions 
 at `pytorch.org <https://pytorch.org/get-started/locally/>`_ to find the version of PyTorch that suits your system.
+
 
 Learning Curve
 --------------

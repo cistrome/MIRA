@@ -1,12 +1,12 @@
 from mira.adata_interface.topic_model import fetch_topic_comps
 import pandas as pd
-
+import numpy as np
 
 def fetch_obsms(self, adata1, adata2,*,key):
 
     return {
-        'x' : fetch_topic_comps(self, adata1, key = key)['topic_compositions'],
-        'y' : fetch_topic_comps(self, adata2, key = key)['topic_compositions'],
+        'x' : adata1.obsm[key].astype(np.float32),#fetch_topic_comps(self, adata1, key = key)['topic_compositions'],
+        'y' : adata2.obsm[key].astype(np.float32) #fetch_topic_comps(self, adata2, key = key)['topic_compositions'],
     }
 
 

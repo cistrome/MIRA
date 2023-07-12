@@ -4,6 +4,16 @@ FAQ
 
 ------------
 
+I have data in separate batches. Does MIRA perform batch correction?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Yes** - using the novel CODAL (COvariate Disentangling Augmented Loss) model.
+MIRA's topic models can disentangle biological from technical effects across batches
+in both scRNA-seq and scATAC-seq data while faithfully representing batch-confounded
+cell types. This makes MIRA particularly useful for analyzing batched perturbations,
+where the cell-state distribution of different batches may be different due to treatment.
+
+
 I have only one modality. Can I still use MIRA?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -42,13 +52,6 @@ If you can get these annotations for your organism, you can use MIRA. The one
 fixed aspect of the analysis for now is the motif database. MIRA uses the
 JASPAR 2020 vertabrates collection. In the future, we will allow users to
 download other databases or provide their own position weight matrices.
-
-I have data in separate batches. Does MIRA perform batch correction?
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Not yet, but keep an eye out for this in the future. In the meantime, it could
-be worthwhile to model the data together with topic models, even knowing that the data
-may separate by batch. Alternatively, one could do analyses on individual batches.
 
 Does MIRA work with spatial or protein data?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

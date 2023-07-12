@@ -357,6 +357,7 @@ def add_test_column(adata, output):
     add_obs_col(adata, test_cell_mask, colname = test_column)
 
 
+
 def fetch_split_train_test(self, adata):
     assert(adata.obs_vector(self.test_column).dtype == bool), 'Test set column must be boolean vector'
     assert(adata.obs_vector(self.test_column).any()), 'No cells are in the test set.'
@@ -396,7 +397,7 @@ def fetch_topic_comps(self, adata, key = 'X_topic_compositions'):
     covariates = np.hstack([covariates, categorical_covariates, continuous_covariates])
     extra_features = fetch_columns(self, adata, self.extra_features_keys)
 
-    return dict(topic_compositions = adata.obsm[key],
+    return dict(topic_compositions = adata.obsm[key].astype(np.float32),
                 covariates = covariates, extra_features = extra_features)
 
 
@@ -418,6 +419,7 @@ def add_topic_comps(adata, output, add_key = 'X_topic_compositions',
     cell_topic_dists = output['cell_topic_dists']
     
     add_obsm(adata, cell_topic_dists, add_key = add_key)
+    add_obsm(adata, output['umap_features'], add_key = 'X_umap_features')
 
     if add_cols:
         K = cell_topic_dists.shape[-1]
@@ -433,8 +435,8 @@ def add_topic_comps(adata, output, add_key = 'X_topic_compositions',
             output['feature_names'], output['topic_feature_activations']).T,
             add_key='topic_feature_activations')
 
-    #logger.info('Added key to uns: topic_dendogram')
-    #adata.uns['topic_dendogram'] = output['topic_dendogram']
+    logger.info('Added key to uns: topic_dendogram')
+    adata.uns['topic_dendogram'] = output['topic_dendogram']
 
 
 def add_umap_features(adata, output, add_key = 'X_umap_features'):

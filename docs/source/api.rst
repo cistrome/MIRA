@@ -11,6 +11,12 @@ Topic Modeling
 
 .. autosummary::
    :toctree: topicmodeling
+
+   mira.topics.make_model
+
+
+.. autosummary::
+   :toctree: topicmodeling
    :template: topic_model.rst
 
    mira.topics.ExpressionTopicModel
@@ -23,8 +29,19 @@ Topic Modeling
 
 .. autosummary::
    :toctree: topicmodeling
+   :template: tuner.rst
 
-   mira.topics.TopicModelTuner
+   mira.topics.BayesianTuner
+
+.. autosummary::
+   :toctree: topicmodeling
+   
+   mira.topics.gradient_tune
+
+.. autosummary::
+   :toctree: topicmodeling
+   
+   mira.topics.Redis
    
 
 Regulatory Potential Modeling
@@ -75,6 +92,8 @@ Plotting
    mira.pl.plot_scatter_chromatin_differential
    mira.pl.plot_enrichments
    mira.pl.compare_driver_TFs_plot
+   mira.pl.plot_topic_contributions
+   mira.pl.plot_disentanglement
 
 Tools
 ~~~~~

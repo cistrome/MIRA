@@ -34,8 +34,8 @@ class CovariateModel(BaseModel):
             num_topics = 16,
             hidden = 128,
             num_layers = 3,
-            num_epochs = 40,
-            decoder_dropout = 0.1,
+            num_epochs = 24,
+            decoder_dropout = 0.055,
             cost_beta = 1.,
             encoder_dropout = 0.01,
             use_cuda = True,
@@ -62,7 +62,7 @@ class CovariateModel(BaseModel):
             marginal_estimation_size = 256,
             reconstruction_weight = 1.,
             dependence_beta = 1.,
-            skipconnection_atac_encoder = True
+            atac_encoder = 'skipDAN'
             ):
         super().__init__()
 
@@ -104,7 +104,8 @@ class CovariateModel(BaseModel):
         self.mask_dropout = mask_dropout
         self.marginal_estimation_size = marginal_estimation_size
         self.cost_beta = cost_beta
-        self.skipconnection_atac_encoder = skipconnection_atac_encoder
+        self.atac_encoder = atac_encoder
+
 
     def _recommend_num_layers(self, n_samples):
         return 3
@@ -144,6 +145,7 @@ class CovariateModel(BaseModel):
             ),
             self.marginal_estimation_size
         ).to(self.device)
+
 
     def _get_dataset_statistics(self, dataset, training_bar = True):
         super()._get_dataset_statistics(dataset, training_bar = training_bar)
@@ -207,6 +209,7 @@ class CovariateModel(BaseModel):
         return distortion, rate * _beta_weight, {'disentanglement_loss' : dependence_loss } #loss_vae/self.num_exog_features
 
 
+
     def model_step(self, batch, opt, parameters, last_batch_z = None,
         anneal_factor = 1, batch_size_adjustment = 1., disentanglement_coef = 1.):
 
@@ -231,7 +234,7 @@ class CovariateModel(BaseModel):
         
         opt.step()
 
-        return loss.item(), bioloss, dependence_loss
+        return loss.item(), bioloss.item(), dependence_loss.item()
 
 
     def dependence_step(self, batch, opt, parameters,
@@ -292,6 +295,7 @@ class CovariateModel(BaseModel):
 
         return params, self.dependence_network.parameters()
 
+
     @docstring_wrapper(BaseModel.get_learning_rate_bounds.__doc__)
     @adi.wraps_modelfunc(fetch = tmi.fit, 
         fill_kwargs=['features','highly_variable','dataset'],
@@ -300,7 +304,6 @@ class CovariateModel(BaseModel):
         num_epochs = 3, eval_every = 3, 
         lower_bound_lr = 1e-6, upper_bound_lr = 1,*,
         features, highly_variable, dataset):
-        
         
         self._instantiate_model(
             features = features, highly_variable = highly_variable,
@@ -353,7 +356,7 @@ class CovariateModel(BaseModel):
                     except ValueError:
                         raise ModelParamError()
                         
-                    step_loss += metrics['ELBO_loss'].item()
+                    step_loss += metrics['ELBO_loss']
 
                     batches_complete+=1
                     
@@ -471,6 +474,7 @@ class CovariateModel(BaseModel):
         self.set_device('cpu')
         self.eval()
         return self
+
 
     @docstring_wrapper(BaseModel.set_device.__doc__)
     def set_device(self, device):

@@ -26,6 +26,7 @@ from sklearn.model_selection import train_test_split
 import os
 from shutil import rmtree
 
+
 logger = logging.getLogger(__name__)
 
 class TopicModel:
@@ -263,41 +264,7 @@ class DataCache:
         
     def __exit__(self ,type, value, traceback):
         self.rm_cache()
-
-
-def load_model(filename):
-    '''
-    Load a pre-trained topic model from disk.
-    
-    Parameters
-    ----------
-    filename : str
-        File name of saved topic model
-
-    Examples
-    --------
-
-    .. code-block:: python
-
-        >>> rna_model = mira.topics.load_model('rna_model.pth')
-        >>> atac_model = mira.topics.load_model('atac_model.pth')
-
-    '''
-
-    data = torch.load(filename, map_location=torch.device('cpu'))
-
-    _class = type(
-        data['cls_name'], data['cls_bases'], {}
-    )
-
-    if not 'skipconnection_atac_encoder' in data['params']:
-        data['params']['skipconnection_atac_encoder'] = False # for backwards compat with old ATAC model encoder
-
-    model = _class(**data['params'])
-    model._set_weights(data['fit_params'], data['weights'])
-
-    return model
-    
+ 
 
 class BaseModel(torch.nn.Module, BaseEstimator):
 
@@ -331,6 +298,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         return model
 
+
     def __init__(self,
             endogenous_key = None,
             exogenous_key = None,
@@ -343,7 +311,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             hidden = 128,
             num_layers = 3,
             num_epochs = 24,
-            decoder_dropout = 0.1,
+            decoder_dropout = 0.055,
             cost_beta = 1.,
             encoder_dropout = 0.01,
             use_cuda = True,
@@ -362,7 +330,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             max_momentum = 0.95,
             embedding_dropout = 0.05,
             reconstruction_weight = 1.,
-            skipconnection_atac_encoder = True,
+            atac_encoder = 'skipDAN',
             ):
         '''
         
@@ -425,7 +393,28 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.max_momentum = max_momentum
         self.embedding_dropout = embedding_dropout
         self.cost_beta = cost_beta
-        self.skipconnection_atac_encoder = skipconnection_atac_encoder
+        self.atac_encoder = atac_encoder
+        
+
+    def _spawn_submodel(self, generative_model):
+
+        _, feature_model, baseclass, docclass \
+                = self.__class__.__bases__
+
+        names = self.__class__.__name__.split('_')
+
+        _class = type(
+            '_'.join(['dirichletprocess', *names[1:]]),
+            (generative_model, feature_model, baseclass, docclass),
+            {}
+        )
+
+        instance = _class(
+            **self.get_params()
+        )
+
+        return instance
+    
 
     def get_datacache_hash(self):
 
@@ -552,13 +541,17 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         else:
             return 1.
 
+    def _recommend_num_epochs(self, n_samples):
+
+        return int( np.min([round((200000 / n_samples) * 24), 24]) )
+    
     def suggest_parameters(self, tuner, trial): 
 
         return dict(        
             num_topics = trial.suggest_int('num_topics', tuner.min_topics, 
                 tuner.max_topics, log=False),
             decoder_dropout = \
-                    trial.suggest_float('decoder_dropout', self._min_dropout, 0.15, log = True)
+                    trial.suggest_float('decoder_dropout', self._min_dropout, 0.065, log = True)
         )
 
 
@@ -566,14 +559,11 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         assert isinstance(n_samples, int) and n_samples > 0
 
-        batchsize = self._recommend_batchsize(n_samples)
-        epochs = 24 if not finetune else 48
-
         params = {
-            'batch_size' : batchsize,
+            'batch_size' : self._recommend_batchsize(n_samples),
             'hidden' : self._recommend_hidden(n_samples),
             'num_layers' : self._recommend_num_layers(n_samples),
-            'num_epochs' : epochs,
+            'num_epochs' : self._recommend_num_epochs(n_samples),
             'num_topics' : self._recommend_num_topics(n_samples),
             'embedding_size' : self._recommend_embedding_size(n_samples),
             'cost_beta' : self._recommend_cost_beta(n_samples)
@@ -1188,7 +1178,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             n_epochs = self.num_epochs, n_batches_per_epoch = n_batches)
 
         step_count = 0
-        t = trange(self.num_epochs, desc = 'Epoch 0', leave = True) if training_bar else range(self.num_epochs)
+        t = trange(self.num_epochs, desc = 'Training model', leave = True) if training_bar else range(self.num_epochs)
         _t = iter(t)
         epoch = 0
 
@@ -1220,12 +1210,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             epoch_loss = running_loss/(n_observations * self.num_exog_features)
             self.training_loss.append(epoch_loss)
             recent_losses = self.training_loss[-5:]
-
-            if training_bar:
-                t.set_description("Epoch {} done. Recent losses: {}".format(
-                    str(epoch + 1),
-                    ' --> '.join('{:.3e}'.format(loss) for loss in recent_losses)
-                ))
 
             try:
                 next(_t)
@@ -1331,11 +1315,19 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             method='ward', metric='euclidean')
 
         return linkage_matrix
+    
 
+    @adi.wraps_modelfunc(tmi.fetch_features, fill_kwargs=['dataset'], requires_adata = False)
+    def _predict_topic_comps_direct_return(self, batch_size = 256, bar = True,*, dataset):
+
+        return self._run_encoder_fn(self.encoder.sample_posterior, 
+                dataset, batch_size = batch_size, bar = bar).mean(-1)
+    
+    
 
     @adi.wraps_modelfunc(tmi.fetch_features, tmi.add_topic_comps,
         fill_kwargs=['dataset'])
-    def predict(self, batch_size = 256, bar = True,*, dataset):
+    def predict(self, batch_size = 256, bar = True, box_cox = 0.25, *, dataset):
         '''
         Predict the topic compositions of cells in the data. Adds the 
         topic compositions to the `.obsm` field of the adata object.
@@ -1354,6 +1346,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         adata : anndata.AnnData
             `.obsm['X_topic_compositions']` : np.ndarray[float] of shape (n_cells, n_topics)
                 Topic compositions of cells
+            `.obsm['X_umap_features']` : np.ndarray[float] of shape (n_cells, n_topics)
+                ILR transformed topic embeddings for use with nearest neighbors graph
             `.obs['topic_1'] ... .obs['topic_N']` : np.ndarray[float] of shape (n_cells,)
                 Columns for the activation of each topic.
 
@@ -1376,13 +1370,19 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         '''
 
+        topic_expectations = self._run_encoder_fn(self.encoder.sample_posterior, 
+                                    dataset, batch_size = batch_size, bar = bar).mean(-1)
+
+        basis = ilr.gram_schmidt_basis(topic_expectations.shape[-1])
+        ilr_transformed = ilr.centered_boxcox_transform(topic_expectations, a = box_cox).dot(basis)
+
         return dict(
-            cell_topic_dists = self._run_encoder_fn(self.encoder.sample_posterior, 
-                dataset, batch_size = batch_size, bar = bar).mean(-1),
+            cell_topic_dists = topic_expectations,
             topic_feature_dists = self.get_topic_feature_distribution(),
             topic_feature_activations = self._score_features(),
             feature_names = self.features,
-            #topic_dendogram = self.cluster_topics(),
+            umap_features = ilr_transformed,
+            topic_dendogram = self.cluster_topics(),
         )
 
     @adi.wraps_modelfunc(tmi.fetch_features, 
@@ -1595,7 +1595,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def _batched_impute(self, latent_composition, covariates, 
         batch_size = 256, bar = True):
 
-        return self._run_decoder_fn(partial(self.decoder, nullify_covariates = True), 
+        return self._run_decoder_fn(
+                    partial(self.decoder, nullify_covariates = True), 
                     latent_composition, covariates,
                      batch_size= batch_size, bar = bar)
         
@@ -1638,7 +1639,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
                 batch_size = batch_size, bar = bar)
         ])
 
-    def batched_batch_effect(self, latent_composition, covariates, 
+    
+    def _batched_batch_effect(self, latent_composition, covariates, 
         batch_size = 256, bar = True):
 
         return self._run_decoder_fn(self.decoder.get_batch_effect, 
@@ -1650,12 +1652,44 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         fill_kwargs=['topic_compositions','covariates','extra_features'])
     def get_batch_effect(self, batch_size = 256, bar = True, *, topic_compositions,
         covariates, extra_features):
+        '''
+        Compute the estimated technical effects for each gene in each cell.
+
+        Parameters
+        ----------
+
+        Parameters
+        ----------
+        adata : anndata.AnnData
+            AnnData of expression or accessibility features to model
+        batch_size : int>0, default=512
+            Minibatch size to run cells through encoder network to predict 
+            topic compositions. Set to highest value where tensors will fit in
+            memory to increase speed.
+
+        Returns
+        -------
+        anndata.AnnData
+            `.layers['batch_effect']` : np.ndarray[float] of shape (n_cells, n_features)
+                Estimated batch effects
+        
+        Examples
+        --------
+
+        .. code-block::
+
+            >>> model.get_batch_effects(rna_data)
+            >>> rna_data
+            View of AnnData object with n_obs × n_vars = 18482 × 22293
+                layers: 'batch_effect'
+
+        '''
 
         if self.num_covariates == 0:
             raise ValueError('Cannot compute batch effect with no covariates.')
 
         return self.features, np.vstack([
-            x for x  in self.batched_batch_effect(topic_compositions, covariates,
+            x for x  in self._batched_batch_effect(topic_compositions, covariates,
                 batch_size = batch_size, bar = bar)
         ])
 

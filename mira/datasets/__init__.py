@@ -4,4 +4,4 @@ from .datasets import ShareseqSkin_Ma2020, FrankenCell_RNA, \
     test_download, \
     StreamGraphTutorial, PseudotimeTrajectoryInferenceTutorial, \
     ShareseqTopicModels, ShareseqBaseData, ShareseqAnnotatedData, \
-    ShareseqRPModels, MouseBrainDataset
+    ShareseqRPModels, MouseBrainDataset, CodalFrankencellTutorial

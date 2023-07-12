@@ -14,13 +14,14 @@ import fcntl
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)  # Setup the root logger.
-from mira.topic_model.base import logger as baselogger
 from mira.topic_model.base import ModelParamError, DataCache
 from optuna.exceptions import ExperimentalWarning
 import warnings
 warnings.filterwarnings("ignore", category=ExperimentalWarning, module="optuna")
 from mira.adata_interface.topic_model import logger as interfacelogger
 from mira.adata_interface.core import logger as corelogger
+from mira.topic_model.base import logger as baselogger
+
 import time
 
 from torch.utils.tensorboard import SummaryWriter
@@ -44,6 +45,41 @@ class Redis(RedisStorage):
         grace_period = None,
         failed_trial_callback = None,
     ):
+        '''
+        Connects the optuna hyperparameter optimization instance to a REDIS server backend.
+
+        Parameters
+        ----------
+
+        url : str, default = "redis://localhost:6379"
+            The URL which connects to the REDIS database. The standard format is:
+
+            `redis://<serverlocation>:<port>`
+            
+            If the REDIS server is running on the same machine as MIRA, then its address will be "localhost".
+            The provided port is the default used by REDIS.
+        heartbeat_interval : int > 0, default = 30
+            How often to check that database server is still running during tuning, in seconds.
+        grace_period : int > 0 or None, default = None
+            If connection to database is lost, how long to wait for the connection to be restored before terminating tuning.
+        failed_trial_callback : function or None, default = None
+            Run this function if commiting to the database fails.
+
+        Examples
+        --------
+
+        ..code-block :: python
+
+            >>> tuner = mira.topics.SpeedyTuner(
+                ...    model = model,
+                ...    min_topics = 5,
+                ...    max_topics = 55,
+                ...    n_jobs = 1,
+                ...    save_name = 'tuning/rna/0',
+                ...    storage = mira.topics.Redis(),
+                ... )
+
+        '''
 
         assert redis_installed, 'Must have redis-py installed to use this function. Run "$ conda install -c conda-forge redis-py"'
 
@@ -56,6 +92,7 @@ class Redis(RedisStorage):
         self._heartbeat_interval = heartbeat_interval
         self._grace_period = grace_period
         self._failed_trial_callback = failed_trial_callback
+
         
     @property
     def _redis(self):
@@ -304,7 +341,7 @@ def joblib_print_callback(tuner):
         joblib.parallel.BatchCompletionCallBack = old_batch_callback
 
 
-class SpeedyTuner:
+class BayesianTuner:
 
     @classmethod
     def optimize():
@@ -324,6 +361,7 @@ class SpeedyTuner:
 
     @classmethod
     def load(cls,*,
+        model,
         save_name,
         storage = 'sqlite:///mira-tuning.db'):
         '''
@@ -331,15 +369,15 @@ class SpeedyTuner:
         '''
 
         return cls(
-            model = None, min_topics = None, max_topics = None,
+            model = model, min_topics = None, max_topics = None,
             storage = storage, save_name = save_name,
         )
 
-    def __init__(self,
+    def __init__(self,*,
         model,
         save_name,
         min_topics,
-        max_topics,*,
+        max_topics,
         storage = 'sqlite:///mira-tuning.db',
         n_jobs = 1,
         max_trials = 128,
@@ -369,13 +407,13 @@ class SpeedyTuner:
             Topic model to tune. The provided model should have columns specified
             to retrieve endogenous and exogenous features, and should have the learning
             rate configued by ``get_learning_rate_bounds``.
-        save_name : str
+        save_name : str (required)
             Table under which to save tuning results in *storage* table. 
-            A good pattern to follow is: "{dataset}/{modality}/{model_id}/{tuning_run}".
-         min_topics : int
-            Minimum number of topics to try. Useful if approximate number of topics is known
-            ahead of time.
+            A good pattern to follow is: `dataset/modality/model_id/tuning_run`.
+        min_topics : int (required)
+            Minimum number of topics to try. 
         max_topics : int
+            Maximum number of topics to try. 
         storage : str or mira.topics.Redis(), default = 'sqlite:///mira-tuning.db'
             The default value saves the results from tuning in an SQLite table with the 
             file location ./mira-tuning.db. SQLite tables require no outside libraries,
@@ -418,7 +456,23 @@ class SpeedyTuner:
 
         study : optuna.study.Study
             Optuna study object summarizing tuning results.
+        trial_attrs : list of dicts
+            Data for each trial
         
+        Examples
+        --------
+
+        .. code-block:: python
+
+            >>> tuner = mira.topics.SpeedyTuner(
+                ...    model = model,
+                ...    min_topics = 5,
+                ...    max_topics = 55,
+                ...    n_jobs = 1,
+                ...    save_name = 'tuning/rna/0',
+                ... )
+            >>> tuner.fit(data)
+            >>> model = tuner.fetch_best_weights()
         '''
         self.model = model
         self.n_jobs = n_jobs
@@ -445,6 +499,7 @@ class SpeedyTuner:
 
         return optuna.create_study(
             directions = self.objective,
+            pruner = self.get_pruner(),
             study_name = self.study_name,
             storage = self.storage,
             load_if_exists= True,
@@ -660,7 +715,7 @@ class SpeedyTuner:
         
         return GP(
             constant_liar = self.parallel,
-            tau = 0.1,
+            tau = 0.01,
             min_points = startup_trials,
             num_candidates = 300,
             cl_function = np.mean
@@ -889,6 +944,7 @@ class SpeedyTuner:
         na_color = 'lightgrey',
         add_legend = True,
         vmax = None, vmin = None,
+        **plot_kwargs,
         ):
         '''
         Plots the evaluation loss achieved at each epoch of training for 
@@ -925,6 +981,7 @@ class SpeedyTuner:
             hue = hue, add_legend = add_legend,
             vmax = vmax, vmin = vmin,
             na_color = na_color, log_hue = log_hue,
+            **plot_kwargs,
         )
 
 
