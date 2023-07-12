@@ -71,11 +71,6 @@ class AccessibilityModel:
             'light' : LSIEncoder,
         }
 
-        if not torch.cuda.is_available() and not self.atac_encoder == 'light':
-            raise ValueError('If a GPU is unavailable, one cannot use the "skipDAN" or "DAN" encoders for the ATAC model. Use a GPU, or '
-                             'switch the "atac_encoder" option to "light", which does not require a GPU.'
-                             )
-
         try:
             return encoder_map[self.atac_encoder]
         except KeyError as err:

@@ -11,6 +11,7 @@ from mira.topic_model.base import BaseModel, logger
 from mira.topic_model.base import TopicModel as mira_topic_model
 import numpy as np
 from torch import load, device
+from torch.cuda import is_available as gpu_available
 
 
 def TopicModel(*args, **kwargs):
@@ -278,6 +279,13 @@ def make_model(
     
     parameter_recommendations.update(model_parameters)
     instance.set_params(**parameter_recommendations)
+
+    if feature_type == 'accessibility' and \
+        not gpu_available() and not instance.atac_encoder == 'light':
+        
+        logger.error('If a GPU is unavailable, one cannot use the "skipDAN" or "DAN" encoders for the ATAC model since training will be impossibly slow.'
+                     'Use a GPU, or switch the "atac_encoder" option to "light", which does not require a GPU.'
+                    )
 
     return instance
 
