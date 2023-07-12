@@ -503,6 +503,11 @@ class BaseModel:
  
         '''
         try:
+
+            for key in features:
+                if features[key].dtype == np.float64:
+                    features[key] = features[key].astype(np.float32)
+
             model.fit(features)
         except ValueError:
             pass
