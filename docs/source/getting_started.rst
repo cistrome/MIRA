@@ -4,7 +4,7 @@ Getting Started
 ------------
 
 .. image:: https://badge.fury.io/py/mira-multiome.svg
-          :target: https://badge.fury.io/py/mira-multiome
+    :target: https://badge.fury.io/py/mira-multiome
 
 .. image:: https://readthedocs.org/projects/mira-multiome/badge/?version=latest&style=plastic
 
@@ -64,27 +64,21 @@ during topic modeling.
 Installation
 ------------
 
-MIRA can be installed from either `Conda <https://anaconda.org/liulab-dfci/mira-multiome>`_ 
-or  `PyPI <https://pypi.org/project/mira-multiome>`_:
-
-.. code-block:: bash
-    
-    conda install -c conda-forge -c bioconda -c liulab-dfci mira-multiome
-
-or
+MIRA can be installed from `PyPI <https://pypi.org/project/mira-multiome>`_:
 
 .. code-block:: bash
 
     pip install mira-multiome
 
-Installation will take about a minute.
+Installation will take about a minute. **A conda distribution is coming soon.**
 
 To set up an a new analysis, we recommend starting with a fresh environment:
 
 .. code-block:: bash
 
-    conda create --name mira-env -c conda-forge -c pytorch -c bioconda mira-multiome scanpy jupyter leidenalg
+    conda create --name mira-env -c conda-forge -c bioconda scanpy jupyter leidenalg
     conda activate mira-env
+    pip install mira-multiome
     python -m ipykernel install --user --name mira-env
 
 To use the environment in a jupyter notebook, start the notebook server, then go to Kernel > Change kernel > mira-env.

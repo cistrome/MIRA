@@ -1326,7 +1326,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
     @adi.wraps_modelfunc(tmi.fetch_features, tmi.add_topic_comps,
         fill_kwargs=['dataset'])
-    def predict(self, batch_size = 256, bar = True, box_cox = 0.5, *, dataset):
+    def predict(self, batch_size = 256, bar = True, box_cox = 0.25, *, dataset):
         '''
         Predict the topic compositions of cells in the data. Adds the 
         topic compositions to the `.obsm` field of the adata object.
