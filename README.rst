@@ -43,7 +43,7 @@ into your data. MIRA includes methods for:
 CODAL
 -----
 
-[CODAL](https://rdcu.be/dgCQF) is our new algorithm for batch effect correction. All MIRA topic models use the new CODAL algorithm for inference.
+`CODAL <https://rdcu.be/dgCQF\>`_ is our new algorithm for batch effect correction. All MIRA topic models use the new CODAL algorithm for inference.
 
 Documentation
 -------------
