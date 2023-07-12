@@ -11,6 +11,7 @@ from mira.topic_model.base import BaseModel, logger
 from mira.topic_model.base import TopicModel as mira_topic_model
 import numpy as np
 from torch import load, device
+from torch.cuda import is_available as gpu_available
 
 
 def TopicModel(*args, **kwargs):
@@ -74,7 +75,6 @@ def make_model(
     continuous_covariates = None,
     covariates_keys = None,
     extra_features_keys = None,
-    latent_space = 'dirichlet',
     **model_parameters,
 ):
     '''
@@ -123,11 +123,6 @@ def make_model(
         percent reads mitochrondria (RNA-seq), or other QC metrics.
     extra_features_keys : str, list[str], np.ndarray[str], or None
         Columns in anndata.obs which contain extra features for the encoder neural network.
-    latent_space : "dirichlet" or "dirichlet-process"
-        Which prior to use for the topic model latent space. "dirichlet" assumes the same
-        latent space as the LDA algorithm. The dimensionality of the latent space must be 
-        tuned. The "dirichlet_process" latent space automatically infers the number of topics
-        during training, but requires large datasets to work well (>40000 cells).
     
     Other Parameters
     ----------------
@@ -207,9 +202,13 @@ def make_model(
 
     embedding_dropout : float>0, default=0.05
         Bernoulli corruption of bag of peaks input to DAN encoder.
-    skipconnection_atac_encoder : boolean, default=True
-        Whether to add a skip connection to the ATAC-seq encoder model. This improves performance
-        in CODAL models.    
+    atac_encoder : str in {"fast","skipDAN","DAN"}, default="skipDAN"
+        Which type of ATAC encoder to use. The best results are given by "skipDAN", which is the default.
+        However, this model is pretty much impossible to train on CPU. If instantiated without GPU,
+        will throw an error and suggest the "fast" encoder.
+
+        The "fast" encoder skips the large embedding layer of the DAN models and calculates a first-pass
+        LSI projection of the data.
 
     Returns
     -------
@@ -234,18 +233,7 @@ def make_model(
             ... )
     '''
 
-    assert(latent_space in ['dp', 'dirichlet'])
     assert(feature_type in ['expression','accessibility'])
-
-    if latent_space == 'dp':
-        if n_samples < 40000:
-            logger.warn(
-                'The dirichlet process model is intended for atlas-level experiments.\n'
-                'For smaller datasets, please use the "dirichlet" latent space, and use the tuner '
-                'to find the optimal number of topics.'
-            )
-            
-        latent_space = 'dirichlet-process'
 
     basename = 'model'
     if not all([c is None for c in [categorical_covariates, continuous_covariates, covariates_keys]]):
@@ -256,20 +244,13 @@ def make_model(
 
     if feature_type == 'expression':
         feature_model = ExpressionModel
+        generative_model = ExpressionDirichletModel
     elif feature_type == 'accessibility':
         feature_model = AccessibilityModel
-
-    generative_map = {
-        ('expression','dirichlet') : ExpressionDirichletModel,
-        ('expression','dirichlet-process') : ExpressionDirichletProcessModel,
-        ('accessibility', 'dirichlet') : AccessibilityDirichletModel,
-        ('accessibility', 'dirichlet-process') : AccessibilityDirichletProcessModel,
-    }
-
-    generative_model = generative_map[(feature_type, latent_space)]
+        generative_model = AccessibilityDirichletModel
 
     _class = type(
-        '_'.join([latent_space, feature_type, basename]),
+        '_'.join(['dirichlet', feature_type, basename]),
         (generative_model, feature_model, baseclass, mira_topic_model),
         {}
     )
@@ -298,6 +279,13 @@ def make_model(
     
     parameter_recommendations.update(model_parameters)
     instance.set_params(**parameter_recommendations)
+
+    if feature_type == 'accessibility' and \
+        not gpu_available() and not instance.atac_encoder == 'light':
+        
+        logger.error('If a GPU is unavailable, one cannot use the "skipDAN" or "DAN" encoders for the ATAC model since training will be impossibly slow.'
+                     'Use a GPU, or switch the "atac_encoder" option to "light", which does not require a GPU.'
+                    )
 
     return instance
 
@@ -329,8 +317,16 @@ def load_model(filename):
             data['cls_name'], data['cls_bases'], {}
         )
 
-        if not 'skipconnection_atac_encoder' in data['params']:
-            data['params']['skipconnection_atac_encoder'] = False # for backwards compat with old ATAC model encoder
+        if not 'atac_encoder' in data['params']: # if model was saved before this option was added
+
+            if 'skipconnection_atac_encoder' in data['params']:
+                is_skipencoder = data['params']['skipconnection_atac_encoder']
+                data['params']['atac_encoder'] = 'skipDAN' if is_skipencoder else 'DAN'
+
+                del data['params']['skipconnection_atac_encoder']
+
+            else: # if really old and doesn't have skipconnection flag
+                data['params']['atac_encoder'] = 'DAN'
 
     else:
 
@@ -348,7 +344,7 @@ def load_model(filename):
                 (AccessibilityDirichletModel, AccessibilityModel, BaseModel, mira_topic_model),
                 {}
             )
-            data['params']['skipconnection_atac_encoder'] = False
+            data['params']['atac_encoder'] = 'DAN'
         
         data['fit_params']['num_extra_features'] = 0
         data['fit_params']['num_covariates'] = 0

@@ -330,7 +330,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
             max_momentum = 0.95,
             embedding_dropout = 0.05,
             reconstruction_weight = 1.,
-            skipconnection_atac_encoder = True,
+            atac_encoder = 'skipDAN',
             ):
         '''
         
@@ -393,7 +393,8 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         self.max_momentum = max_momentum
         self.embedding_dropout = embedding_dropout
         self.cost_beta = cost_beta
-        self.skipconnection_atac_encoder = skipconnection_atac_encoder
+        self.atac_encoder = atac_encoder
+        
 
     def _spawn_submodel(self, generative_model):
 
