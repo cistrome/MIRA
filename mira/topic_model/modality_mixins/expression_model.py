@@ -2,6 +2,7 @@
 import torch
 import torch.nn.functional as F
 from mira.topic_model.base import get_fc_stack
+from mira.__init__ import __version__ as mira_version
 import numpy as np
 import warnings
 from scipy.sparse import isspmatrix
@@ -59,7 +60,8 @@ class ExpressionEncoder(torch.nn.Module):
         theta = np.random.randn(*theta_loc.shape, n_samples)*theta_scale[:,:,None] + theta_loc[:,:,None]
         theta = np.exp(theta)/np.exp(theta).sum(-2, keepdims = True)
         
-        return theta
+        return theta.mean(-1)
+    
 
     def topic_comps(self, X, read_depth, covariates, extra_features):
 
@@ -116,7 +118,11 @@ class ExpressionModel:
             )
 
         #rescale
-        r_ij = r_ij/np.sqrt(n_bar)
+        mean_read_depth_adjust = 1 if (mira_version == '2.0.2' or n_bar == 1) else 1000 
+                        # residual deviance does not regress out the effects of read depth, 
+                        # but we should normalize for high read-depth datasets to prevent numerical overflow
+
+        r_ij = r_ij*np.sqrt(mean_read_depth_adjust/n_bar)
 
         return np.clip(np.nan_to_num(r_ij), -10, 10)
 

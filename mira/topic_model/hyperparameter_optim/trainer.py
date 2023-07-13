@@ -21,7 +21,7 @@ warnings.filterwarnings("ignore", category=ExperimentalWarning, module="optuna")
 from mira.adata_interface.topic_model import logger as interfacelogger
 from mira.adata_interface.core import logger as corelogger
 from mira.topic_model.base import logger as baselogger
-
+from mira.topic_model.model_factory import load_model
 import time
 
 from torch.utils.tensorboard import SummaryWriter
@@ -890,7 +890,7 @@ class BayesianTuner:
 
             for trial in self.study.trials:
                 if trial.number == trial_num:
-                    return self.model.load(trial.user_attrs['path'])
+                    return load_model(trial.user_attrs['path'])
             else:
                 raise ValueError('Trial {} does not exist.'.format(trial_num))
             

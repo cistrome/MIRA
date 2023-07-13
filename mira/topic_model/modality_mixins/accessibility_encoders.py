@@ -24,7 +24,7 @@ class EncoderBase(nn.Module):
         theta = np.random.randn(*theta_loc.shape, n_samples)*theta_scale[:,:,None] + theta_loc[:,:,None]
         theta = np.exp(theta)/np.exp(theta).sum(-2, keepdims = True)
         
-        return theta
+        return theta.mean(-1)
 
 
 class DANEncoder(EncoderBase):

@@ -1180,6 +1180,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         step_count = 0
         t = trange(self.num_epochs, desc = 'Training model', leave = True) if training_bar else range(self.num_epochs)
         _t = iter(t)
+        next(_t)
         epoch = 0
 
         while True:
@@ -1321,7 +1322,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def _predict_topic_comps_direct_return(self, batch_size = 256, bar = True,*, dataset):
 
         return self._run_encoder_fn(self.encoder.sample_posterior, 
-                dataset, batch_size = batch_size, bar = bar).mean(-1)
+                dataset, batch_size = batch_size, bar = bar) #.mean(-1)
     
     
 
@@ -1371,7 +1372,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
         '''
 
         topic_expectations = self._run_encoder_fn(self.encoder.sample_posterior, 
-                                    dataset, batch_size = batch_size, bar = bar).mean(-1)
+                                    dataset, batch_size = batch_size, bar = bar) #.mean(-1)
 
         basis = ilr.gram_schmidt_basis(topic_expectations.shape[-1])
         ilr_transformed = ilr.centered_boxcox_transform(topic_expectations, a = box_cox).dot(basis)

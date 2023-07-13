@@ -50,7 +50,7 @@ class DP_EncoderMixin:
 
         theta = torch.transpose(theta, -2, -1)
         
-        return theta.detach().cpu().numpy()
+        return theta.detach().cpu().numpy().mean(-1)
 
 
 class DPModel:

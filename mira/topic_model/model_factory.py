@@ -318,7 +318,7 @@ def load_model(filename):
         )
 
         if not 'atac_encoder' in data['params']: # if model was saved before this option was added
-
+            
             if 'skipconnection_atac_encoder' in data['params']:
                 is_skipencoder = data['params']['skipconnection_atac_encoder']
                 data['params']['atac_encoder'] = 'skipDAN' if is_skipencoder else 'DAN'
