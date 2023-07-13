@@ -118,11 +118,10 @@ class ExpressionModel:
             )
 
         #rescale
-        mean_read_depth_adjust = 1 if (mira_version == '2.0.2' or n_bar == 1) else 1000 
+        mean_read_depth_adjust = 1 if n_bar == 1 else np.sqrt(1000/n_bar)
                         # residual deviance does not regress out the effects of read depth, 
                         # but we should normalize for high read-depth datasets to prevent numerical overflow
-
-        r_ij = r_ij*np.sqrt(mean_read_depth_adjust/n_bar)
+        r_ij = r_ij*mean_read_depth_adjust
 
         return np.clip(np.nan_to_num(r_ij), -10, 10)
 

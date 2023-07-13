@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 from mira.topic_model.hyperparameter_optim.trainer import DisableLogger, baselogger, \
         corelogger, interfacelogger
-
+from numpy.random import randint
 
 def gradient_tune(model, data, max_attempts = 5, max_topics = None):
     '''
@@ -61,10 +61,16 @@ def gradient_tune(model, data, max_attempts = 5, max_topics = None):
             except ModelParamError:
 
                 logger.warn(
-                    'Model experienced gradient overflow during training, which happens sometimes with the gradient-based tuner. Reducing the learning rate slightly, then trying again...'
+                    'Model experienced gradient overflow during training, which happens sometimes with the gradient-based tuner. Changing the stochastic seed, then trying again...'
                 )
 
-                _dp_model.max_learning_rate *= 0.8
+                _dp_model.seed = int(randint(10000))
+
+                # increase regularization from defaults
+                _dp_model.encoder_dropout = 0.05
+                _dp_model.decoder_dropout = 0.10
+                _dp_model.embedding_dropout = 0.1
+
         else:
             raise ValueError(
                 'Could not train the Gradient-based tuner.\n'
