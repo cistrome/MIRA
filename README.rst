@@ -72,13 +72,19 @@ MIRA from `PyPI <https://pypi.org/project/mira-multiome>`_:
 
     pip install mira-multiome
 
+or from bioconda:
+
+.. code-block:: bash
+
+    conda install -c bioconda mira-multiome
+
 Installation will take about a minute. To set up an a new analysis, we recommend starting with a fresh environment:
 
 .. code-block:: bash
 
     conda create --name mira-env -c conda-forge -c pytorch -c bioconda scanpy jupyter leidenalg
     conda activate mira-env
-    pip install mira-multiome
+    conda install -c bioconda mira-multiome
     python -m ipykernel install --user --name mira-env
 
 To use the environment in a jupyter notebook, start the notebook server, then go to Kernel > Change kernel > mira-env.
