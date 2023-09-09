@@ -1,22 +1,15 @@
-name: mira
 channels:
   - conda-forge
   - bioconda
-  - liulab-dfci
-  - pytorch
 dependencies:
-  - pytorch>=1.8.0,<2
+  - pytorch>=1.8.0,<3
   - tqdm
-  - moods>=1.9.4.1
+  - mira-moods>=1.9.4.1
   - pyfaidx>=0.5,<1
   - matplotlib>=3.4,<4
-  - lisa2>=2.2.5,<2.3
+  - lisa2>=2.3
   - requests>=2,<3
   - pyro-ppl>=1.5.2,<2
   - networkx>=2.3,<3
   - optuna>=2.8,<3
   - anndata>=0.7.6,<1
-  - pygenometracks>=1
-  - scanpy
-  - jupyter
-  - leidenalg
