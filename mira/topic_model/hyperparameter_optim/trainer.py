@@ -5,7 +5,7 @@ from functools import partial
 import os
 import optuna
 from optuna.trial import TrialState as ts
-from optuna.study._optimize import _run_trial
+from optuna.study._optimize import _run_trial as optunastudy_run_trial
 optuna.logging.set_verbosity(optuna.logging.CRITICAL)
 import gc
 import os
@@ -197,31 +197,26 @@ def _get_trial_desc(study, trial):
 
     best_so_far = all(
         get_score(other_trial) > get_score(trial)
-        for other_trial in study.trials[:trial.number]
+        for other_trial in study.trials[:trial.number] if other_trial.state == ts.COMPLETE
     )
 
-    if best_so_far:
-        was_best = '\u25CF'
-    else:
-        was_best = ' '
-
     if trial.state == ts.COMPLETE:
-        return ' #{:<3} | {} | completed, score: {:.4e} | {}'\
-            .format(str(trial.number), was_best, get_score(trial), _format_params(trial.params))
+
+        trial_info = (str(trial.number), get_score(trial), _format_params(trial.params))
+        if best_so_far:
+            return ' #{:<3} | \u25CF | completed, score: {:.4e} | {}'.format(*trial_info)
+        else:
+            return ' #{:<3} |   | completed, score: {:.4e} | {}'.format(*trial_info) # different behavior for python 3.11 w.r.t. unicode string injection 
+                                                                                     # with `format`. To print, needed to explicitly write unicode character
+                                                                                     # in string.
     elif trial.state == ts.PRUNED:
-        return ' #{:<3} | {} | pruned at step: {:<12} | {}'\
-            .format(str(trial.number), ' ', str(_get_batches_trained(trial)), _format_params(trial.params))
+        return ' #{:<3} |   | pruned at step: {:<12} | {}'\
+            .format(str(trial.number), str(_get_batches_trained(trial)), _format_params(trial.params))
     elif trial.state == ts.FAIL:
-        return ' #{:<3} | {} | ERROR                        | {}'\
-            .format(str(trial.number), ' ', str(trial.params))
+        return ' #{:<3} |   | ERROR                        | {}'\
+            .format(str(trial.number), str(trial.params))
 
 
-def _log_progress(tuner, study, trial):
-    
-    logger.info(_get_trial_desc(study, trial))
-
-    if trial.number in [t.number for t in study.best_trials]:
-        logger.info('New best!')
 
 def _clear_page():
 
@@ -540,6 +535,20 @@ class BayesianTuner:
     @property
     def parallel(self):
         return self.n_jobs > 1
+    
+    @property
+    def basemodel_path(self):
+        return os.path.join(self.model_dir, self.study_name, 'base.pth')
+        
+    @staticmethod
+    def suggest_parameters(trial, min_topics = 5, max_topics = 55): 
+
+        return dict(        
+            num_topics = trial.suggest_int('num_topics', min_topics, max_topics, log=False),
+            decoder_dropout = \
+                    trial.suggest_float('decoder_dropout', 0.05, 0.065, log = True)
+        )
+
 
     def fit(self, train, test = None):
         '''
@@ -599,6 +608,14 @@ class BayesianTuner:
             load_if_exists= True,
         )
 
+        # make model save directory
+        model_save_dir = os.path.dirname(self.basemodel_path)
+        if not os.path.isdir(model_save_dir):
+            os.makedirs(model_save_dir)
+
+        # save the base model to this directory for loading by trials
+        self.model.save(self.basemodel_path)
+
         if test is None:
             logger.warn('No test set provided, splitting data into training and test sets (80/20).')
 
@@ -623,11 +640,21 @@ class BayesianTuner:
         try:
             lock = Locker(self.study_name)
 
-            tune_func = partial(
-                    self._tune_step,
+            trial_parameters = dict(
+                    study = self.study,
                     train = train, 
                     test = test,
                     lock = lock,
+                    basemodel_path = self.basemodel_path,
+                    is_parallel = self.parallel,
+                    seed = self.seed,
+                    tensorboard_logdir = self.tensorboard_logdir,
+                    log_steps = self.log_steps,
+                    model_dir = model_save_dir,
+                    suggest_parameters_func = \
+                        partial(self.suggest_parameters, 
+                                min_topics = self.min_topics, 
+                                max_topics = self.max_topics)
             )
 
             remaining_trials = self.iters - self.n_completed_trials
@@ -650,7 +677,7 @@ class BayesianTuner:
                     logger.info('Launched tuning trials. Wait for dashboard.')
                     with joblib_print_callback(self):
                         Parallel(n_jobs= self.n_jobs, verbose = 0)\
-                            (delayed(tune_func)() for i in delay_range(remaining_trials))
+                            (delayed(self._tune_step)(trial_parameters) for i in delay_range(remaining_trials))
 
                 except (KeyboardInterrupt, FailureToImproveException):
                     pass
@@ -721,54 +748,50 @@ class BayesianTuner:
             cl_function = np.mean
         )
 
-
-    def get_model_save_name(self, trial_number):
-
-        return os.path.abspath(
-            os.path.join(
-                self.model_dir, self.study_name, '{}.pth'.format(str(trial_number))
-            ))
-
-
-    def save_model(self, model, savename):
-
-        savedir = os.path.dirname(savename)
-
-        if not os.path.isdir(savedir):
-            os.makedirs(savedir)
-
-        model.save(savename)
-
-
+    
+    @staticmethod
     def run_trial(
-            self, trial,*,
+            trial,*,
+            study,
             train, 
             test,
             lock,
+            basemodel_path,
+            is_parallel,
+            seed,
+            tensorboard_logdir,
+            log_steps,
+            model_dir,
+            suggest_parameters_func,
         ):
         
         must_prune = False
-        self.study.sampler.reseed_rng()
+        study.sampler.reseed_rng()
+        model = load_model(basemodel_path)
 
         with lock:
-            params = self.model.suggest_parameters(self, trial)
+            params = suggest_parameters_func(trial)
 
-        self.model.set_params(**params, seed = self.seed + trial.number)
+        model.set_params(**params, seed = seed + trial.number)
 
         with SummaryWriter(
-                log_dir=os.path.join(self.tensorboard_logdir, self.study_name, str(trial.number))
+                log_dir=os.path.join(tensorboard_logdir, 
+                                     study.study_name, 
+                                     str(trial.number))
             ) as trial_writer:
 
-            if not self.parallel:
-                print('Evaluating: ' + _format_params(params))
+            if not is_parallel:
+                print('\nEvaluating: ' + _format_params(params))
 
             epoch_test_scores = []
-            for epoch, train_loss, anneal_factor in self.model._internal_fit(train, 
-                    writer = trial_writer if self.log_steps else None,
-                    log_every = self.log_every):
+            for epoch, _, anneal_factor in model._internal_fit(
+                    train, 
+                    writer = trial_writer if log_steps else None,
+                    log_every = log_steps
+                ):
                 
                 try:
-                    distortion, rate, metrics = self.model.distortion_rate_loss(test, bar = False, 
+                    distortion, rate, metrics = model.distortion_rate_loss(test, bar = False, 
                                                         _beta_weight = anneal_factor)
                 except ValueError: # if evaluation fails for some reason
                     pass # just keep going unless training fails in outer loop
@@ -779,8 +802,8 @@ class BayesianTuner:
                 else:
                     trial_score = distortion + rate
 
-                    if not self.parallel:
-                        num_hashtags = int(25 * epoch/self.model.num_epochs)
+                    if not is_parallel:
+                        num_hashtags = int(25 * epoch/model.num_epochs)
                         print('\rProgress: ' + '|' + '\u25A0'*num_hashtags + ' '*(25-num_hashtags) + '|', end = '')
 
                     trial_writer.add_scalar('holdout_distortion', distortion, epoch)
@@ -794,9 +817,9 @@ class BayesianTuner:
                     if np.isfinite(trial_score):
 
                         epoch_test_scores.append(trial_score)
-                        trial.report(min(epoch_test_scores[-self.model.num_epochs//6:]), epoch)
+                        trial.report(min(epoch_test_scores[-model.num_epochs//6:]), epoch)
 
-                        if trial.should_prune() and epoch < self.model.num_epochs:
+                        if trial.should_prune() and epoch < model.num_epochs:
                             must_prune = True
                             break
 
@@ -809,7 +832,7 @@ class BayesianTuner:
                     **metrics,
             }
 
-            params['study_name'] = self.study_name
+            params['study_name'] = study.study_name
             trial_writer.add_hparams(params, metrics)
             trial.set_user_attr("distortion", distortion)
             trial.set_user_attr("rate", rate)
@@ -819,23 +842,20 @@ class BayesianTuner:
         if must_prune:
             raise optuna.TrialPruned()
         else:
-            # save weights if best value so far
-            #try:
-            #    best_value = self.study.best_value
-            #except ValueError:
-            #    best_value = np.inf
 
-            #if trial_score <= best_value:
-            path = self.get_model_save_name(trial.number)
-            trial.set_user_attr("path", path)
-            self.save_model(self.model, path)
+            save_path = os.path.abspath(
+                os.path.join(
+                    model_dir, '{}.pth'.format(str(trial.number))
+                )
+            )
+
+            trial.set_user_attr("path", save_path)
+            model.save(save_path)
 
         return trial_score
 
 
-    def _tune_step(self,*,
-            train, test,
-            lock,
+    def _tune_step(self,run_kw,
         ):
 
         with DisableLogger(baselogger), DisableLogger(interfacelogger), DisableLogger(corelogger):
@@ -844,14 +864,11 @@ class BayesianTuner:
                 warnings.simplefilter("ignore")
 
                 interior_func = partial(
-                    self.run_trial,
-                    train = train,
-                    test = test,
-                    lock = lock,
+                    self.run_trial, **run_kw,
                 )
 
                 try:
-                    trial = _run_trial(self.study, interior_func, 
+                    trial = optunastudy_run_trial(self.study, interior_func, 
                         (ModelParamError,)
                     )
                 finally:

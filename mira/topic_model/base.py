@@ -545,15 +545,6 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
         return int( np.min([round((200000 / n_samples) * 24), 24]) )
     
-    def suggest_parameters(self, tuner, trial): 
-
-        return dict(        
-            num_topics = trial.suggest_int('num_topics', tuner.min_topics, 
-                tuner.max_topics, log=False),
-            decoder_dropout = \
-                    trial.suggest_float('decoder_dropout', self._min_dropout, 0.065, log = True)
-        )
-
 
     def recommend_parameters(self, n_samples, n_features, finetune = False):
 
