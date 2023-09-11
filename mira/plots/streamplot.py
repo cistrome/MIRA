@@ -227,7 +227,7 @@ def _plot_heatmap_segment(is_leaf = True, centerline = 0, window_size = 101, is_
         X[_bin] = ascending_time[bin_mask].min()
         X[_bin + 1] = ascending_time[bin_mask].max()
 
-    C = minmax_scale(C, axis = -1)
+    C = minmax_scale(C, axis = 1)
 
     ax.pcolormesh(
         X, Y, np.flip(C, 0), cmap = palette, edgecolors = linecolor
