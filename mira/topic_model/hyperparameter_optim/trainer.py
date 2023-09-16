@@ -673,11 +673,25 @@ class BayesianTuner:
             if remaining_trials > 0:
 
                 try:
-                    
                     logger.info('Launched tuning trials. Wait for dashboard.')
-                    with joblib_print_callback(self):
-                        Parallel(n_jobs= self.n_jobs, verbose = 0)\
-                            (delayed(self._tune_step)(trial_parameters) for i in delay_range(remaining_trials))
+
+                    if self.n_jobs > 1:
+                        with joblib_print_callback(self):
+                            Parallel(n_jobs= self.n_jobs, verbose = 0)\
+                                (delayed(self._tune_step)(trial_parameters) for i in delay_range(remaining_trials))
+                            
+                    else: # manually print if only using one job.
+                        for i in delay_range(remaining_trials):
+                            
+                            self._tune_step(trial_parameters)
+                            
+                            try:
+                                s = str(self)
+                            except (ConnectionError, OSError):
+                                _clear_page()
+                            else:
+                                _clear_page()
+                                print(s)
 
                 except (KeyboardInterrupt, FailureToImproveException):
                     pass

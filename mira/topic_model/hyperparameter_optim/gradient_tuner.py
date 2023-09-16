@@ -8,7 +8,7 @@ from mira.topic_model.hyperparameter_optim.trainer import DisableLogger, baselog
         corelogger, interfacelogger
 from numpy.random import randint
 
-def gradient_tune(model, data, max_attempts = 5, max_topics = None):
+def gradient_tune(model, data, max_attempts = 3, max_topics = None):
     '''
     Tune number of topcis using a gradient-based estimator based on the Dirichlet Process model. 
     This tuner is very fast, though less comprehensive than the BayesianTuner. We recommend using this 
@@ -76,8 +76,9 @@ def gradient_tune(model, data, max_attempts = 5, max_topics = None):
                 'Could not train the Gradient-based tuner.\n'
                 '\u2022 This can happen if the maximum learning rate was initially set wayyyyy too high. Please ensure you have run the learning rate range test and set reasonable learning rate boundaries.\n'
                 '\u2022 This could also happen because there are outliers in the dataset in terms of the number of reads in a cell. Make sure to remove outlier cells from the dataset, especially those with too many counts.\n'
-                '\u2022 For accessibility (ATAC-seq) models, this can occur when modeling too many features (>150K). Removing extremenly rarely-accessible peaks to reduce the feature space will help.\n'
+                '\u2022 For accessibility (ATAC-seq) models, this can occur when modeling too many features (>150K). Removing extremenly rarely-accessible peaks to reduce the feature space will help.\n\n'
                 'If none of the above work, the standard Bayesian Tuning approach is not affected by numberical stability issues like the gradient-based estimator, so try that next.'
+                'The issues affecting numerical stability of the Dirichlet Process model are being investigated.'
             )
 
         topic_max_contributions = _dp_model._predict_topic_comps_direct_return(data).max(0)
