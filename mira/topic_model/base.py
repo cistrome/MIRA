@@ -635,7 +635,7 @@ class BaseModel(torch.nn.Module, BaseEstimator):
     def _get_dataset_statistics(self, dataset, training_bar = True):
 
         self.categorical_transformer = OneHotEncoder(
-            sparse = False, 
+            sparse_output = False, 
             dtype = np.float32
         )
         self.continuous_transformer = StandardScaler()
