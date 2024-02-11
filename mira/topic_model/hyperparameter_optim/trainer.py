@@ -654,7 +654,8 @@ class BayesianTuner:
                     suggest_parameters_func = \
                         partial(self.suggest_parameters, 
                                 min_topics = self.min_topics, 
-                                max_topics = self.max_topics)
+                                max_topics = self.max_topics
+                            )
             )
 
             remaining_trials = self.iters - self.n_completed_trials
@@ -869,8 +870,7 @@ class BayesianTuner:
         return trial_score
 
 
-    def _tune_step(self,run_kw,
-        ):
+    def _tune_step(self, run_kw):
 
         with DisableLogger(baselogger), DisableLogger(interfacelogger), DisableLogger(corelogger):
 

@@ -491,12 +491,16 @@ class BaseModel(torch.nn.Module, BaseEstimator):
 
             stratify = list(map(tuple,  list(zip(*covariates_bins)) ))
 
-        return train_test_split(adata, 
-            train_size = train_size, 
-            random_state = seed, 
-            shuffle = True, 
-            stratify = stratify
-        )
+        train_idx, test_idx = train_test_split(
+                                np.arange(len(adata)), 
+                                train_size = train_size, 
+                                random_state = seed, 
+                                shuffle = True, 
+                                stratify = stratify
+                            )
+        
+        return adata[train_idx], adata[test_idx]
+    
 
     def _recommend_batchsize(self, n_samples):
         if n_samples >= 5000 and n_samples <= 20000:
