@@ -119,6 +119,7 @@ class Locker:
         fcntl.flock(self.fp.fileno(), fcntl.LOCK_UN)
         self.fp.close()
 
+
 class DisableLogger:
     def __init__(self, logger):
         self.logger = logger
@@ -336,6 +337,146 @@ def joblib_print_callback(tuner):
         joblib.parallel.BatchCompletionCallBack = old_batch_callback
 
 
+
+def suggest_parameters(trial, min_topics = 5, max_topics = 55): 
+
+    return dict(        
+        num_topics = trial.suggest_int('num_topics', min_topics, max_topics, log=False),
+        decoder_dropout = \
+                trial.suggest_float('decoder_dropout', 0.05, 0.065, log = True)
+    )
+
+
+def run_trial(
+        trial,*,
+        study,
+        train, 
+        test,
+        lock,
+        basemodel_path,
+        is_parallel,
+        seed,
+        tensorboard_logdir,
+        log_steps,
+        model_dir,
+        min_topics,
+        max_topics,
+    ):
+    
+    must_prune = False
+    study.sampler.reseed_rng()
+    model = load_model(basemodel_path)
+
+    with lock:
+        params = suggest_parameters(trial, min_topics = min_topics, max_topics = max_topics)
+
+    model.set_params(**params, seed = seed + trial.number)
+
+    with SummaryWriter(
+            log_dir=os.path.join(tensorboard_logdir, 
+                                    study.study_name, 
+                                    str(trial.number))
+        ) as trial_writer:
+
+        if not is_parallel:
+            print('\nEvaluating: ' + _format_params(params))
+
+        epoch_test_scores = []
+        for epoch, _, anneal_factor in model._internal_fit(
+                train, 
+                writer = trial_writer if log_steps else None,
+                log_every = log_steps
+            ):
+            
+            try:
+                distortion, rate, metrics = model.distortion_rate_loss(test, bar = False, 
+                                                    _beta_weight = anneal_factor)
+            except ValueError: # if evaluation fails for some reason
+                pass # just keep going unless training fails in outer loop
+                        # this is implemented because sometimes early in training the
+                        # estimation of test-set topics is unstable and can cause errors.
+                        # In this case, it is better to just keep going with training,
+                        # which will usually stabilize the model
+            else:
+                trial_score = distortion + rate
+
+                if not is_parallel:
+                    num_hashtags = int(25 * epoch/model.num_epochs)
+                    print('\rProgress: ' + '|' + '\u25A0'*num_hashtags + ' '*(25-num_hashtags) + '|', end = '')
+
+                trial_writer.add_scalar('holdout_distortion', distortion, epoch)
+                trial_writer.add_scalar('holdout_rate', rate, epoch)
+                trial_writer.add_scalar('holdout_loss', trial_score, epoch)
+                trial_writer.add_scalar('holdout_KL_weight', anneal_factor, epoch)
+
+                for metric_name, value in metrics.items():
+                    trial_writer.add_scalar('holdout_' + metric_name, value, epoch)
+                
+                if np.isfinite(trial_score):
+
+                    epoch_test_scores.append(trial_score)
+                    trial.report(min(epoch_test_scores[-model.num_epochs//6:]), epoch)
+
+                    if trial.should_prune() and epoch < model.num_epochs:
+                        must_prune = True
+                        break
+
+        metrics = {
+                'number' : trial.number,
+                'epochs_trained' : epoch,
+                'distortion' : distortion,
+                'rate' : rate,
+                'trial_score' : trial_score,
+                **metrics,
+        }
+
+        params['study_name'] = study.study_name
+        trial_writer.add_hparams(params, metrics)
+        trial.set_user_attr("distortion", distortion)
+        trial.set_user_attr("rate", rate)
+        trial.set_user_attr("epochs_trained", epoch)
+        
+
+    if must_prune:
+        raise optuna.TrialPruned()
+    else:
+
+        save_path = os.path.abspath(
+            os.path.join(
+                model_dir, '{}.pth'.format(str(trial.number))
+            )
+        )
+
+        trial.set_user_attr("path", save_path)
+        model.save(save_path)
+
+    return trial_score
+
+
+
+def _tune_step(run_kw,*,study, callback_fn):
+
+    with DisableLogger(baselogger), DisableLogger(interfacelogger), DisableLogger(corelogger):
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            interior_func = partial(run_trial, **run_kw)
+
+            try:
+                trial = optunastudy_run_trial(study, interior_func, 
+                    (ModelParamError,)
+                )
+            finally:
+                gc.collect()
+
+            #self.get_stop_callback()(self.study, trial)
+            callback_fn(study, trial)
+
+    return trial
+
+
+
 class BayesianTuner:
 
     @classmethod
@@ -538,16 +679,7 @@ class BayesianTuner:
     
     @property
     def basemodel_path(self):
-        return os.path.join(self.model_dir, self.study_name, 'base.pth')
-        
-    @staticmethod
-    def suggest_parameters(trial, min_topics = 5, max_topics = 55): 
-
-        return dict(        
-            num_topics = trial.suggest_int('num_topics', min_topics, max_topics, log=False),
-            decoder_dropout = \
-                    trial.suggest_float('decoder_dropout', 0.05, 0.065, log = True)
-        )
+        return os.path.join(self.model_dir, self.study_name, 'base.pth')   
 
 
     def fit(self, train, test = None):
@@ -651,11 +783,8 @@ class BayesianTuner:
                     tensorboard_logdir = self.tensorboard_logdir,
                     log_steps = self.log_steps,
                     model_dir = model_save_dir,
-                    suggest_parameters_func = \
-                        partial(self.suggest_parameters, 
-                                min_topics = self.min_topics, 
-                                max_topics = self.max_topics
-                            )
+                    min_topics = self.min_topics, 
+                    max_topics = self.max_topics
             )
 
             remaining_trials = self.iters - self.n_completed_trials
@@ -679,7 +808,9 @@ class BayesianTuner:
                     if self.n_jobs > 1:
                         with joblib_print_callback(self):
                             Parallel(n_jobs= self.n_jobs, verbose = 0)\
-                                (delayed(self._tune_step)(trial_parameters) for i in delay_range(remaining_trials))
+                                (delayed(_tune_step)(trial_parameters, study=self.study, callback_fn=self.get_stop_callback()) 
+                                for _ in delay_range(remaining_trials)
+                                )
                             
                     else: # manually print if only using one job.
                         for i in delay_range(remaining_trials):
@@ -761,137 +892,8 @@ class BayesianTuner:
             min_points = startup_trials,
             num_candidates = 300,
             cl_function = np.mean
-        )
-
-    
-    @staticmethod
-    def run_trial(
-            trial,*,
-            study,
-            train, 
-            test,
-            lock,
-            basemodel_path,
-            is_parallel,
-            seed,
-            tensorboard_logdir,
-            log_steps,
-            model_dir,
-            suggest_parameters_func,
-        ):
-        
-        must_prune = False
-        study.sampler.reseed_rng()
-        model = load_model(basemodel_path)
-
-        with lock:
-            params = suggest_parameters_func(trial)
-
-        model.set_params(**params, seed = seed + trial.number)
-
-        with SummaryWriter(
-                log_dir=os.path.join(tensorboard_logdir, 
-                                     study.study_name, 
-                                     str(trial.number))
-            ) as trial_writer:
-
-            if not is_parallel:
-                print('\nEvaluating: ' + _format_params(params))
-
-            epoch_test_scores = []
-            for epoch, _, anneal_factor in model._internal_fit(
-                    train, 
-                    writer = trial_writer if log_steps else None,
-                    log_every = log_steps
-                ):
-                
-                try:
-                    distortion, rate, metrics = model.distortion_rate_loss(test, bar = False, 
-                                                        _beta_weight = anneal_factor)
-                except ValueError: # if evaluation fails for some reason
-                    pass # just keep going unless training fails in outer loop
-                         # this is implemented because sometimes early in training the
-                         # estimation of test-set topics is unstable and can cause errors.
-                         # In this case, it is better to just keep going with training,
-                         # which will usually stabilize the model
-                else:
-                    trial_score = distortion + rate
-
-                    if not is_parallel:
-                        num_hashtags = int(25 * epoch/model.num_epochs)
-                        print('\rProgress: ' + '|' + '\u25A0'*num_hashtags + ' '*(25-num_hashtags) + '|', end = '')
-
-                    trial_writer.add_scalar('holdout_distortion', distortion, epoch)
-                    trial_writer.add_scalar('holdout_rate', rate, epoch)
-                    trial_writer.add_scalar('holdout_loss', trial_score, epoch)
-                    trial_writer.add_scalar('holdout_KL_weight', anneal_factor, epoch)
-
-                    for metric_name, value in metrics.items():
-                        trial_writer.add_scalar('holdout_' + metric_name, value, epoch)
-                    
-                    if np.isfinite(trial_score):
-
-                        epoch_test_scores.append(trial_score)
-                        trial.report(min(epoch_test_scores[-model.num_epochs//6:]), epoch)
-
-                        if trial.should_prune() and epoch < model.num_epochs:
-                            must_prune = True
-                            break
-
-            metrics = {
-                    'number' : trial.number,
-                    'epochs_trained' : epoch,
-                    'distortion' : distortion,
-                    'rate' : rate,
-                    'trial_score' : trial_score,
-                    **metrics,
-            }
-
-            params['study_name'] = study.study_name
-            trial_writer.add_hparams(params, metrics)
-            trial.set_user_attr("distortion", distortion)
-            trial.set_user_attr("rate", rate)
-            trial.set_user_attr("epochs_trained", epoch)
-            
-
-        if must_prune:
-            raise optuna.TrialPruned()
-        else:
-
-            save_path = os.path.abspath(
-                os.path.join(
-                    model_dir, '{}.pth'.format(str(trial.number))
-                )
-            )
-
-            trial.set_user_attr("path", save_path)
-            model.save(save_path)
-
-        return trial_score
-
-
-    def _tune_step(self, run_kw):
-
-        with DisableLogger(baselogger), DisableLogger(interfacelogger), DisableLogger(corelogger):
-
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-
-                interior_func = partial(
-                    self.run_trial, **run_kw,
-                )
-
-                try:
-                    trial = optunastudy_run_trial(self.study, interior_func, 
-                        (ModelParamError,)
-                    )
-                finally:
-                    gc.collect()
-
-                self.get_stop_callback()(self.study, trial)
-
-        return trial
-
+        )    
+ 
 
     def fetch_weights(self, trial_num):
         '''
