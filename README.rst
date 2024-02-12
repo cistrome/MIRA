@@ -66,17 +66,12 @@ but MIRA's assumptions and models are extensible to other multiome protocols.
 Installation
 ------------
 
-MIRA from `PyPI <https://pypi.org/project/mira-multiome>`_:
+MIRA can be installed from `PyPI <https://pypi.org/project/mira-multiome>`_:
 
 .. code-block:: bash
 
-    pip install mira-multiome
+    pip3 install mira-multiome
 
-or from bioconda:
-
-.. code-block:: bash
-
-    conda install -c bioconda mira-multiome
 
 Installation will take about a minute. To set up an a new analysis, we recommend starting with a fresh environment:
 
@@ -84,7 +79,7 @@ Installation will take about a minute. To set up an a new analysis, we recommend
 
     conda create --name mira-env -c conda-forge -c pytorch -c bioconda scanpy jupyter leidenalg
     conda activate mira-env
-    conda install -c bioconda mira-multiome
+    pip3 install mira-multiome
     python -m ipykernel install --user --name mira-env
 
 To use the environment in a jupyter notebook, start the notebook server, then go to Kernel > Change kernel > mira-env.
